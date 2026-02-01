@@ -284,6 +284,7 @@ CREATE TABLE "Inventario" (
     "Codigo" VARCHAR(50) UNIQUE NOT NULL, -- Ex: INV-001
     "Nome" VARCHAR(255) NOT NULL,
     "Categoria" VARCHAR(100), -- TI, Mobiliário, Veículos...
+    "Quantidade" INTEGER DEFAULT 1,
     "Descricao" TEXT,
     "Departamento" VARCHAR(100), -- RH, TI, Produção...
     "Responsavel" VARCHAR(255), -- Nome do colaborador

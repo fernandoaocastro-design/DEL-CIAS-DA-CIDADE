@@ -42,7 +42,10 @@ const InventarioModule = {
             return `
                 <tr class="border-t hover:bg-gray-50">
                     <td class="p-3 font-mono text-xs font-bold text-purple-700">${b.Codigo}</td>
-                    <td class="p-3 font-bold">${b.Nome} <div class="text-xs text-gray-400 font-normal">${b.Responsavel || 'Sem responsável'}</div></td>
+                    <td class="p-3 font-bold">
+                        ${b.Nome} <span class="ml-1 text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">Qtd: ${b.Quantidade || 1}</span>
+                        <div class="text-xs text-gray-400 font-normal">${b.Responsavel || 'Sem responsável'}</div>
+                    </td>
                     <td class="p-3 text-sm">${b.Categoria}</td>
                     <td class="p-3 text-sm">${b.Departamento}</td>
                     <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs ${statusColor}">${b.EstadoConservacao}</span></td>
@@ -65,9 +68,10 @@ const InventarioModule = {
                 <input type="hidden" name="ID" value="${bem.ID || ''}">
                 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">1. Identificação</h4>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Nome do Bem</label><input name="Nome" value="${bem.Nome || ''}" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Código (Auto se vazio)</label><input name="Codigo" value="${bem.Codigo || ''}" placeholder="Ex: INV-001" class="border p-2 rounded w-full bg-gray-50"></div>
+                <div class="grid grid-cols-12 gap-3 mb-3">
+                    <div class="col-span-6"><label class="text-xs font-bold">Nome do Bem</label><input name="Nome" value="${bem.Nome || ''}" class="border p-2 rounded w-full" required></div>
+                    <div class="col-span-3"><label class="text-xs font-bold">Quantidade</label><input type="number" name="Quantidade" value="${bem.Quantidade || '1'}" class="border p-2 rounded w-full" min="1"></div>
+                    <div class="col-span-3"><label class="text-xs font-bold">Código (Auto)</label><input name="Codigo" value="${bem.Codigo || ''}" placeholder="Ex: INV-001" class="border p-2 rounded w-full bg-gray-50"></div>
                 </div>
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div><label class="text-xs font-bold">Categoria</label><select name="Categoria" class="border p-2 rounded w-full"><option>TI</option><option>Mobiliário</option><option>Veículos</option><option>Produção</option><option>Ferramentas</option></select></div>
@@ -134,6 +138,7 @@ const InventarioModule = {
                     <h3 class="text-xl font-bold text-gray-800">${bem.Nome}</h3>
                     <div class="grid grid-cols-2 gap-2 text-sm">
                         <div><span class="font-bold">Categoria:</span> ${bem.Categoria}</div>
+                        <div><span class="font-bold">Quantidade:</span> ${bem.Quantidade || 1}</div>
                         <div><span class="font-bold">Local:</span> ${bem.Departamento}</div>
                         <div><span class="font-bold">Responsável:</span> ${bem.Responsavel}</div>
                         <div><span class="font-bold">Estado:</span> ${bem.EstadoConservacao}</div>
