@@ -69,7 +69,7 @@ exports.handler = async (event) => {
                 const item = result[0];
                 if (Number(item.Quantidade) <= Number(item.Minimo)) {
                     await supabase.from('Notificacoes').insert({
-                        Mensagem: `⚠️ Estoque Baixo: ${item.Item} atingiu ${item.Quantidade} ${item.Unidade} (Mínimo: ${item.Minimo})`
+                        Mensagem: `⚠️ Estoque Baixo: ${item.Nome} atingiu ${item.Quantidade} ${item.Unidade} (Mínimo: ${item.Minimo})`
                     });
                 }
             }
@@ -213,7 +213,7 @@ exports.handler = async (event) => {
                 supabase.from('Financas').select('*'), // Trazer tudo para calcular no JS (idealmente filtrar por data no SQL)
                 supabase.from('Funcionarios').select('Nome, Nascimento'), // Para filtrar aniversariantes
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
-                supabase.from('Estoque').select('Item, Quantidade, Minimo')
+                supabase.from('Estoque').select('Nome, Quantidade, Minimo')
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)

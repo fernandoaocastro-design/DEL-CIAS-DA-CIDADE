@@ -54,7 +54,7 @@ const DashboardModule = {
         if (mon.estoqueBaixo.length > 0) {
             html += `<div class="p-3 bg-red-50 rounded border-l-4 border-red-500">
                 <div class="font-bold text-red-700">⚠️ Estoque Baixo</div>
-                ${mon.estoqueBaixo.map(e => `<div class="text-sm">${e.Item} (${e.Quantidade})</div>`).join('')}
+                ${mon.estoqueBaixo.map(e => `<div class="text-sm">${e.Nome} (${e.Quantidade})</div>`).join('')}
             </div>`;
         }
 
