@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Kitchen OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-900 flex items-center justify-center h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">Kitchen OS</h1>
+            <p class="text-gray-500 text-sm">Enterprise V2</p>
+        </div>
+        
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="mb-4">
+                <label class="block text-sm font-bold mb-2 text-gray-700">Email</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-envelope"></i></span>
+                    <input type="email" id="email" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="admin@deliciadacidade.com" required>
+                </div>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-bold mb-2 text-gray-700">Senha</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-lock"></i></span>
+                    <input type="password" id="password" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="******" required>
+                </div>
+            </div>
+            <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded transition shadow-lg">
+                Entrar no Sistema
+            </button>
+            <p id="error-msg" class="text-red-500 text-center mt-4 text-sm hidden bg-red-100 p-2 rounded border border-red-200"></p>
+        </form>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const btn = e.target.querySelector('button');
+            const errorMsg = document.getElementById('error-msg');
+
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Verificando...';
+            errorMsg.classList.add('hidden');
+
+            try {
+                const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'login', data: { email, password } }) });
+                
+                // Verifica se o servidor respondeu com erro (ex: 500 ou 404)
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(`Erro no Servidor (${res.status}): ${text.substring(0, 100)}...`);
+                }
+
+                const json = await res.json();
+                if (json.success) { localStorage.setItem('user', JSON.stringify(json.data)); window.location.href = 'rh.html'; }
+                else { throw new Error(json.message || 'Dados inválidos'); }
+            } catch (err) { errorMsg.innerText = err.message; errorMsg.classList.remove('hidden'); } 
+            finally { btn.disabled = false; btn.innerText = 'Entrar no Sistema'; }
+        }
+    </script>
+</body>
+</html>

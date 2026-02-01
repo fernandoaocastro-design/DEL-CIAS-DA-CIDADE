@@ -1,0 +1,29 @@
+functionsDirectory = "C:\\Users\\USER\\OneDrive\\EMPRESAS\\DELICIA DA CIDADE\\netlify\\functions"
+functionsDirectoryOrigin = "config-v1"
+plugins = []
+headers = []
+redirects = []
+
+[build]
+publish = "C:\\Users\\USER\\OneDrive\\EMPRESAS\\DELICIA DA CIDADE\\public"
+publishOrigin = "config"
+functions = "C:\\Users\\USER\\OneDrive\\EMPRESAS\\DELICIA DA CIDADE\\netlify\\functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+node_bundler = "esbuild"

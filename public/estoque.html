@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estoque - Kitchen OS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- SIDEBAR -->
+        <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col transition-all duration-300">
+            <div class="p-6 text-center border-b border-gray-700">
+                <h1 class="text-2xl font-bold text-yellow-500 menu-text">Kitchen OS</h1>
+                <p class="text-xs text-gray-400 menu-text">Enterprise V2</p>
+                <i class="fas fa-utensils text-yellow-500 text-2xl hidden" id="sidebar-icon-only"></i>
+            </div>
+            <nav class="flex-1 overflow-y-auto py-4">
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-chart-pie w-6"></i> <span class="menu-text">Dashboard</span>
+                </a>
+                <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-users w-6"></i> <span class="menu-text">Recursos Humanos</span>
+                </a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500 hover:bg-slate-700 transition">
+                    <i class="fas fa-boxes w-6"></i> <span class="menu-text">Estoque</span>
+                </a>
+                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-fire-burner w-6"></i> <span class="menu-text">Produção</span>
+                </a>
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-clipboard-list w-6"></i> <span class="menu-text">Inventário</span>
+                </a>
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-coins w-6"></i> <span class="menu-text">Finanças</span>
+                </a>
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-calendar-alt w-6"></i> <span class="menu-text">Eventos e Pedidos</span>
+                </a>
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-brain w-6"></i> <span class="menu-text">M.L.PAIN</span>
+                </a>
+                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
+                    <i class="fas fa-cog w-6"></i> <span class="menu-text">Configurações</span>
+                </a>
+            </nav>
+            <div class="p-4 border-t border-gray-700">
+                <button onclick="logout()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-sm flex items-center justify-center gap-2 transition-colors mb-2">
+                    <i class="fas fa-sign-out-alt"></i> <span class="menu-text">Sair</span>
+                </button>
+                <button onclick="Utils.toggleSidebar()" class="w-full text-gray-400 hover:text-white py-2 flex items-center justify-center transition-colors">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-8">
+            <header class="flex justify-between items-center mb-8">
+                <div>
+                    <h2 class="text-3xl font-bold text-gray-800">Controle de Estoque</h2>
+                    <p class="text-gray-500">NutriCare - Gestão Centralizada de Insumos</p>
+                </div>
+                <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
+                    <div class="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center text-white font-bold">A</div>
+                    <span class="text-sm font-medium text-gray-700">Admin</span>
+                </div>
+            </header>
+
+            <!-- Abas de Navegação do Módulo -->
+            <div class="flex gap-4 mb-6 border-b pb-2">
+                <button id="tab-produtos" onclick="EstoqueModule.setTab('produtos')" class="tab-btn px-4 py-2 font-bold text-yellow-600 border-b-2 border-yellow-500 transition">📦 Produtos</button>
+                <button id="tab-movimentacoes" onclick="EstoqueModule.setTab('movimentacoes')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition">🚚 Movimentações</button>
+                <button id="tab-fornecedores" onclick="EstoqueModule.setTab('fornecedores')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition">🏭 Fornecedores</button>
+            </div>
+
+            <div id="estoque-content">
+                <div class="text-center py-20">
+                    <i class="fas fa-circle-notch fa-spin text-4xl text-yellow-500"></i>
+                    <p class="mt-4 text-gray-500">Carregando estoque...</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- MODAL CONTAINER (Expandido para formulários maiores) -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto py-10">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative animate-fade-in-up my-auto">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-xl font-bold text-gray-800" id="modal-title">Título</h3>
+                <button onclick="Utils.closeModal()" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
+            </div>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/estoque.js"></script>
+</body>
+</html>
