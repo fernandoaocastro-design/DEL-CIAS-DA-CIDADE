@@ -3,134 +3,59 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RH - Kitchen OS</title>
-    <meta name="description" content="Sistema de Gestão de Recursos Humanos - Kitchen OS">
-    <link rel="icon" type="image/png" href="favicon.png">
+    <title>RH - Delícia da Cidade</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-gray-100 font-sans">
-
     <div class="flex h-screen overflow-hidden">
+        <!-- SIDEBAR -->
         <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col transition-all duration-300">
             <div class="p-6 text-center border-b border-gray-700">
-                <h1 class="text-2xl font-bold text-yellow-500 menu-text">Kitchen OS</h1>
-                <p class="text-xs text-gray-400 menu-text">Enterprise V2</p>
-                <i class="fas fa-utensils text-yellow-500 text-2xl hidden" id="sidebar-icon-only"></i>
+                <h1 class="text-2xl font-bold text-yellow-500">Delícia da Cidade</h1>
+                <p class="text-xs text-gray-400">Sistema de Gestão v1.0</p>
             </div>
             <nav class="flex-1 overflow-y-auto py-4">
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-chart-pie w-6"></i> <span class="menu-text">Dashboard</span>
-                </a>
-                <a href="rh.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500 hover:bg-slate-700 transition">
-                    <i class="fas fa-users w-6"></i> <span class="menu-text">Recursos Humanos</span>
-                </a>
-                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-boxes w-6"></i> <span class="menu-text">Estoque</span>
-                </a>
-                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-fire-burner w-6"></i> <span class="menu-text">Produção</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-clipboard-list w-6"></i> <span class="menu-text">Inventário</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-coins w-6"></i> <span class="menu-text">Finanças</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-calendar-alt w-6"></i> <span class="menu-text">Eventos e Pedidos</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-brain w-6"></i> <span class="menu-text">M.L.PAIN</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-cog w-6"></i> <span class="menu-text">Configurações</span>
-                </a>
+                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
+                <a href="rh.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-users w-6"></i> Recursos Humanos</a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-boxes w-6"></i> Estoque</a>
+                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-fire-burner w-6"></i> Produção</a>
+                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-coins w-6"></i> Finanças</a>
+                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
             </nav>
-            <div class="p-4 border-t border-gray-700">
-                <button id="btn-logout" onclick="logout()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-sm flex items-center justify-center gap-2 transition-colors mb-2">
-                    <i class="fas fa-sign-out-alt"></i> <span class="menu-text">Sair</span>
-                </button>
-                <button onclick="Utils.toggleSidebar()" class="w-full text-gray-400 hover:text-white py-2 flex items-center justify-center transition-colors" title="Recolher Menu">
-                    <i class="fas fa-bars"></i>
-                </button>
-            </div>
         </aside>
 
+        <!-- MAIN CONTENT -->
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-8">
             <header class="flex justify-between items-center mb-8">
-                <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Gestão de Pessoas</h2>
-                    <p class="text-gray-500">Visão geral da equipe e pagamentos</p>
-                </div>
-                <div class="flex items-center gap-6">
-                    <!-- Notificações -->
-                    <div class="relative">
-                        <button id="notif-btn" onclick="Utils.toggleNotifications()" class="text-gray-500 hover:text-blue-600 relative">
-                            <i class="fas fa-bell text-xl"></i>
-                            <span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">3</span>
-                        </button>
-                        <!-- Painel Notificações -->
-                        <div id="notification-panel" class="hidden absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-xl border border-gray-100 z-50">
-                            <div class="p-3 border-b font-bold text-gray-700">Notificações</div>
-                            <div class="max-h-64 overflow-y-auto p-2 text-sm text-gray-600">
-                                <div class="p-2 hover:bg-gray-50 rounded border-b">🎂 Aniversário de Maria hoje!</div>
-                                <div class="p-2 hover:bg-gray-50 rounded border-b">⚠️ Estoque de Tomate baixo.</div>
-                                <div class="p-2 hover:bg-gray-50 rounded">💸 Conta de Luz vence hoje.</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Perfil -->
-                    <div class="relative">
-                        <button id="profile-btn" onclick="Utils.toggleProfileMenu()" class="flex items-center gap-2 focus:outline-none">
-                            <div class="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold">A</div>
-                            <span class="text-sm font-medium text-gray-700 hidden md:block">Admin</span>
-                            <i class="fas fa-chevron-down text-xs text-gray-400"></i>
-                        </button>
-                        <!-- Menu Suspenso -->
-                        <div id="profile-menu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 z-50 py-1">
-                            <a href="#" onclick="Utils.modalEditProfile()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user-edit w-5"></i> Editar Perfil</a>
-                            <a href="#" onclick="Utils.modalEditProfile()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-key w-5"></i> Alterar Senha</a>
-                            <div class="border-t my-1"></div>
-                            <a href="#" onclick="Utils.confirmLogout()" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50"><i class="fas fa-power-off w-5"></i> Sair</a>
-                        </div>
-                    </div>
+                <h2 class="text-3xl font-bold text-gray-800">Recursos Humanos</h2>
+                <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
+                    <button onclick="Utils.toggleProfileMenu()" class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">A</div>
+                        <span class="text-sm font-medium text-gray-700">Admin</span>
+                    </button>
                 </div>
             </header>
 
+            <!-- Onde o JS vai injetar as tabelas e abas -->
             <div id="rh-content">
-                <div class="text-center py-20">
-                    <i class="fas fa-circle-notch fa-spin text-4xl text-blue-500"></i>
-                    <p class="mt-4 text-gray-500">Carregando dados do sistema...</p>
-                </div>
+                <p class="text-gray-500">Carregando módulo de RH...</p>
             </div>
         </main>
     </div>
 
-    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center" aria-hidden="true" role="dialog" aria-modal="true">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative animate-fade-in-up">
+    <!-- MODAL -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto py-10">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative my-auto">
             <div class="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 class="text-xl font-bold text-gray-800" id="modal-title">Título</h3>
-                <button onclick="Utils.closeModal()" class="text-gray-500 hover:text-red-500 text-2xl transition-colors" aria-label="Fechar modal">&times;</button>
+                <h3 class="text-xl font-bold text-gray-800" id="modal-title"></h3>
+                <button onclick="Utils.closeModal()" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
             </div>
-            <div id="modal-body">
-            </div>
+            <div id="modal-body"></div>
         </div>
     </div>
 
     <script src="js/utils.js"></script>
     <script src="js/rh.js"></script>
-    
-    <style>
-        /* Pequena animação para o modal parecer mais fluido */
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in-up {
-            animation: fadeInUp 0.3s ease-out;
-        }
-    </style>
 </body>
 </html>
