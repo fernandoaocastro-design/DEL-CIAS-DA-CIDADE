@@ -1,7 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
 
 let supabase;
 
@@ -9,7 +9,7 @@ let supabase;
 if (supabaseUrl && supabaseKey) {
     supabase = createClient(supabaseUrl, supabaseKey);
 } else {
-    console.error('ERRO CRÍTICO: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY estão faltando.');
+    console.error('ERRO CRÍTICO: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY/SUPABASE_ANON_KEY estão faltando.');
 }
 
 exports.handler = async (event) => {
@@ -17,7 +17,7 @@ exports.handler = async (event) => {
     if (!supabase) {
         return {
             statusCode: 500,
-            body: JSON.stringify({ success: false, message: 'Configuração do Servidor incompleta: Chaves do Supabase não encontradas.' })
+            body: JSON.stringify({ success: false, message: 'Erro de Configuração: Verifique se SUPABASE_URL e SUPABASE_KEY (ou SUPABASE_ANON_KEY) estão configuradas no Netlify.' })
         };
     }
 
