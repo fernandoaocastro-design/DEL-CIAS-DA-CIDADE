@@ -3,7 +3,8 @@ const MLPainModule = {
         activeTab: 'visao-geral',
         areas: [],
         registros: [],
-        filterMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
+        pratos: [],
+        filterMonth: new Date().toISOString().slice(0, 7),
         instituicao: []
     },
 
@@ -13,16 +14,18 @@ const MLPainModule = {
 
     fetchData: async () => {
         try {
-            const [areas, registros, inst] = await Promise.all([
+            const [areas, registros, inst, pratos] = await Promise.all([
                 MLPainModule.api('getAll', 'MLPain_Areas'),
                 MLPainModule.api('getAll', 'MLPain_Registros'),
-                MLPainModule.api('getAll', 'InstituicaoConfig')
+                MLPainModule.api('getAll', 'InstituicaoConfig'),
+                MLPainModule.api('getAll', 'Pratos')
             ]);
             
             // Ordenar áreas pela ordem definida ou nome
             MLPainModule.state.areas = (areas || []).sort((a, b) => (a.Ordem || 0) - (b.Ordem || 0));
             MLPainModule.state.registros = registros || [];
             MLPainModule.state.instituicao = inst || [];
+            MLPainModule.state.pratos = pratos || [];
             
             MLPainModule.render();
         } catch (e) {
@@ -139,6 +142,7 @@ const MLPainModule = {
     // --- 2. LANÇAMENTO (FORMULÁRIO DINÂMICO) ---
     renderLancamento: (container) => {
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const pratos = MLPainModule.state.pratos.filter(p => p.Status === 'Ativo');
         const today = new Date().toISOString().split('T')[0];
 
         container.innerHTML = `
@@ -160,7 +164,7 @@ const MLPainModule = {
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável</label>
-                            <input name="Responsavel" class="border p-2 rounded w-full" required>
+                            <input name="Responsavel" class="border p-2 rounded w-full" placeholder="Responsável do Turno" required>
                         </div>
                     </div>
 
@@ -179,63 +183,78 @@ const MLPainModule = {
                         </div>
                     </div>
 
-                    <!-- Área Dinâmica de Inputs -->
-                    <div id="form-areas-container" class="space-y-2 mb-6">
-                        <!-- Injetado via JS -->
+                    <!-- Campos Dinâmicos -->
+                    <div class="bg-gray-50 p-4 rounded mb-6 border border-gray-200">
+                        <div class="mb-4">
+                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Área / Enfermaria</label>
+                            <select name="AreaID" class="border p-2 rounded w-full bg-white" required>
+                                <option value="">Selecione a Área...</option>
+                                ${areas.map(a => `<option value="${a.ID}">${a.Nome}</option>`).join('')}
+                            </select>
+                        </div>
+
+                        <div id="dynamic-fields">
+                            <!-- Injetado via JS -->
+                        </div>
                     </div>
 
                     <div class="mb-4">
                         <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Observações Gerais</label>
-                        <textarea name="Observacoes" class="border p-2 rounded w-full h-20"></textarea>
+                        <textarea name="Observacoes" class="border p-2 rounded w-full h-16"></textarea>
                     </div>
 
                     <button type="submit" class="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition shadow">
-                        Salvar Lançamentos
+                        Adicionar Lançamento
                     </button>
                 </form>
             </div>
         `;
 
+        // Armazena pratos no estado global para acesso no toggle
+        MLPainModule.tempPratos = pratos;
         MLPainModule.toggleFormType('Sólido'); // Inicializa com Sólido
     },
 
     toggleFormType: (type) => {
-        const container = document.getElementById('form-areas-container');
-        const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const container = document.getElementById('dynamic-fields');
+        const pratos = MLPainModule.tempPratos || [];
         
         if (type === 'Sólido') {
             container.innerHTML = `
-                <div class="grid grid-cols-12 gap-2 font-bold text-xs text-gray-500 border-b pb-1 mb-2">
-                    <div class="col-span-8">ÁREA / ENFERMARIA</div>
-                    <div class="col-span-4 text-center">QTD SÓLIDO</div>
-                </div>
-                ${areas.map(a => `
-                    <div class="grid grid-cols-12 gap-2 items-center hover:bg-gray-50 p-1 rounded">
-                        <div class="col-span-8 font-medium text-gray-700">${a.Nome}</div>
-                        <div class="col-span-4">
-                            <input type="number" name="qtd_solido_${a.ID}" class="border p-2 rounded w-full text-center font-bold" placeholder="0" min="0">
-                        </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Prato</label>
+                        <select name="Prato" class="border p-2 rounded w-full bg-white">
+                            <option value="">Selecione o Prato...</option>
+                            ${pratos.map(p => `<option value="${p.Nome}">${p.Nome}</option>`).join('')}
+                        </select>
                     </div>
-                `).join('')}
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Quantidade</label>
+                        <input type="number" name="Quantidade" class="border p-2 rounded w-full font-bold text-blue-600" placeholder="0" min="1" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável Entrega</label>
+                        <input name="ResponsavelEntrega" class="border p-2 rounded w-full" placeholder="Quem entregou?">
+                    </div>
+                </div>
             `;
         } else {
             container.innerHTML = `
-                <div class="grid grid-cols-12 gap-2 font-bold text-xs text-gray-500 border-b pb-1 mb-2">
-                    <div class="col-span-6">ÁREA / ENFERMARIA</div>
-                    <div class="col-span-3 text-center text-yellow-600">QTD SOPA</div>
-                    <div class="col-span-3 text-center text-orange-600">QTD CHÁ</div>
-                </div>
-                ${areas.map(a => `
-                    <div class="grid grid-cols-12 gap-2 items-center hover:bg-gray-50 p-1 rounded">
-                        <div class="col-span-6 font-medium text-gray-700">${a.Nome}</div>
-                        <div class="col-span-3">
-                            <input type="number" name="qtd_sopa_${a.ID}" class="border p-2 rounded w-full text-center font-bold bg-yellow-50" placeholder="0" min="0">
-                        </div>
-                        <div class="col-span-3">
-                            <input type="number" name="qtd_cha_${a.ID}" class="border p-2 rounded w-full text-center font-bold bg-orange-50" placeholder="0" min="0">
-                        </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-yellow-600 uppercase mb-1">Qtd. Sopa</label>
+                        <input type="number" name="QtdSopa" class="border p-2 rounded w-full font-bold bg-yellow-50" placeholder="0" min="0">
                     </div>
-                `).join('')}
+                    <div>
+                        <label class="block text-xs font-bold text-orange-600 uppercase mb-1">Qtd. Chá</label>
+                        <input type="number" name="QtdCha" class="border p-2 rounded w-full font-bold bg-orange-50" placeholder="0" min="0">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável Entrega</label>
+                        <input name="ResponsavelEntrega" class="border p-2 rounded w-full" placeholder="Quem entregou?">
+                    </div>
+                </div>
             `;
         }
     },
@@ -243,40 +262,48 @@ const MLPainModule = {
     saveLancamento: async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
+        
+        const areaId = formData.get('AreaID');
+        const area = MLPainModule.state.areas.find(a => a.ID === areaId);
+        
+        if (!area) return Utils.toast('⚠️ Selecione uma área válida.');
+
         const commonData = {
             Data: formData.get('Data'),
             Turno: formData.get('Turno'),
             Responsavel: formData.get('Responsavel'),
-            Observacoes: formData.get('Observacoes')
+            Observacoes: formData.get('Observacoes'),
+            AreaID: area.ID,
+            AreaNome: area.Nome,
+            ResponsavelEntrega: formData.get('ResponsavelEntrega')
         };
+
         const type = formData.get('TipoRefeicao');
-        const areas = MLPainModule.state.areas.filter(a => a.Ativo);
         const promises = [];
 
-        areas.forEach(area => {
-            if (type === 'Sólido') {
-                const qtd = formData.get(`qtd_solido_${area.ID}`);
-                if (qtd && Number(qtd) > 0) {
-                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
-                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Sólido', Subtipo: 'Geral', Quantidade: qtd
-                    }));
-                }
-            } else {
-                const qtdSopa = formData.get(`qtd_sopa_${area.ID}`);
-                const qtdCha = formData.get(`qtd_cha_${area.ID}`);
-                
-                if (qtdSopa && Number(qtdSopa) > 0) {
-                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
-                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Líquido', Subtipo: 'Sopa', Quantidade: qtdSopa
-                    }));
-                }
-                if (qtdCha && Number(qtdCha) > 0) {
-                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
-                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Líquido', Subtipo: 'Chá', Quantidade: qtdCha
-                    }));
-                }
+        if (type === 'Sólido') {
+            const qtd = formData.get('Quantidade');
+            const prato = formData.get('Prato');
+            if (qtd && Number(qtd) > 0) {
+                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                    ...commonData, Tipo: 'Sólido', Subtipo: 'Geral', Quantidade: qtd, Prato: prato
+                }));
             }
-        });
+        } else {
+            const qtdSopa = formData.get('QtdSopa');
+            const qtdCha = formData.get('QtdCha');
+            
+            if (qtdSopa && Number(qtdSopa) > 0) {
+                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                    ...commonData, Tipo: 'Líquido', Subtipo: 'Sopa', Quantidade: qtdSopa
+                }));
+            }
+            if (qtdCha && Number(qtdCha) > 0) {
+                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                    ...commonData, Tipo: 'Líquido', Subtipo: 'Chá', Quantidade: qtdCha
+                }));
+            }
+        }
 
         if (promises.length === 0) return Utils.toast('⚠️ Nenhuma quantidade informada.');
 
@@ -336,7 +363,7 @@ const MLPainModule = {
             <div class="bg-white rounded shadow overflow-hidden">
                 <table class="w-full text-sm text-left">
                     <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Subtipo</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
+                        <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Detalhe</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
                     </thead>
                     <tbody class="divide-y">
                         ${recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).map(r => `
@@ -344,8 +371,12 @@ const MLPainModule = {
                                 <td class="p-3">${Utils.formatDate(r.Data)}</td>
                                 <td class="p-3">${r.Turno || '-'}</td>
                                 <td class="p-3 font-medium">${r.AreaNome}</td>
-                                <td class="p-3">${r.Tipo}</td>
-                                <td class="p-3">${r.Subtipo}</td>
+                                <td class="p-3">
+                                    <span class="px-2 py-1 rounded text-xs font-bold ${r.Tipo === 'Sólido' ? 'bg-green-100 text-green-800' : (r.Subtipo === 'Sopa' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800')}">
+                                        ${r.Tipo === 'Sólido' ? 'Sólido' : r.Subtipo}
+                                    </span>
+                                </td>
+                                <td class="p-3 text-xs text-gray-500">${r.Tipo === 'Sólido' ? (r.Prato || '-') : '-'}</td>
                                 <td class="p-3 text-right font-bold">${r.Quantidade}</td>
                                 <td class="p-3 text-xs text-gray-500">${r.Responsavel || '-'}</td>
                             </tr>

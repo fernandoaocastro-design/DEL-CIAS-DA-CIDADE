@@ -262,6 +262,8 @@ CREATE TABLE "MLPain_Registros" (
     "Subtipo" VARCHAR(50), -- Geral (Sólido), Sopa, Chá
     "Quantidade" INTEGER DEFAULT 0,
     "Responsavel" VARCHAR(255),
+    "ResponsavelEntrega" VARCHAR(255),
+    "Prato" VARCHAR(255),
     "Observacoes" TEXT,
     "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
