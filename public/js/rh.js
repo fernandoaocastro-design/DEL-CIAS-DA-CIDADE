@@ -1,5 +1,5 @@
 const RHModule = {
-    state: { cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [] } },
+    state: { cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [], parametros: [], cargos: [], departamentos: [], instituicao: [] } },
 
     init: () => {
         RHModule.renderLayout();
@@ -8,16 +8,23 @@ const RHModule = {
 
     fetchData: async () => {
         try {
-            const [funcs, ferias, freq, aval, trein, lic, folha] = await Promise.all([
+            const [funcs, ferias, freq, aval, trein, lic, folha, params, cargos, deptos, inst] = await Promise.all([
                 RHModule.api('getAll', 'Funcionarios'),
                 RHModule.api('getAll', 'Ferias'),
                 RHModule.api('getAll', 'Frequencia'),
                 RHModule.api('getAll', 'Avaliacoes'),
                 RHModule.api('getAll', 'Treinamentos'),
                 RHModule.api('getAll', 'Licencas'),
-                RHModule.api('getAll', 'Folha')
+                RHModule.api('getAll', 'Folha'),
+                RHModule.api('getAll', 'ParametrosRH'),
+                RHModule.api('getAll', 'Cargos'),
+                RHModule.api('getAll', 'Departamentos'),
+                RHModule.api('getAll', 'InstituicaoConfig')
             ]);
-            RHModule.state.cache = { funcionarios: funcs, ferias, frequencia: freq, avaliacoes: aval, treinamentos: trein, licencas: lic, folha: folha };
+            RHModule.state.cache = { 
+                funcionarios: funcs, ferias, frequencia: freq, avaliacoes: aval, treinamentos: trein, licencas: lic, folha: folha, 
+                parametros: params || [], cargos: cargos || [], departamentos: deptos || [], instituicao: inst || [] 
+            };
             RHModule.renderFuncionarios();
         } catch (e) { 
             console.error("Erro crítico ao carregar dados do servidor:", e);
@@ -53,6 +60,7 @@ const RHModule = {
                 <button id="tab-treinamento" onclick="RHModule.renderTreinamento()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">🎓 Treinamento</button>
                 <button id="tab-folha" onclick="RHModule.renderFolha()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">💰 Folha</button>
                 <button id="tab-licencas" onclick="RHModule.renderLicencas()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">🏥 Licenças</button>
+                <button id="tab-relatorios" onclick="RHModule.renderRelatorios()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">📊 Relatórios</button>
             </div>
             <div id="tab-content"></div>
         `;
@@ -101,18 +109,35 @@ const RHModule = {
 
     modalFuncionario: (id = null) => {
         const f = id ? RHModule.state.cache.funcionarios.find(x => x.ID === id) : {};
+        const tiposContrato = RHModule.state.cache.parametros.filter(p => p.Tipo === 'TipoContrato');
+        const cargosList = RHModule.state.cache.cargos || [];
         
         // Lógica de Departamento Automático
         const updateDept = (select) => {
-            const map = {
-                'Gerente Geral': 'Administração', 'Gestor': 'Administração', 'Supervisor': 'Operações',
-                'Cozinheiro Chefe': 'Cozinha', 'Cozinheiro': 'Cozinha', 'Auxiliar de Cozinha': 'Cozinha',
-                'Garçon': 'Salão', 'Recepcionista': 'Recepção', 'Auxiliar administrativo': 'Administração',
-                'Limpeza': 'Serviços Gerais', 'Auxiliar de limpeza': 'Serviços Gerais', 'Segurança': 'Segurança'
-            };
+            const cargoNome = select.value;
+            const cargos = RHModule.state.cache.cargos || [];
+            const deptos = RHModule.state.cache.departamentos || [];
+            
+            const cargo = cargos.find(c => c.Nome === cargoNome);
+            let deptNome = 'Outros';
+
+            if (cargo && cargo.DepartamentoID) {
+                const dept = deptos.find(d => d.ID === cargo.DepartamentoID);
+                if (dept) deptNome = dept.Nome;
+            } else {
+                // Fallback (Mapa antigo caso o banco esteja vazio)
+                const map = { 'Gerente Geral': 'Administração', 'Cozinheiro': 'Cozinha', 'Garçon': 'Salão', 'Limpeza': 'Serviços Gerais' };
+                deptNome = map[cargoNome] || 'Outros';
+            }
+            
             const deptInput = document.getElementById('input-dept');
-            if(deptInput) deptInput.value = map[select.value] || 'Outros';
+            if(deptInput) deptInput.value = deptNome;
         };
+
+        // Gera opções de cargo (Do banco ou Padrão)
+        const optionsCargos = cargosList.length > 0
+            ? cargosList.map(c => `<option ${f.Cargo===c.Nome?'selected':''}>${c.Nome}</option>`).join('')
+            : ['Gerente Geral','Gestor','Supervisor','Cozinheiro Chefe','Cozinheiro','Auxiliar de Cozinha','Garçon','Recepcionista','Auxiliar administrativo','Limpeza','Auxiliar de limpeza','Segurança'].map(c => `<option ${f.Cargo===c?'selected':''}>${c}</option>`).join('');
 
         Utils.openModal(id ? 'Editar' : 'Novo Funcionário', `
             <form onsubmit="RHModule.save(event, 'Funcionarios')">
@@ -131,7 +156,7 @@ const RHModule = {
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <select name="Cargo" class="border p-2 rounded w-full" onchange="(${updateDept})(this)" required>
                         <option value="">Selecione o Cargo...</option>
-                        ${['Gerente Geral','Gestor','Supervisor','Cozinheiro Chefe','Cozinheiro','Auxiliar de Cozinha','Garçon','Recepcionista','Auxiliar administrativo','Limpeza','Auxiliar de limpeza','Segurança'].map(c => `<option ${f.Cargo===c?'selected':''}>${c}</option>`).join('')}
+                        ${optionsCargos}
                     </select>
                     <input id="input-dept" name="Departamento" value="${f.Departamento || ''}" placeholder="Departamento (Auto)" class="border p-2 rounded w-full bg-gray-100" readonly>
                     <select name="Turno" class="border p-2 rounded w-full">
@@ -144,7 +169,9 @@ const RHModule = {
                 <h4 class="font-bold text-gray-700 mb-2 border-b mt-4">3️⃣ Informações Administrativas</h4>
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <select name="TipoContrato" class="border p-2 rounded w-full">
-                        <option>CLT</option><option>Temporário</option><option>Estagiário</option>
+                        ${tiposContrato.length 
+                            ? tiposContrato.map(t => `<option ${f.TipoContrato===t.Valor?'selected':''}>${t.Valor}</option>`).join('')
+                            : '<option>CLT</option><option>Temporário</option><option>Estagiário</option>'}
                     </select>
                     <div><label class="text-xs">Admissão</label><input type="date" name="Admissao" value="${f.Admissao || ''}" class="border p-2 rounded w-full"></div>
                     <input name="Iban" value="${f.Iban || 'AO06 '}" placeholder="IBAN (AO06...)" class="border p-2 rounded w-full col-span-2">
@@ -723,6 +750,137 @@ const RHModule = {
                 <button class="w-full bg-blue-600 text-white py-2 rounded mt-4">Salvar Registro</button>
             </form>
         `);
+    },
+
+    // --- 8. ABA RELATÓRIOS ---
+    renderRelatorios: () => {
+        RHModule.highlightTab('tab-relatorios');
+        
+        document.getElementById('tab-content').innerHTML = `
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Relatórios de RH</h3>
+                <button onclick="RHModule.exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
+                    <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
+                </button>
+            </div>
+            
+            <div class="bg-white p-4 rounded shadow mb-6">
+                <h4 class="font-bold text-gray-700 mb-2">Filtros (Período de Admissão)</h4>
+                <div class="flex gap-4 items-end">
+                    <div><label class="block text-xs font-bold text-gray-500">De</label><input type="date" id="rel-inicio" class="border p-2 rounded"></div>
+                    <div><label class="block text-xs font-bold text-gray-500">Até</label><input type="date" id="rel-fim" class="border p-2 rounded"></div>
+                    <button onclick="RHModule.updateRelatorios()" class="bg-blue-600 text-white px-4 py-2 rounded"><i class="fas fa-filter"></i> Filtrar</button>
+                    <button onclick="document.getElementById('rel-inicio').value='';document.getElementById('rel-fim').value='';RHModule.updateRelatorios()" class="text-gray-500 px-4 py-2 hover:text-gray-700">Limpar</button>
+                </div>
+            </div>
+
+            <div id="print-area" class="p-4 bg-white rounded">
+                <div id="pdf-header" class="hidden mb-6 border-b pb-4"></div>
+                <div id="relatorio-results"></div>
+                <div id="pdf-footer" class="hidden mt-10 pt-4 border-t text-center"></div>
+            </div>
+        `;
+        
+        RHModule.updateRelatorios();
+    },
+
+    updateRelatorios: () => {
+        const start = document.getElementById('rel-inicio').value;
+        const end = document.getElementById('rel-fim').value;
+        let funcs = RHModule.state.cache.funcionarios || [];
+
+        // Filtragem por Data de Admissão
+        if (start) funcs = funcs.filter(f => f.Admissao >= start);
+        if (end) funcs = funcs.filter(f => f.Admissao <= end);
+
+        // Agrupar por Departamento
+        const deptMap = {};
+        funcs.forEach(f => {
+            const dept = f.Departamento || 'Sem Departamento';
+            deptMap[dept] = (deptMap[dept] || 0) + 1;
+        });
+
+        const reportData = Object.entries(deptMap)
+            .map(([dept, count]) => ({ dept, count }))
+            .sort((a, b) => b.count - a.count);
+
+        const total = funcs.length;
+
+        const html = `
+            <h4 class="text-lg font-bold text-gray-700 mb-4">Lotação por Departamento ${start || end ? '(Filtrado)' : '(Geral)'}</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white p-4 border rounded">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-100">
+                            <tr><th class="p-2 text-left">Departamento</th><th class="p-2 text-right">Funcionários</th><th class="p-2 text-right">%</th></tr>
+                        </thead>
+                        <tbody>
+                            ${reportData.map(r => {
+                                const pct = total > 0 ? ((r.count / total) * 100).toFixed(1) : 0;
+                                return `<tr class="border-b"><td class="p-2 font-medium">${r.dept}</td><td class="p-2 text-right font-bold">${r.count}</td><td class="p-2 text-right text-gray-500">${pct}%</td></tr>`;
+                            }).join('')}
+                            <tr class="bg-gray-50 font-bold"><td class="p-2">TOTAL</td><td class="p-2 text-right">${total}</td><td class="p-2 text-right">100%</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-white p-4 border rounded flex flex-col items-center justify-center">
+                     <div class="w-full h-64"><canvas id="chartRelatorioRH"></canvas></div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('relatorio-results').innerHTML = html;
+
+        if(typeof Chart !== 'undefined' && reportData.length > 0) {
+            new Chart(document.getElementById('chartRelatorioRH'), {
+                type: 'doughnut',
+                data: { labels: reportData.map(r => r.dept), datasets: [{ data: reportData.map(r => r.count), backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#6B7280', '#EC4899', '#14B8A6'] }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+            });
+        } else if (total === 0) {
+            document.getElementById('relatorio-results').innerHTML = '<p class="text-center text-gray-500 py-10">Nenhum funcionário encontrado neste período.</p>';
+        }
+    },
+
+    exportPDF: () => {
+        const element = document.getElementById('print-area');
+        const header = document.getElementById('pdf-header');
+        const footer = document.getElementById('pdf-footer');
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        // Monta o cabeçalho com Logotipo e Dados da Empresa
+        header.innerHTML = `
+            <div class="flex items-center gap-4">
+                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                    <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+                </div>
+            </div>
+        `;
+        header.classList.remove('hidden'); // Torna visível para a captura
+
+        // Monta o rodapé com a Assinatura Digital
+        footer.innerHTML = `
+            <p class="font-bold text-gray-800">${user.Nome}</p>
+            <p class="text-sm text-gray-600">${user.Assinatura || ''}</p>
+            <p class="text-xs text-gray-400 mt-1">Documento gerado em ${new Date().toLocaleString()}</p>
+        `;
+        footer.classList.remove('hidden');
+        
+        const opt = {
+            margin: 10,
+            filename: 'relatorio-rh-departamentos.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+        };
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            header.classList.add('hidden'); // Esconde novamente após gerar
+            footer.classList.add('hidden');
+        });
     },
 
     // --- GENÉRICOS ---

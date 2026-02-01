@@ -1,0 +1,468 @@
+const MLPainModule = {
+    state: {
+        activeTab: 'visao-geral',
+        areas: [],
+        registros: [],
+        filterMonth: new Date().toISOString().slice(0, 7), // YYYY-MM
+        instituicao: []
+    },
+
+    init: () => {
+        MLPainModule.fetchData();
+    },
+
+    fetchData: async () => {
+        try {
+            const [areas, registros, inst] = await Promise.all([
+                MLPainModule.api('getAll', 'MLPain_Areas'),
+                MLPainModule.api('getAll', 'MLPain_Registros'),
+                MLPainModule.api('getAll', 'InstituicaoConfig')
+            ]);
+            
+            // Ordenar áreas pela ordem definida ou nome
+            MLPainModule.state.areas = (areas || []).sort((a, b) => (a.Ordem || 0) - (b.Ordem || 0));
+            MLPainModule.state.registros = registros || [];
+            MLPainModule.state.instituicao = inst || [];
+            
+            MLPainModule.render();
+        } catch (e) {
+            console.error(e);
+            Utils.toast("Erro ao carregar dados do M.L. Pain.");
+        }
+    },
+
+    api: async (action, table, data = null, id = null) => {
+        const res = await fetch('/.netlify/functions/business', {
+            method: 'POST',
+            body: JSON.stringify({ action, table, data, id })
+        });
+        const json = await res.json();
+        if (json.success) return json.data;
+        throw new Error(json.message || 'Erro na API');
+    },
+
+    setTab: (tab) => {
+        MLPainModule.state.activeTab = tab;
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.className = 'tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap';
+            btn.style.borderBottom = 'none';
+        });
+        const activeBtn = document.getElementById(`tab-${tab}`);
+        if(activeBtn) {
+            activeBtn.className = 'tab-btn px-4 py-2 font-bold text-indigo-600 transition whitespace-nowrap';
+            activeBtn.style.borderBottom = '2px solid #4F46E5';
+        }
+        MLPainModule.render();
+    },
+
+    render: () => {
+        const container = document.getElementById('mlpain-content');
+        const tab = MLPainModule.state.activeTab;
+
+        if (tab === 'visao-geral') {
+            MLPainModule.renderVisaoGeral(container);
+        } else if (tab === 'lancamento') {
+            MLPainModule.renderLancamento(container);
+        } else if (tab === 'tabela') {
+            MLPainModule.renderTabela(container);
+        } else if (tab === 'areas') {
+            MLPainModule.renderAreas(container);
+        }
+    },
+
+    // --- 1. VISÃO GERAL ---
+    renderVisaoGeral: (container) => {
+        const today = new Date().toISOString().split('T')[0];
+        const recs = MLPainModule.state.registros.filter(r => r.Data === today);
+        
+        const totalSolidos = recs.filter(r => r.Tipo === 'Sólido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
+        const totalSopa = recs.filter(r => r.Subtipo === 'Sopa').reduce((acc, r) => acc + Number(r.Quantidade), 0);
+        const totalCha = recs.filter(r => r.Subtipo === 'Chá').reduce((acc, r) => acc + Number(r.Quantidade), 0);
+
+        // Dados para o Gráfico de Metas
+        const areasAtivas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const labels = areasAtivas.map(a => a.Nome);
+        const metas = areasAtivas.map(a => Number(a.MetaDiaria || 0));
+        const realizados = areasAtivas.map(a => {
+            return recs
+                .filter(r => r.AreaID === a.ID || r.AreaNome === a.Nome)
+                .reduce((acc, r) => acc + Number(r.Quantidade), 0);
+        });
+
+        container.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+                    <div class="text-gray-500 text-sm">Refeições Hoje</div>
+                    <div class="text-2xl font-bold">${totalSolidos + totalSopa + totalCha}</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
+                    <div class="text-gray-500 text-sm">Sólidos (Geral)</div>
+                    <div class="text-2xl font-bold text-green-600">${totalSolidos}</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-yellow-500">
+                    <div class="text-gray-500 text-sm">Sopas</div>
+                    <div class="text-2xl font-bold text-yellow-600">${totalSopa}</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-orange-500">
+                    <div class="text-gray-500 text-sm">Chás</div>
+                    <div class="text-2xl font-bold text-orange-600">${totalCha}</div>
+                </div>
+            </div>
+            
+            <div class="bg-white p-6 rounded shadow mb-8">
+                <h3 class="text-lg font-bold text-gray-700 mb-4">Consumo Diário por Área vs Meta</h3>
+                <div class="h-64"><canvas id="chartMetas"></canvas></div>
+            </div>
+
+            <div class="bg-white p-6 rounded shadow text-center">
+                <h3 class="text-lg font-bold text-gray-700 mb-4">Acesso Rápido</h3>
+                <button onclick="MLPainModule.setTab('lancamento')" class="bg-indigo-600 text-white px-6 py-3 rounded shadow hover:bg-indigo-700 transition">
+                    <i class="fas fa-plus-circle mr-2"></i> Novo Lançamento de Refeições
+                </button>
+            </div>
+        `;
+
+        // Renderizar Gráfico de Metas (Misto: Barra + Linha)
+        new Chart(document.getElementById('chartMetas'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { type: 'line', label: 'Meta Diária', data: metas, borderColor: '#EF4444', borderWidth: 2, borderDash: [5, 5], pointRadius: 0, fill: false },
+                    { type: 'bar', label: 'Realizado Hoje', data: realizados, backgroundColor: '#3B82F6', borderRadius: 4 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+    },
+
+    // --- 2. LANÇAMENTO (FORMULÁRIO DINÂMICO) ---
+    renderLancamento: (container) => {
+        const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const today = new Date().toISOString().split('T')[0];
+
+        container.innerHTML = `
+            <div class="bg-white p-6 rounded shadow max-w-4xl mx-auto">
+                <h3 class="text-xl font-bold text-gray-800 mb-6 border-b pb-2">Lançamento Diário de Refeições</h3>
+                
+                <form onsubmit="MLPainModule.saveLancamento(event)">
+                    <!-- Cabeçalho do Formulário -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-4 rounded">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Data</label>
+                            <input type="date" name="Data" value="${today}" class="border p-2 rounded w-full" required>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Turno</label>
+                            <select name="Turno" class="border p-2 rounded w-full">
+                                <option>Manhã</option><option>Tarde</option><option>Noite</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável</label>
+                            <input name="Responsavel" class="border p-2 rounded w-full" required>
+                        </div>
+                    </div>
+
+                    <!-- Seleção de Tipo -->
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-gray-700 mb-2">Tipo de Refeição:</label>
+                        <div class="flex gap-4">
+                            <label class="flex items-center gap-2 cursor-pointer bg-blue-50 px-4 py-2 rounded border border-blue-200">
+                                <input type="radio" name="TipoRefeicao" value="Sólido" checked onchange="MLPainModule.toggleFormType('Sólido')">
+                                <span class="font-bold text-blue-800">🍽️ Sólidos (Geral)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer bg-orange-50 px-4 py-2 rounded border border-orange-200">
+                                <input type="radio" name="TipoRefeicao" value="Líquido" onchange="MLPainModule.toggleFormType('Líquido')">
+                                <span class="font-bold text-orange-800">🥣 Líquidos (Sopa/Chá)</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Área Dinâmica de Inputs -->
+                    <div id="form-areas-container" class="space-y-2 mb-6">
+                        <!-- Injetado via JS -->
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Observações Gerais</label>
+                        <textarea name="Observacoes" class="border p-2 rounded w-full h-20"></textarea>
+                    </div>
+
+                    <button type="submit" class="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition shadow">
+                        Salvar Lançamentos
+                    </button>
+                </form>
+            </div>
+        `;
+
+        MLPainModule.toggleFormType('Sólido'); // Inicializa com Sólido
+    },
+
+    toggleFormType: (type) => {
+        const container = document.getElementById('form-areas-container');
+        const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        
+        if (type === 'Sólido') {
+            container.innerHTML = `
+                <div class="grid grid-cols-12 gap-2 font-bold text-xs text-gray-500 border-b pb-1 mb-2">
+                    <div class="col-span-8">ÁREA / ENFERMARIA</div>
+                    <div class="col-span-4 text-center">QTD SÓLIDO</div>
+                </div>
+                ${areas.map(a => `
+                    <div class="grid grid-cols-12 gap-2 items-center hover:bg-gray-50 p-1 rounded">
+                        <div class="col-span-8 font-medium text-gray-700">${a.Nome}</div>
+                        <div class="col-span-4">
+                            <input type="number" name="qtd_solido_${a.ID}" class="border p-2 rounded w-full text-center font-bold" placeholder="0" min="0">
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="grid grid-cols-12 gap-2 font-bold text-xs text-gray-500 border-b pb-1 mb-2">
+                    <div class="col-span-6">ÁREA / ENFERMARIA</div>
+                    <div class="col-span-3 text-center text-yellow-600">QTD SOPA</div>
+                    <div class="col-span-3 text-center text-orange-600">QTD CHÁ</div>
+                </div>
+                ${areas.map(a => `
+                    <div class="grid grid-cols-12 gap-2 items-center hover:bg-gray-50 p-1 rounded">
+                        <div class="col-span-6 font-medium text-gray-700">${a.Nome}</div>
+                        <div class="col-span-3">
+                            <input type="number" name="qtd_sopa_${a.ID}" class="border p-2 rounded w-full text-center font-bold bg-yellow-50" placeholder="0" min="0">
+                        </div>
+                        <div class="col-span-3">
+                            <input type="number" name="qtd_cha_${a.ID}" class="border p-2 rounded w-full text-center font-bold bg-orange-50" placeholder="0" min="0">
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+    },
+
+    saveLancamento: async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const commonData = {
+            Data: formData.get('Data'),
+            Turno: formData.get('Turno'),
+            Responsavel: formData.get('Responsavel'),
+            Observacoes: formData.get('Observacoes')
+        };
+        const type = formData.get('TipoRefeicao');
+        const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const promises = [];
+
+        areas.forEach(area => {
+            if (type === 'Sólido') {
+                const qtd = formData.get(`qtd_solido_${area.ID}`);
+                if (qtd && Number(qtd) > 0) {
+                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Sólido', Subtipo: 'Geral', Quantidade: qtd
+                    }));
+                }
+            } else {
+                const qtdSopa = formData.get(`qtd_sopa_${area.ID}`);
+                const qtdCha = formData.get(`qtd_cha_${area.ID}`);
+                
+                if (qtdSopa && Number(qtdSopa) > 0) {
+                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Líquido', Subtipo: 'Sopa', Quantidade: qtdSopa
+                    }));
+                }
+                if (qtdCha && Number(qtdCha) > 0) {
+                    promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                        ...commonData, AreaID: area.ID, AreaNome: area.Nome, Tipo: 'Líquido', Subtipo: 'Chá', Quantidade: qtdCha
+                    }));
+                }
+            }
+        });
+
+        if (promises.length === 0) return Utils.toast('⚠️ Nenhuma quantidade informada.');
+
+        try {
+            await Promise.all(promises);
+            Utils.toast('✅ Lançamentos salvos com sucesso!');
+            MLPainModule.fetchData();
+            MLPainModule.setTab('tabela'); // Redireciona para tabela para ver o resultado
+        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message); }
+    },
+
+    // --- 3. TABELA E GRÁFICOS ---
+    renderTabela: (container) => {
+        const month = MLPainModule.state.filterMonth;
+        const recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+        
+        // Agrupamento para Gráficos
+        const totals = { Solido: 0, Sopa: 0, Cha: 0 };
+        recs.forEach(r => {
+            if (r.Tipo === 'Sólido') totals.Solido += Number(r.Quantidade);
+            else if (r.Subtipo === 'Sopa') totals.Sopa += Number(r.Quantidade);
+            else if (r.Subtipo === 'Chá') totals.Cha += Number(r.Quantidade);
+        });
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Relatório Mensal</h3>
+                <div class="flex gap-2">
+                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.state.filterMonth = this.value; MLPainModule.renderTabela(document.getElementById('mlpain-content'))">
+                    <button onclick="MLPainModule.exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
+                        <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
+                    </button>
+                </div>
+            </div>
+
+            <div id="print-area-mlpain" class="p-2 bg-white">
+                <div id="pdf-header" class="hidden mb-6 border-b pb-4"></div>
+                <h4 class="text-center font-bold text-gray-500 mb-4 hidden" id="pdf-title">Relatório de Refeições - ${month}</h4>
+
+            <!-- GRÁFICOS (Dentro da área de impressão) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-4 rounded shadow text-center">
+                    <h4 class="font-bold text-gray-600 mb-2">Distribuição Geral</h4>
+                    <div class="h-48"><canvas id="chartGeral"></canvas></div>
+                </div>
+                <div class="bg-white p-4 rounded shadow col-span-2">
+                    <h4 class="font-bold text-gray-600 mb-2">Resumo do Mês</h4>
+                    <div class="grid grid-cols-3 gap-4 text-center mt-8">
+                        <div><div class="text-3xl font-bold text-green-600">${totals.Solido}</div><div class="text-xs text-gray-500">Sólidos</div></div>
+                        <div><div class="text-3xl font-bold text-yellow-600">${totals.Sopa}</div><div class="text-xs text-gray-500">Sopas</div></div>
+                        <div><div class="text-3xl font-bold text-orange-600">${totals.Cha}</div><div class="text-xs text-gray-500">Chás</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TABELA DETALHADA -->
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Subtipo</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).map(r => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3">${Utils.formatDate(r.Data)}</td>
+                                <td class="p-3">${r.Turno || '-'}</td>
+                                <td class="p-3 font-medium">${r.AreaNome}</td>
+                                <td class="p-3">${r.Tipo}</td>
+                                <td class="p-3">${r.Subtipo}</td>
+                                <td class="p-3 text-right font-bold">${r.Quantidade}</td>
+                                <td class="p-3 text-xs text-gray-500">${r.Responsavel || '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                ${recs.length === 0 ? '<div class="p-4 text-center text-gray-500">Nenhum registro neste mês.</div>' : ''}
+            </div>
+            
+            <div id="pdf-footer" class="hidden mt-10 pt-4 border-t text-center"></div>
+            </div>
+        `;
+
+        // Renderizar Gráfico
+        new Chart(document.getElementById('chartGeral'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Sólidos', 'Sopa', 'Chá'],
+                datasets: [{ data: [totals.Solido, totals.Sopa, totals.Cha], backgroundColor: ['#10B981', '#F59E0B', '#F97316'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+    },
+
+    exportPDF: () => {
+        const element = document.getElementById('print-area-mlpain');
+        const header = document.getElementById('pdf-header');
+        const footer = document.getElementById('pdf-footer');
+        const title = document.getElementById('pdf-title');
+        const inst = MLPainModule.state.instituicao[0] || {};
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        // Configura Cabeçalho
+        header.innerHTML = `
+            <div class="flex items-center gap-4">
+                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
+                    <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+                </div>
+            </div>
+        `;
+        header.classList.remove('hidden');
+        title.classList.remove('hidden');
+
+        // Configura Rodapé
+        footer.innerHTML = `<p class="text-xs text-gray-400">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
+        footer.classList.remove('hidden');
+        
+        const opt = {
+            margin: 10,
+            filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+        };
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            header.classList.add('hidden'); title.classList.add('hidden'); footer.classList.add('hidden');
+        });
+    },
+
+    // --- 4. GESTÃO DE ÁREAS ---
+    renderAreas: (container) => {
+        const areas = MLPainModule.state.areas;
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Áreas Hospitalares</h3>
+                <button onclick="MLPainModule.modalArea()" class="bg-blue-600 text-white px-4 py-2 rounded shadow">+ Nova Área</button>
+            </div>
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100"><tr><th class="p-3">Ordem</th><th class="p-3">Nome da Área</th><th class="p-3 text-center">Meta Diária</th><th class="p-3">Status</th><th class="p-3 text-center">Ações</th></tr></thead>
+                    <tbody class="divide-y">
+                        ${areas.map(a => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 text-gray-500">${a.Ordem || 0}</td>
+                                <td class="p-3 font-bold">${a.Nome}</td>
+                                <td class="p-3 text-center font-mono text-blue-600">${a.MetaDiaria || 0}</td>
+                                <td class="p-3"><span class="px-2 py-1 rounded text-xs ${a.Ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${a.Ativo ? 'Ativo' : 'Inativo'}</span></td>
+                                <td class="p-3 text-center">
+                                    <button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    modalArea: () => {
+        Utils.openModal('Nova Área', `
+            <form onsubmit="MLPainModule.saveArea(event)">
+                <div class="mb-3"><label class="text-xs font-bold">Nome da Área</label><input name="Nome" class="border p-2 rounded w-full" required placeholder="Ex: Pediatria, UTI..."></div>
+                <div class="mb-3"><label class="text-xs font-bold">Ordem de Exibição</label><input type="number" name="Ordem" class="border p-2 rounded w-full" value="0"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Meta Diária de Refeições</label><input type="number" name="MetaDiaria" class="border p-2 rounded w-full" value="0" placeholder="Opcional"></div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar</button>
+            </form>
+        `);
+    },
+
+    saveArea: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try {
+            await MLPainModule.api('save', 'MLPain_Areas', data);
+            Utils.toast('✅ Área salva!'); Utils.closeModal(); MLPainModule.fetchData();
+        } catch (err) { Utils.toast('Erro ao salvar'); }
+    },
+
+    deleteArea: async (id) => {
+        if(confirm('Remover esta área?')) {
+            await MLPainModule.api('delete', 'MLPain_Areas', null, id);
+            MLPainModule.fetchData();
+        }
+    }
+};
+
+document.addEventListener('DOMContentLoaded', MLPainModule.init);

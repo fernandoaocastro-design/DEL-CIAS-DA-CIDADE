@@ -52,6 +52,27 @@ const Utils = {
     toggleProfileMenu: () => {
         const menu = document.getElementById('profile-menu');
         if(menu) menu.classList.toggle('hidden');
+        else {
+            // Cria o menu se não existir (Injeção dinâmica)
+            const btn = document.querySelector('button[onclick="Utils.toggleProfileMenu()"]');
+            if(btn) {
+                const div = document.createElement('div');
+                div.id = 'profile-menu';
+                div.className = 'absolute right-8 top-20 w-56 bg-white rounded-lg shadow-xl border z-50 py-2 animate-fade-in-down';
+                div.innerHTML = `
+                    <div class="px-4 py-2 border-b mb-2">
+                        <p class="text-sm font-bold text-gray-800">Administrador</p>
+                        <p class="text-xs text-gray-500">admin@deliciadacidade.com</p>
+                    </div>
+                    <a href="#" onclick="Utils.modalEditProfile()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user mr-2"></i> Meu Perfil</a>
+                    <a href="configuracoes.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-cog mr-2"></i> Configurações</a>
+                    <div class="border-t mt-2 pt-2">
+                        <a href="#" onclick="Utils.confirmLogout()" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-2"></i> Sair</a>
+                    </div>
+                `;
+                document.body.appendChild(div);
+            }
+        }
     },
 
     toggleNotifications: () => {
@@ -71,6 +92,10 @@ const Utils = {
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1">Email</label>
                     <input name="email" value="${user.Email}" class="border p-2 rounded w-full" required>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1">Assinatura Digital (Texto/Cargo)</label>
+                    <input name="assinatura" value="${user.Assinatura || ''}" placeholder="Ex: João Silva - Gerente" class="border p-2 rounded w-full bg-gray-50">
                 </div>
                 <div class="mb-4 border-t pt-4">
                     <h5 class="font-bold text-gray-700 mb-2">Segurança (Obrigatório para salvar)</h5>
@@ -107,6 +132,7 @@ const Utils = {
                 const currentUser = JSON.parse(localStorage.getItem('user'));
                 currentUser.Nome = data.nome;
                 currentUser.Email = data.email;
+                currentUser.Assinatura = data.assinatura;
                 if(data.novaSenha) currentUser.Senha = data.novaSenha; // Em app real, não salvaria senha no localstorage
                 localStorage.setItem('user', JSON.stringify(currentUser));
                 

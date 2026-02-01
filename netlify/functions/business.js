@@ -180,14 +180,14 @@ exports.handler = async (event) => {
             }
             result = { success: true };
         } else if (action === 'updateProfile') {
-            const { id, nome, email, senhaAtual, novaSenha } = data;
+            const { id, nome, email, senhaAtual, novaSenha, assinatura } = data;
             
             // Verifica senha atual
             const { data: user, error: errUser } = await supabase.from('Usuarios').select('*').eq('ID', id).single();
             if (errUser || !user) throw new Error('Usuário não encontrado.');
             if (user.Senha !== senhaAtual) throw new Error('Senha atual incorreta.');
 
-            const updates = { Nome: nome, Email: email };
+            const updates = { Nome: nome, Email: email, Assinatura: assinatura };
             if (novaSenha) updates.Senha = novaSenha;
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());

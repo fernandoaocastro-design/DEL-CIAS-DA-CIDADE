@@ -1,23 +1,3 @@
--- 1. LIMPEZA TOTAL (Cuidado: Apaga dados antigos para recriar a estrutura correta)
--- DROP TABLE IF EXISTS "SYSTEM_LOGS_DB" CASCADE;
--- DROP TABLE IF EXISTS "Avaliacoes" CASCADE;
--- DROP TABLE IF EXISTS "Frequencia" CASCADE;
--- DROP TABLE IF EXISTS "Ferias" CASCADE;
--- DROP TABLE IF EXISTS "Treinamentos" CASCADE;
--- DROP TABLE IF EXISTS "Treinamento" CASCADE;
--- DROP TABLE IF EXISTS "Licencas" CASCADE;
--- DROP TABLE IF EXISTS "Folha" CASCADE;
--- DROP TABLE IF EXISTS "Funcionarios" CASCADE;
--- DROP TABLE IF EXISTS "MLPAIN_DB" CASCADE;
--- DROP TABLE IF EXISTS "Estoque" CASCADE;
--- DROP TABLE IF EXISTS "Financas" CASCADE;
--- DROP TABLE IF EXISTS "Usuarios" CASCADE;
--- DROP TABLE IF EXISTS "Pratos" CASCADE;
--- DROP TABLE IF EXISTS "Notificacoes" CASCADE;
--- DROP TABLE IF EXISTS "Fornecedores" CASCADE;
--- DROP TABLE IF EXISTS "MovimentacoesEstoque" CASCADE;
--- DROP TABLE IF EXISTS "Inventario" CASCADE;
--- DROP TABLE IF EXISTS "HistoricoInventario" CASCADE;
 
 -- 2. TABELAS DE CONFIGURAÇÃO E ACESSO
 CREATE TABLE "Usuarios" (
@@ -26,6 +6,7 @@ CREATE TABLE "Usuarios" (
     "Email" VARCHAR(255) UNIQUE NOT NULL,
     "Senha" VARCHAR(255) NOT NULL,
     "Cargo" VARCHAR(100),
+    "Assinatura" TEXT,
     "Status" VARCHAR(50) DEFAULT 'Ativo',
     "UltimoAcesso" TIMESTAMP,
     "CriadoEm" TIMESTAMP DEFAULT NOW()
@@ -261,13 +242,28 @@ CREATE TABLE "Notificacoes" (
     "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE "MLPAIN_DB" (
+-- 8. MÓDULO M.L. PAIN (COZINHA HOSPITALAR)
+CREATE TABLE "MLPain_Areas" (
     "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "Data" DATE,
-    "Refeicao" VARCHAR(255),
-    "QtdPlanejada" DECIMAL(12,2),
-    "QtdProduzida" DECIMAL(12,2),
-    "Status" VARCHAR(50)
+    "Nome" VARCHAR(100) NOT NULL,
+    "Ordem" INTEGER DEFAULT 0,
+    "MetaDiaria" INTEGER DEFAULT 0,
+    "Ativo" BOOLEAN DEFAULT TRUE,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE "MLPain_Registros" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Data" DATE NOT NULL,
+    "Turno" VARCHAR(50), -- Manhã, Tarde, Noite
+    "AreaID" UUID REFERENCES "MLPain_Areas"("ID"),
+    "AreaNome" VARCHAR(100), -- Redundância para facilitar relatórios históricos
+    "Tipo" VARCHAR(50), -- Sólido, Líquido
+    "Subtipo" VARCHAR(50), -- Geral (Sólido), Sopa, Chá
+    "Quantidade" INTEGER DEFAULT 0,
+    "Responsavel" VARCHAR(255),
+    "Observacoes" TEXT,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE "SYSTEM_LOGS_DB" (
@@ -307,6 +303,83 @@ CREATE TABLE "HistoricoInventario" (
     "ResponsavelAcao" VARCHAR(255), -- Quem fez a alteração no sistema
     "Data" TIMESTAMP DEFAULT NOW(),
     "DetalhesJSON" JSONB -- Dados anteriores/novos
+);
+
+-- 7. MÓDULO CONFIGURAÇÕES (NOVAS TABELAS)
+
+-- A. Instituição e Preferências
+CREATE TABLE "InstituicaoConfig" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "NomeCompleto" VARCHAR(255),
+    "NomeFantasia" VARCHAR(255),
+    "TipoUnidade" VARCHAR(100),
+    "LogotipoURL" TEXT,
+    "Endereco" TEXT,
+    "Telefone" VARCHAR(50),
+    "Email" VARCHAR(100),
+    "Website" VARCHAR(100),
+    "Moeda" VARCHAR(10) DEFAULT 'Kz',
+    "FusoHorario" VARCHAR(50) DEFAULT 'Africa/Luanda'
+);
+
+-- B. Estrutura Organizacional
+CREATE TABLE "Departamentos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(100) NOT NULL,
+    "Responsavel" VARCHAR(255),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE "Cargos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(100) NOT NULL,
+    "DepartamentoID" UUID REFERENCES "Departamentos"("ID"),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- C. Parâmetros Gerais (Tabelas Auxiliares)
+-- Usaremos uma tabela genérica para listas simples ou tabelas especificas conforme necessidade
+CREATE TABLE "ParametrosRH" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Tipo" VARCHAR(50), -- 'TipoContrato', 'Turno', 'Regime'
+    "Valor" VARCHAR(100),
+    "Ativo" BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE "ParametrosCozinha" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Tipo" VARCHAR(50), -- 'TipoRefeicao', 'AreaProducao', 'UnidadeMedida'
+    "Valor" VARCHAR(100)
+);
+
+CREATE TABLE "ParametrosEstoque" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Tipo" VARCHAR(50), -- 'CategoriaProduto', 'MotivoPerda'
+    "Valor" VARCHAR(100)
+);
+
+CREATE TABLE "ParametrosPatrimonio" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Tipo" VARCHAR(50), -- 'CategoriaBem', 'EstadoBem'
+    "Valor" VARCHAR(100)
+);
+
+CREATE TABLE "ParametrosFinanceiro" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Tipo" VARCHAR(50), -- 'FormaPagamento', 'Banco', 'Beneficio'
+    "Valor" VARCHAR(100)
+);
+
+-- D. Logs de Auditoria
+CREATE TABLE "LogsAuditoria" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "DataHora" TIMESTAMP DEFAULT NOW(),
+    "UsuarioID" UUID,
+    "UsuarioNome" VARCHAR(255),
+    "Modulo" VARCHAR(50),
+    "Acao" VARCHAR(50), -- CRIAR, EDITAR, EXCLUIR
+    "Descricao" TEXT,
+    "DetalhesJSON" JSONB
 );
 
 -- 5. SEGURANÇA E DADOS INICIAIS

@@ -3,7 +3,8 @@ const FinancasModule = {
         activeTab: 'fluxo',
         fluxo: [],
         receber: [],
-        pagar: []
+        pagar: [],
+        instituicao: []
     },
 
     init: () => {
@@ -13,15 +14,17 @@ const FinancasModule = {
     fetchData: async () => {
         try {
             // Busca dados das 3 tabelas em paralelo
-            const [fluxo, receber, pagar] = await Promise.all([
+            const [fluxo, receber, pagar, inst] = await Promise.all([
                 FinancasModule.api('getAll', 'Financas'),
                 FinancasModule.api('getAll', 'ContasReceber'),
-                FinancasModule.api('getAll', 'ContasPagar')
+                FinancasModule.api('getAll', 'ContasPagar'),
+                FinancasModule.api('getAll', 'InstituicaoConfig')
             ]);
             
             FinancasModule.state.fluxo = fluxo || [];
             FinancasModule.state.receber = receber || [];
             FinancasModule.state.pagar = pagar || [];
+            FinancasModule.state.instituicao = inst || [];
             
             FinancasModule.render();
         } catch (e) {
@@ -62,6 +65,7 @@ const FinancasModule = {
         if (tab === 'fluxo') FinancasModule.renderFluxo(container);
         else if (tab === 'receber') FinancasModule.renderContas(container, 'ContasReceber');
         else if (tab === 'pagar') FinancasModule.renderContas(container, 'ContasPagar');
+        else if (tab === 'relatorios') FinancasModule.renderRelatorios(container);
     },
 
     renderFluxo: (container) => {
@@ -153,6 +157,284 @@ const FinancasModule = {
                 }).join('')}
             </div>
         `;
+    },
+
+    renderRelatorios: (container) => {
+        // Renderiza a estrutura base (Filtros + Área de Impressão)
+        container.innerHTML = `
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                <h3 class="text-xl font-bold text-gray-700">Relatórios Financeiros</h3>
+                
+                <div class="flex gap-2 items-center bg-white p-2 rounded shadow">
+                    <label class="text-xs font-bold text-gray-500">Período:</label>
+                    <input type="month" id="filtro-mes" class="border p-1 rounded text-sm" onchange="FinancasModule.updateRelatorios()">
+                    <button onclick="document.getElementById('filtro-mes').value=''; FinancasModule.updateRelatorios()" class="text-gray-400 hover:text-gray-600 text-sm px-2" title="Limpar Filtro"><i class="fas fa-times"></i></button>
+                </div>
+
+                <button onclick="FinancasModule.exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
+                    <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
+                </button>
+            </div>
+
+            <div id="print-area-financas" class="p-4 bg-white rounded">
+                <div id="pdf-header" class="hidden mb-6 border-b pb-4"></div>
+                <div id="relatorio-content"></div>
+                <div id="pdf-footer" class="hidden mt-10 pt-4 border-t text-center"></div>
+            </div>
+        `;
+
+        FinancasModule.updateRelatorios();
+    },
+
+    updateRelatorios: () => {
+        const mesFiltro = document.getElementById('filtro-mes').value; // Formato YYYY-MM
+        let fluxo = FinancasModule.state.fluxo;
+
+        // --- DADOS PARA GRÁFICO DE EVOLUÇÃO (Histórico Completo) ---
+        const evolutionMap = {};
+        FinancasModule.state.fluxo.forEach(item => {
+            if (!item.Data) return;
+            const mes = item.Data.substring(0, 7); // YYYY-MM
+            if (!evolutionMap[mes]) evolutionMap[mes] = { receita: 0, despesa: 0 };
+            
+            if (item.Tipo === 'Receita') evolutionMap[mes].receita += Number(item.Valor);
+            else evolutionMap[mes].despesa += Number(item.Valor);
+        });
+        
+        const sortedMonths = Object.keys(evolutionMap).sort().slice(-12); // Últimos 12 meses
+        const evoLabels = sortedMonths.map(m => { const [a, mm] = m.split('-'); return `${mm}/${a}`; });
+        
+        // --- FILTRAGEM PARA PIE CHARTS E TABELA ---
+        // Aplicar Filtro
+        if (mesFiltro) {
+            fluxo = fluxo.filter(item => item.Data && item.Data.startsWith(mesFiltro));
+        }
+
+        // Ordenar por data para a tabela
+        fluxo.sort((a, b) => new Date(b.Data) - new Date(a.Data));
+        
+        // Processamento de Dados
+        const receitasMap = {};
+        const despesasMap = {};
+        let totalReceitas = 0, totalDespesas = 0;
+
+        fluxo.forEach(item => {
+            const val = Number(item.Valor);
+            const cat = item.Categoria || 'Sem Categoria';
+            
+            if (item.Tipo === 'Receita') {
+                receitasMap[cat] = (receitasMap[cat] || 0) + val;
+                totalReceitas += val;
+            } else {
+                despesasMap[cat] = (despesasMap[cat] || 0) + val;
+                totalDespesas += val;
+            }
+        });
+
+        // Preparar dados para Chart.js
+        const prepChartData = (map) => ({
+            labels: Object.keys(map),
+            data: Object.values(map)
+        });
+
+        const recData = prepChartData(receitasMap);
+        const despData = prepChartData(despesasMap);
+
+        const html = `
+            <h4 class="text-center text-gray-500 mb-4 font-bold">${mesFiltro ? 'Período: ' + mesFiltro : 'Período: Geral (Todo o Histórico)'}</h4>
+            
+            <!-- GRÁFICO DE EVOLUÇÃO -->
+            <div class="bg-white p-4 rounded border mb-6 shadow-sm">
+                <h4 class="font-bold text-gray-700 mb-2 border-b pb-2">Evolução Mensal (Últimos 12 Meses)</h4>
+                <div class="h-64"><canvas id="chartEvolucao"></canvas></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- RECEITAS -->
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h4 class="font-bold text-green-700 mb-4 border-b pb-2 flex justify-between">
+                        <span>Receitas</span>
+                        <span>${Utils.formatCurrency(totalReceitas)}</span>
+                    </h4>
+                    <div class="h-64">
+                        <canvas id="chartReceitas"></canvas>
+                    </div>
+                    <p class="text-xs text-center text-gray-400 mt-2">Clique no gráfico para detalhes</p>
+                </div>
+
+                <!-- DESPESAS -->
+                <div class="bg-gray-50 p-4 rounded border">
+                    <h4 class="font-bold text-red-700 mb-4 border-b pb-2 flex justify-between">
+                        <span>Despesas</span>
+                        <span>${Utils.formatCurrency(totalDespesas)}</span>
+                    </h4>
+                    <div class="h-64">
+                        <canvas id="chartDespesas"></canvas>
+                    </div>
+                    <p class="text-xs text-center text-gray-400 mt-2">Clique no gráfico para detalhes</p>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 p-6 rounded border border-blue-100 text-center mb-8">
+                <h4 class="font-bold text-gray-700 mb-2">Resultado do Período</h4>
+                <div class="text-3xl font-bold ${totalReceitas - totalDespesas >= 0 ? 'text-green-600' : 'text-red-600'}">
+                    ${Utils.formatCurrency(totalReceitas - totalDespesas)}
+                </div>
+            </div>
+
+            <!-- TABELA DETALHADA -->
+            <div>
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Detalhamento das Transações</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-600 uppercase">
+                            <tr>
+                                <th class="p-3">Data</th>
+                                <th class="p-3">Tipo</th>
+                                <th class="p-3">Categoria</th>
+                                <th class="p-3">Descrição</th>
+                                <th class="p-3 text-right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${fluxo.map(f => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="p-3">${Utils.formatDate(f.Data)}</td>
+                                    <td class="p-3"><span class="px-2 py-1 rounded text-xs ${f.Tipo === 'Receita' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${f.Tipo}</span></td>
+                                    <td class="p-3">${f.Categoria || '-'}</td>
+                                    <td class="p-3">${f.Descricao}</td>
+                                    <td class="p-3 text-right font-bold ${f.Tipo === 'Receita' ? 'text-green-600' : 'text-red-600'}">${Utils.formatCurrency(f.Valor)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('relatorio-content').innerHTML = html;
+
+        // Renderizar Gráfico de Evolução
+        new Chart(document.getElementById('chartEvolucao'), {
+            type: 'bar',
+            data: {
+                labels: evoLabels,
+                datasets: [
+                    { label: 'Receitas', data: sortedMonths.map(m => evolutionMap[m].receita), backgroundColor: '#10B981', borderRadius: 4 },
+                    { label: 'Despesas', data: sortedMonths.map(m => evolutionMap[m].despesa), backgroundColor: '#EF4444', borderRadius: 4 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + Utils.formatCurrency(c.parsed.y) } } },
+                scales: { y: { beginAtZero: true, ticks: { callback: (v) => Utils.formatCurrency(v) } } }
+            }
+        });
+
+        // Configuração comum para os gráficos com evento de clique
+        const chartOptions = (type, labels) => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (elements.length > 0) {
+                    const index = elements[0].index;
+                    const category = labels[index];
+                    FinancasModule.showCategoryDetails(category, type, mesFiltro);
+                }
+            },
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return (context.label || '') + ': ' + Utils.formatCurrency(context.parsed);
+                        }
+                    }
+                }
+            }
+        });
+
+        // Renderizar Gráficos
+        new Chart(document.getElementById('chartReceitas'), {
+            type: 'doughnut',
+            data: { labels: recData.labels, datasets: [{ data: recData.data, backgroundColor: ['#10B981', '#34D399', '#6EE7B7', '#059669', '#047857'] }] },
+            options: chartOptions('Receita', recData.labels)
+        });
+
+        new Chart(document.getElementById('chartDespesas'), {
+            type: 'doughnut',
+            data: { labels: despData.labels, datasets: [{ data: despData.data, backgroundColor: ['#EF4444', '#F87171', '#FCA5A5', '#B91C1C', '#991B1B'] }] },
+            options: chartOptions('Despesa', despData.labels)
+        });
+    },
+
+    showCategoryDetails: (category, type, periodo) => {
+        let items = FinancasModule.state.fluxo.filter(i => i.Categoria === category && i.Tipo === type);
+        if(periodo) items = items.filter(i => i.Data && i.Data.startsWith(periodo));
+        
+        items.sort((a,b) => new Date(b.Data) - new Date(a.Data));
+
+        const total = items.reduce((acc, i) => acc + Number(i.Valor), 0);
+
+        Utils.openModal(`Detalhes: ${category} (${type})`, `
+            <div class="mb-4 text-sm text-gray-600">
+                Período: <b>${periodo || 'Todo o Histórico'}</b> <br>
+                Total: <b class="${type === 'Receita' ? 'text-green-600' : 'text-red-600'}">${Utils.formatCurrency(total)}</b>
+            </div>
+            <div class="overflow-y-auto max-h-96">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 sticky top-0">
+                        <tr><th class="p-2">Data</th><th class="p-2">Descrição</th><th class="p-2 text-right">Valor</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${items.map(i => `
+                            <tr>
+                                <td class="p-2">${Utils.formatDate(i.Data)}</td>
+                                <td class="p-2">${i.Descricao}</td>
+                                <td class="p-2 text-right font-bold">${Utils.formatCurrency(i.Valor)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `);
+    },
+
+    exportPDF: () => {
+        const element = document.getElementById('print-area-financas');
+        const header = document.getElementById('pdf-header');
+        const footer = document.getElementById('pdf-footer');
+        const inst = FinancasModule.state.instituicao[0] || {};
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        // Cabeçalho
+        header.innerHTML = `
+            <div class="flex items-center gap-4">
+                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório Financeiro'}</h1>
+                    <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+                </div>
+            </div>
+        `;
+        header.classList.remove('hidden');
+
+        // Rodapé
+        footer.innerHTML = `<p class="text-xs text-gray-400">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
+        footer.classList.remove('hidden');
+        
+        const opt = {
+            margin: 10,
+            filename: 'relatorio-financeiro.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            header.classList.add('hidden');
+            footer.classList.add('hidden');
+        });
     },
 
     modalConta: (table) => {
