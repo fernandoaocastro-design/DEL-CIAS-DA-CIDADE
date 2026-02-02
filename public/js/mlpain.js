@@ -19,11 +19,11 @@ const MLPainModule = {
     fetchData: async () => {
         try {
             const [areas, registros, inst, pratos, funcionarios] = await Promise.all([
-                MLPainModule.api('getAll', 'MLPain_Areas'),
-                MLPainModule.api('getAll', 'MLPain_Registros'),
-                MLPainModule.api('getAll', 'InstituicaoConfig'),
-                MLPainModule.api('getAll', 'Pratos'),
-                MLPainModule.api('getAll', 'Funcionarios')
+                Utils.api('getAll', 'MLPain_Areas'),
+                Utils.api('getAll', 'MLPain_Registros'),
+                Utils.api('getAll', 'InstituicaoConfig'),
+                Utils.api('getAll', 'Pratos'),
+                Utils.api('getAll', 'Funcionarios')
             ]);
             
             // Ordenar áreas pela ordem definida ou nome
@@ -38,16 +38,6 @@ const MLPainModule = {
             console.error(e);
             Utils.toast("Erro ao carregar dados do M.L. Pain.");
         }
-    },
-
-    api: async (action, table, data = null, id = null) => {
-        const res = await fetch('/.netlify/functions/business', {
-            method: 'POST',
-            body: JSON.stringify({ action, table, data, id })
-        });
-        const json = await res.json();
-        if (json.success) return json.data;
-        throw new Error(json.message || 'Erro na API');
     },
 
     setTab: (tab) => {
@@ -98,6 +88,27 @@ const MLPainModule = {
                 .reduce((acc, r) => acc + Number(r.Quantidade), 0);
         });
 
+        // Dados para Gráfico de Evolução (Últimos 30 dias)
+        const last30Days = [];
+        const dataSolidos30d = [];
+        const dataLiquidos30d = [];
+        
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            const label = `${d.getDate()}/${d.getMonth() + 1}`;
+            last30Days.push(label);
+
+            const dayRecs = MLPainModule.state.registros.filter(r => r.Data === dateStr);
+            
+            const solidos = dayRecs.filter(r => r.Tipo === 'Sólido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
+            const liquidos = dayRecs.filter(r => r.Tipo === 'Líquido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
+            
+            dataSolidos30d.push(solidos);
+            dataLiquidos30d.push(liquidos);
+        }
+
         container.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
@@ -118,9 +129,15 @@ const MLPainModule = {
                 </div>
             </div>
             
-            <div class="bg-white p-6 rounded shadow mb-8">
-                <h3 class="text-lg font-bold text-gray-700 mb-4">Consumo Diário por Área vs Meta</h3>
-                <div class="h-64"><canvas id="chartMetas"></canvas></div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-white p-6 rounded shadow">
+                    <h3 class="text-lg font-bold text-gray-700 mb-4">Consumo Diário por Área vs Meta</h3>
+                    <div class="h-64"><canvas id="chartMetas"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded shadow">
+                    <h3 class="text-lg font-bold text-gray-700 mb-4">Evolução de Consumo (30 Dias)</h3>
+                    <div class="h-64"><canvas id="chartEvolucaoDietas"></canvas></div>
+                </div>
             </div>
 
             <div class="bg-white p-6 rounded shadow text-center">
@@ -143,6 +160,19 @@ const MLPainModule = {
             },
             options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
         });
+
+        // Renderizar Gráfico de Evolução
+        new Chart(document.getElementById('chartEvolucaoDietas'), {
+            type: 'line',
+            data: {
+                labels: last30Days,
+                datasets: [
+                    { label: 'Sólidos', data: dataSolidos30d, borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3 },
+                    { label: 'Líquidos', data: dataLiquidos30d, borderColor: '#F97316', backgroundColor: 'rgba(249, 115, 22, 0.1)', fill: true, tension: 0.3 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
     },
 
     // --- 2. LANÇAMENTO (FORMULÁRIO DINÂMICO) ---
@@ -156,9 +186,20 @@ const MLPainModule = {
         const defaultTurno = MLPainModule.state.lastEntryTurno || 'Manhã';
         const defaultResp = MLPainModule.state.lastEntryResp || '';
 
+        // Contagem de refeições lançadas hoje
+        const totalToday = MLPainModule.state.registros
+            .filter(r => r.Data === today)
+            .reduce((acc, r) => acc + Number(r.Quantidade || 0), 0);
+
         container.innerHTML = `
             <div class="bg-white p-6 rounded shadow max-w-4xl mx-auto">
-                <h3 class="text-xl font-bold text-gray-800 mb-6 border-b pb-2">Lançamento Diário de Refeições</h3>
+                <div class="flex justify-between items-center mb-6 border-b pb-2">
+                    <h3 class="text-xl font-bold text-gray-800">Lançamento Diário de Refeições</h3>
+                    <div class="bg-blue-50 px-4 py-2 rounded text-right border border-blue-100">
+                        <span class="block text-[10px] text-blue-500 font-bold uppercase tracking-wider">Lançadas Hoje</span>
+                        <span class="text-2xl font-bold text-blue-700 leading-none">${totalToday}</span>
+                    </div>
+                </div>
                 
                 <form onsubmit="MLPainModule.saveLancamento(event)">
                     <!-- Cabeçalho do Formulário -->
@@ -320,7 +361,7 @@ const MLPainModule = {
             const qtd = formData.get('Quantidade');
             const prato = formData.get('Prato');
             if (qtd && Number(qtd) > 0) {
-                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                promises.push(Utils.api('save', 'MLPain_Registros', {
                     ...commonData, Tipo: 'Sólido', Subtipo: 'Geral', Quantidade: qtd, Prato: prato
                 }));
             }
@@ -329,12 +370,12 @@ const MLPainModule = {
             const qtdCha = formData.get('QtdCha');
             
             if (qtdSopa && Number(qtdSopa) > 0) {
-                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                promises.push(Utils.api('save', 'MLPain_Registros', {
                     ...commonData, Tipo: 'Líquido', Subtipo: 'Sopa', Quantidade: qtdSopa
                 }));
             }
             if (qtdCha && Number(qtdCha) > 0) {
-                promises.push(MLPainModule.api('save', 'MLPain_Registros', {
+                promises.push(Utils.api('save', 'MLPain_Registros', {
                     ...commonData, Tipo: 'Líquido', Subtipo: 'Chá', Quantidade: qtdCha
                 }));
             }
@@ -648,14 +689,14 @@ const MLPainModule = {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
         try {
-            await MLPainModule.api('save', 'MLPain_Areas', data);
+            await Utils.api('save', 'MLPain_Areas', data);
             Utils.toast('✅ Área salva!'); Utils.closeModal(); MLPainModule.fetchData();
         } catch (err) { Utils.toast('Erro ao salvar'); }
     },
 
     deleteArea: async (id) => {
         if(confirm('Remover esta área?')) {
-            await MLPainModule.api('delete', 'MLPain_Areas', null, id);
+            await Utils.api('delete', 'MLPain_Areas', null, id);
             MLPainModule.fetchData();
         }
     }

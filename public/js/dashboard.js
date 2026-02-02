@@ -5,18 +5,12 @@ const DashboardModule = {
 
     loadData: async () => {
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'getDashboardStats' })
-            });
-            const json = await res.json();
+            const data = await Utils.api('getDashboardStats');
             
-            if (json.success) {
-                DashboardModule.renderKPIs(json.data.kpis);
-                DashboardModule.renderDRE(json.data.dre);
-                DashboardModule.renderMonitoramento(json.data.monitoramento);
-                DashboardModule.renderCharts(json.data.charts);
-            }
+            DashboardModule.renderKPIs(data.kpis);
+            DashboardModule.renderDRE(data.dre);
+            DashboardModule.renderMonitoramento(data.monitoramento);
+            DashboardModule.renderCharts(data.charts);
         } catch (e) {
             console.error(e);
             Utils.toast("Erro ao carregar dashboard.");
