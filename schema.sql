@@ -248,6 +248,7 @@ CREATE TABLE "MLPain_Areas" (
     "Nome" VARCHAR(100) NOT NULL,
     "Ordem" INTEGER DEFAULT 0,
     "MetaDiaria" INTEGER DEFAULT 0,
+    "Tipo" VARCHAR(50) DEFAULT 'Sólido',
     "Ativo" BOOLEAN DEFAULT TRUE,
     "CriadoEm" TIMESTAMP DEFAULT NOW()
 );

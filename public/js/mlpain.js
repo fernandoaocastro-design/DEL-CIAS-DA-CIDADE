@@ -188,8 +188,7 @@ const MLPainModule = {
                         <div class="mb-4">
                             <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Área / Enfermaria</label>
                             <select name="AreaID" class="border p-2 rounded w-full bg-white" required>
-                                <option value="">Selecione a Área...</option>
-                                ${areas.map(a => `<option value="${a.ID}">${a.Nome}</option>`).join('')}
+                                <!-- Preenchido dinamicamente pelo toggleFormType -->
                             </select>
                         </div>
 
@@ -218,6 +217,14 @@ const MLPainModule = {
     toggleFormType: (type) => {
         const container = document.getElementById('dynamic-fields');
         const pratos = MLPainModule.tempPratos || [];
+
+        // Atualizar Dropdown de Áreas conforme o Tipo selecionado
+        const areaSelect = document.querySelector('select[name="AreaID"]');
+        if (areaSelect) {
+            const areasFiltradas = MLPainModule.state.areas.filter(a => a.Ativo && (a.Tipo === type || (!a.Tipo && type === 'Sólido')));
+            areaSelect.innerHTML = '<option value="">Selecione a Área...</option>' + 
+                areasFiltradas.map(a => `<option value="${a.ID}">${a.Nome}</option>`).join('');
+        }
         
         if (type === 'Sólido') {
             container.innerHTML = `
@@ -328,6 +335,18 @@ const MLPainModule = {
             else if (r.Subtipo === 'Chá') totals.Cha += Number(r.Quantidade);
         });
 
+        // Agrupamento por Área para o Gráfico Comparativo
+        const areaStats = {};
+        recs.forEach(r => {
+            const area = r.AreaNome || 'Outros';
+            if (!areaStats[area]) areaStats[area] = { Solido: 0, Liquido: 0 };
+            if (r.Tipo === 'Sólido') areaStats[area].Solido += Number(r.Quantidade);
+            else areaStats[area].Liquido += Number(r.Quantidade);
+        });
+        const areaLabels = Object.keys(areaStats);
+        const dataSolido = areaLabels.map(a => areaStats[a].Solido);
+        const dataLiquido = areaLabels.map(a => areaStats[a].Liquido);
+
         // --- PREPARAÇÃO DA MATRIZ (DIAS x ÁREAS) ---
         const [year, monthNum] = month.split('-');
         const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -377,12 +396,11 @@ const MLPainModule = {
                     <div class="h-48"><canvas id="chartGeral"></canvas></div>
                 </div>
                 <div class="bg-white p-4 rounded shadow col-span-2">
-                    <h4 class="font-bold text-gray-600 mb-2">Resumo do Mês</h4>
-                    <div class="grid grid-cols-3 gap-4 text-center mt-8">
-                        <div><div class="text-3xl font-bold text-green-600">${totals.Solido}</div><div class="text-xs text-gray-500">Sólidos</div></div>
-                        <div><div class="text-3xl font-bold text-yellow-600">${totals.Sopa}</div><div class="text-xs text-gray-500">Sopas</div></div>
-                        <div><div class="text-3xl font-bold text-orange-600">${totals.Cha}</div><div class="text-xs text-gray-500">Chás</div></div>
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-bold text-gray-600">Comparativo por Área (Sólidos vs Líquidos)</h4>
+                        <div class="text-xs font-bold text-gray-500">Total: ${totals.Solido + totals.Sopa + totals.Cha}</div>
                     </div>
+                    <div class="h-48"><canvas id="chartComparativo"></canvas></div>
                 </div>
             </div>
 
@@ -473,6 +491,19 @@ const MLPainModule = {
             },
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
         });
+
+        // Renderizar Gráfico Comparativo
+        new Chart(document.getElementById('chartComparativo'), {
+            type: 'bar',
+            data: {
+                labels: areaLabels,
+                datasets: [
+                    { label: 'Sólidos', data: dataSolido, backgroundColor: '#10B981' },
+                    { label: 'Líquidos', data: dataLiquido, backgroundColor: '#F97316' }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
+        });
     },
 
     exportPDF: () => {
@@ -516,38 +547,58 @@ const MLPainModule = {
     // --- 4. GESTÃO DE ÁREAS ---
     renderAreas: (container) => {
         const areas = MLPainModule.state.areas;
+        const solidas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
+        const liquidas = areas.filter(a => a.Tipo === 'Líquido');
+
+        const renderTable = (list, title, type, colorClass) => `
+            <div class="mb-8">
+                <div class="flex justify-between items-center mb-4">
+                    <h4 class="text-lg font-bold ${colorClass}">${title}</h4>
+                    <button onclick="MLPainModule.modalArea('${type}')" class="${colorClass.replace('text-', 'bg-').replace('700', '600')} text-white px-4 py-2 rounded shadow hover:opacity-90">+ Nova Área ${type}</button>
+                </div>
+                <div class="bg-white rounded shadow overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100"><tr><th class="p-3">Ordem</th><th class="p-3">Nome da Área</th><th class="p-3 text-center">Meta Diária</th><th class="p-3">Status</th><th class="p-3 text-center">Ações</th></tr></thead>
+                        <tbody class="divide-y">
+                            ${list.map(a => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="p-3 text-gray-500">${a.Ordem || 0}</td>
+                                    <td class="p-3 font-bold">${a.Nome}</td>
+                                    <td class="p-3 text-center font-mono text-blue-600">${a.MetaDiaria || 0}</td>
+                                    <td class="p-3"><span class="px-2 py-1 rounded text-xs ${a.Ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${a.Ativo ? 'Ativo' : 'Inativo'}</span></td>
+                                    <td class="p-3 text-center">
+                                        <button onclick="MLPainModule.modalArea('${type}', '${a.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                        <button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                            ${list.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhuma área cadastrada.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
         container.innerHTML = `
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold">Áreas Hospitalares</h3>
-                <button onclick="MLPainModule.modalArea()" class="bg-blue-600 text-white px-4 py-2 rounded shadow">+ Nova Área</button>
-            </div>
-            <div class="bg-white rounded shadow overflow-hidden">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100"><tr><th class="p-3">Ordem</th><th class="p-3">Nome da Área</th><th class="p-3 text-center">Meta Diária</th><th class="p-3">Status</th><th class="p-3 text-center">Ações</th></tr></thead>
-                    <tbody class="divide-y">
-                        ${areas.map(a => `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3 text-gray-500">${a.Ordem || 0}</td>
-                                <td class="p-3 font-bold">${a.Nome}</td>
-                                <td class="p-3 text-center font-mono text-blue-600">${a.MetaDiaria || 0}</td>
-                                <td class="p-3"><span class="px-2 py-1 rounded text-xs ${a.Ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${a.Ativo ? 'Ativo' : 'Inativo'}</span></td>
-                                <td class="p-3 text-center">
-                                    <button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
+            <h3 class="text-xl font-bold mb-6">Gestão de Áreas Hospitalares</h3>
+            
+            ${renderTable(solidas, '🍽️ Áreas - Dieta Sólida', 'Sólido', 'text-blue-700')}
+            
+            ${renderTable(liquidas, '🥣 Áreas - Dieta Líquida', 'Líquido', 'text-orange-700')}
         `;
     },
 
-    modalArea: () => {
-        Utils.openModal('Nova Área', `
+    modalArea: (type = 'Sólido', id = null) => {
+        const area = id ? MLPainModule.state.areas.find(a => a.ID === id) : {};
+        const title = id ? `Editar Área (${type})` : `Nova Área (${type})`;
+
+        Utils.openModal(title, `
             <form onsubmit="MLPainModule.saveArea(event)">
-                <div class="mb-3"><label class="text-xs font-bold">Nome da Área</label><input name="Nome" class="border p-2 rounded w-full" required placeholder="Ex: Pediatria, UTI..."></div>
-                <div class="mb-3"><label class="text-xs font-bold">Ordem de Exibição</label><input type="number" name="Ordem" class="border p-2 rounded w-full" value="0"></div>
-                <div class="mb-3"><label class="text-xs font-bold">Meta Diária de Refeições</label><input type="number" name="MetaDiaria" class="border p-2 rounded w-full" value="0" placeholder="Opcional"></div>
+                <input type="hidden" name="ID" value="${area.ID || ''}">
+                <input type="hidden" name="Tipo" value="${type}">
+                <div class="mb-3"><label class="text-xs font-bold">Nome da Área</label><input name="Nome" value="${area.Nome || ''}" class="border p-2 rounded w-full" required placeholder="Ex: Pediatria, UTI..."></div>
+                <div class="mb-3"><label class="text-xs font-bold">Ordem de Exibição</label><input type="number" name="Ordem" value="${area.Ordem || 0}" class="border p-2 rounded w-full"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Meta Diária de Refeições</label><input type="number" name="MetaDiaria" value="${area.MetaDiaria || 0}" class="border p-2 rounded w-full" placeholder="Opcional"></div>
                 <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar</button>
             </form>
         `);
