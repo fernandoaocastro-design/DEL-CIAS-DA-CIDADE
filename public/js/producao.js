@@ -27,6 +27,7 @@ const ProducaoModule = {
 
     render: () => {
         const data = ProducaoModule.state.pratos || [];
+        const canDelete = Utils.checkPermission('Producao', 'excluir');
 
         document.getElementById('producao-content').innerHTML = `
             <div class="flex justify-between mb-4">
@@ -51,7 +52,7 @@ const ProducaoModule = {
                         </div>
                         <p class="text-sm text-gray-500 mt-2 mb-4 line-clamp-2">${p.Descricao || 'Sem descrição.'}</p>
                         <div class="flex justify-end gap-2 border-t pt-2">
-                            <button onclick="ProducaoModule.delete('${p.ID}')" class="text-red-500 hover:text-red-700 text-sm"><i class="fas fa-trash"></i> Excluir</button>
+                            ${canDelete ? `<button onclick="ProducaoModule.delete('${p.ID}')" class="text-red-500 hover:text-red-700 text-sm"><i class="fas fa-trash"></i> Excluir</button>` : ''}
                         </div>
                     </div>
                 `).join('')}

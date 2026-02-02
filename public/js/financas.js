@@ -109,6 +109,7 @@ const FinancasModule = {
         const data = isReceber ? FinancasModule.state.receber : FinancasModule.state.pagar;
         const title = isReceber ? 'Contas a Receber' : 'Contas a Pagar';
         const btnColor = isReceber ? 'bg-green-600' : 'bg-red-600';
+        const canDelete = Utils.checkPermission('Financas', 'excluir');
         
         container.innerHTML = `
             <div class="flex justify-between mb-4">
@@ -149,7 +150,7 @@ const FinancasModule = {
                                     <button onclick="FinancasModule.modalBaixa('${item.ID}', '${table}')" class="flex-1 bg-indigo-50 text-indigo-700 py-1 rounded text-sm font-bold hover:bg-indigo-100">
                                         <i class="fas fa-check"></i> ${isReceber ? 'Receber' : 'Pagar'}
                                     </button>
-                                    <button onclick="FinancasModule.delete('${table}', '${item.ID}')" class="px-3 text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button>
+                                    ${canDelete ? `<button onclick="FinancasModule.delete('${table}', '${item.ID}')" class="px-3 text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button>` : ''}
                                 </div>
                             ` : ''}
                         </div>

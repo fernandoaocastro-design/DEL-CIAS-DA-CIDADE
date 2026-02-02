@@ -18,15 +18,15 @@
                 <p class="text-xs text-gray-400">Sistema de Gestão v1.0</p>
             </div>
             <nav class="flex-1 overflow-y-auto py-4">
-                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
+                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
                 <a href="rh.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-users w-6"></i> Recursos Humanos</a>
-                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-boxes w-6"></i> Estoque</a>
-                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-fire-burner w-6"></i> Produção</a>
-                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
-                <a href="mlpain.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-clipboard-list w-6"></i> M.L.PAIN</a>
-                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-coins w-6"></i> Finanças</a>
-                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
-                <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition"><i class="fas fa-cog w-6"></i> Configurações</a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-boxes w-6"></i> Estoque</a>
+                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-fire-burner w-6"></i> Produção</a>
+                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
+                <a href="mlpain.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-clipboard-list w-6"></i> M.L.PAIN</a>
+                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-coins w-6"></i> Finanças</a>
+                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
+                <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-cog w-6"></i> Configurações</a>
             </nav>
         </aside>
 
@@ -34,11 +34,23 @@
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-8">
             <header class="flex justify-between items-center mb-8">
                 <h2 class="text-3xl font-bold text-gray-800">Recursos Humanos</h2>
-                <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
-                    <button onclick="Utils.toggleProfileMenu()" class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">A</div>
-                        <span class="text-sm font-medium text-gray-700">Admin</span>
-                    </button>
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <button id="notif-btn" onclick="Utils.toggleNotifications()" class="p-2 text-gray-500 hover:text-blue-600 transition relative">
+                            <i class="fas fa-bell text-xl"></i>
+                            <span class="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full hidden">0</span>
+                        </button>
+                        <div id="notification-panel" class="hidden absolute right-0 top-12 w-80 bg-white rounded-lg shadow-xl border z-50 overflow-hidden animate-fade-in-up">
+                            <div class="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Notificações</div>
+                            <div class="max-h-64 overflow-y-auto"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
+                        <button onclick="Utils.toggleProfileMenu()" class="flex items-center gap-2">
+                            <div class="w-8 h-8 rounded-full bg-green-600 flex items-center justify-center text-white font-bold">A</div>
+                            <span class="text-sm font-medium text-gray-700">Admin</span>
+                        </button>
+                    </div>
                 </div>
             </header>
 

@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], activeTab: 'produtos' },
+    state: { items: [], movimentacoes: [], activeTab: 'dashboard' },
 
     // Classificação Inteligente
     taxonomy: {
@@ -31,7 +31,7 @@ const EstoqueModule = {
                 EstoqueModule.state.items = json.data;
                 
                 // Se estiver na aba de movimentações, busca o histórico também
-                if(EstoqueModule.state.activeTab === 'movimentacoes') await EstoqueModule.fetchMovimentacoes();
+                if(EstoqueModule.state.activeTab === 'movimentacoes' || EstoqueModule.state.activeTab === 'dashboard') await EstoqueModule.fetchMovimentacoes();
                 
                 EstoqueModule.render(); // Renderiza a aba atual
             } else {
@@ -64,11 +64,16 @@ const EstoqueModule = {
         activeBtn.style.borderBottom = '2px solid #EAB308';
 
         if (tab === 'movimentacoes') EstoqueModule.fetchMovimentacoes().then(EstoqueModule.render);
+        else if (tab === 'dashboard') Promise.all([EstoqueModule.fetchData(), EstoqueModule.fetchMovimentacoes()]).then(EstoqueModule.render);
         else EstoqueModule.render();
     },
 
     render: () => {
-        if (EstoqueModule.state.activeTab === 'movimentacoes') {
+        if (EstoqueModule.state.activeTab === 'dashboard') {
+            EstoqueModule.renderDashboard();
+            return;
+        }
+        else if (EstoqueModule.state.activeTab === 'movimentacoes') {
             EstoqueModule.renderMovimentacoes();
             return;
         }
@@ -77,6 +82,7 @@ const EstoqueModule = {
         const data = EstoqueModule.state.items || [];
         const totalValue = data.reduce((acc, item) => acc + (Number(item.Quantidade) * Number(item.CustoUnitario)), 0);
         const criticalItems = data.filter(i => Number(i.Quantidade) <= Number(i.Minimo)).length;
+        const canDelete = Utils.checkPermission('Estoque', 'excluir');
 
         document.getElementById('estoque-content').innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -145,7 +151,7 @@ const EstoqueModule = {
                                 <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(total)}</td>
                                 <td class="p-3 text-center">${Utils.formatDate(i.Validade)}</td>
                                 <td class="p-3 text-center">
-                                    <button onclick="EstoqueModule.delete('${i.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                    ${canDelete ? `<button onclick="EstoqueModule.delete('${i.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
                             </tr>`;
                         }).join('')}
@@ -153,6 +159,143 @@ const EstoqueModule = {
                 </table>
             </div>
         `;
+    },
+
+    renderDashboard: () => {
+        const items = EstoqueModule.state.items || [];
+        const movs = EstoqueModule.state.movimentacoes || [];
+        
+        // Cálculos
+        const criticos = items.filter(i => Number(i.Quantidade) <= Number(i.Minimo));
+        const vencendo = items.filter(i => {
+            if(!i.Validade) return false;
+            const val = new Date(i.Validade);
+            const hoje = new Date();
+            const diffTime = val - hoje;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+            return diffDays <= 30 && diffDays >= 0; // Vencendo em 30 dias
+        });
+
+        // Consumo por Categoria (Saídas)
+        const consumoMap = {};
+        movs.filter(m => m.Tipo === 'Saida').forEach(m => {
+            const prod = items.find(i => i.ID === m.ProdutoID);
+            if(prod) {
+                const cat = prod.Categoria || 'Outros';
+                consumoMap[cat] = (consumoMap[cat] || 0) + Number(m.Quantidade);
+            }
+        });
+
+        const container = document.getElementById('estoque-content');
+        container.innerHTML = `
+            <!-- KPIs -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+                    <div class="text-gray-500 text-xs font-bold">Total em Estoque</div>
+                    <div class="text-2xl font-bold">${items.length} Itens</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-red-500">
+                    <div class="text-gray-500 text-xs font-bold">Estoque Crítico</div>
+                    <div class="text-2xl font-bold text-red-600">${criticos.length}</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-yellow-500">
+                    <div class="text-gray-500 text-xs font-bold">Vencendo (30d)</div>
+                    <div class="text-2xl font-bold text-yellow-600">${vencendo.length}</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
+                    <div class="text-gray-500 text-xs font-bold">Movimentações (Mês)</div>
+                    <div class="text-2xl font-bold text-green-600">${movs.length}</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <!-- Ações Rápidas -->
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Ações Rápidas</h4>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="EstoqueModule.modalRequisicao()" class="bg-indigo-50 text-indigo-700 p-3 rounded hover:bg-indigo-100 text-sm font-bold flex flex-col items-center gap-2">
+                            <i class="fas fa-clipboard-list text-xl"></i> Requisição
+                        </button>
+                        <button onclick="EstoqueModule.modalTransferencia()" class="bg-orange-50 text-orange-700 p-3 rounded hover:bg-orange-100 text-sm font-bold flex flex-col items-center gap-2">
+                            <i class="fas fa-exchange-alt text-xl"></i> Transferência
+                        </button>
+                        <button onclick="EstoqueModule.modalInventarioRapido()" class="bg-purple-50 text-purple-700 p-3 rounded hover:bg-purple-100 text-sm font-bold flex flex-col items-center gap-2">
+                            <i class="fas fa-tasks text-xl"></i> Inv. Rápido
+                        </button>
+                        <button onclick="EstoqueModule.setTab('produtos')" class="bg-gray-50 text-gray-700 p-3 rounded hover:bg-gray-100 text-sm font-bold flex flex-col items-center gap-2">
+                            <i class="fas fa-boxes text-xl"></i> Ver Produtos
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Gráfico de Consumo -->
+                <div class="bg-white p-6 rounded shadow lg:col-span-2">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Consumo por Categoria</h4>
+                    <div class="h-48"><canvas id="chartConsumo"></canvas></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Alertas de Estoque Mínimo -->
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-red-700 mb-4 border-b pb-2 flex justify-between">
+                        <span>⚠️ Alertas de Reposição</span>
+                        <span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">${criticos.length} itens</span>
+                    </h4>
+                    <div class="overflow-y-auto max-h-64">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="p-2 text-left">Produto</th><th class="p-2 text-center">Atual</th><th class="p-2 text-center">Mínimo</th></tr></thead>
+                            <tbody>
+                                ${criticos.map(i => `
+                                    <tr class="border-b">
+                                        <td class="p-2 font-medium">${i.Nome}</td>
+                                        <td class="p-2 text-center text-red-600 font-bold">${i.Quantidade}</td>
+                                        <td class="p-2 text-center text-gray-500">${i.Minimo}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Validade e Lotes -->
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-yellow-700 mb-4 border-b pb-2 flex justify-between">
+                        <span>📅 Controle de Validade</span>
+                        <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">${vencendo.length} itens</span>
+                    </h4>
+                    <div class="overflow-y-auto max-h-64">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="p-2 text-left">Produto</th><th class="p-2 text-center">Lote</th><th class="p-2 text-center">Validade</th></tr></thead>
+                            <tbody>
+                                ${vencendo.map(i => `
+                                    <tr class="border-b">
+                                        <td class="p-2 font-medium">${i.Nome}</td>
+                                        <td class="p-2 text-center text-xs">${i.Lote || '-'}</td>
+                                        <td class="p-2 text-center text-yellow-600 font-bold">${Utils.formatDate(i.Validade)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Render Chart
+        new Chart(document.getElementById('chartConsumo'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(consumoMap),
+                datasets: [{
+                    label: 'Qtd Consumida',
+                    data: Object.values(consumoMap),
+                    backgroundColor: '#6366F1',
+                    borderRadius: 4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
     },
 
     renderMovimentacoes: () => {
@@ -301,6 +444,42 @@ const EstoqueModule = {
                 <button class="w-full bg-red-600 text-white py-3 rounded font-bold">Confirmar Saída</button>
             </form>
         `);
+    },
+
+    modalRequisicao: () => {
+        // Reutiliza modal de saída com título diferente para simplificar
+        EstoqueModule.modalSaida();
+        document.getElementById('modal-title').innerText = 'Requisição Interna de Materiais';
+    },
+
+    modalTransferencia: () => {
+        const prods = EstoqueModule.state.items;
+        Utils.openModal('Transferência entre Setores', `
+            <form onsubmit="EstoqueModule.saveMovimentacao(event, 'Transferencia')">
+                <div class="mb-3">
+                    <label class="text-xs font-bold">Produto</label>
+                    <select name="produtoId" class="border p-2 rounded w-full" required>
+                        <option value="">Selecione...</option>
+                        ${prods.map(p => `<option value="${p.ID}">${p.Nome} (${p.Localizacao || 'Geral'})</option>`).join('')}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Quantidade</label><input type="number" step="0.01" name="quantidade" class="border p-2 rounded w-full" required></div>
+                    <div><label class="text-xs font-bold">Destino (Setor)</label>
+                        <select name="detalhes[destino]" class="border p-2 rounded w-full">
+                            <option>Cozinha</option><option>Bar</option><option>Produção</option><option>Despensa</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="responsavel" class="border p-2 rounded w-full" required></div>
+                <button class="w-full bg-orange-500 text-white py-3 rounded font-bold">Confirmar Transferência</button>
+            </form>
+        `);
+    },
+
+    modalInventarioRapido: () => {
+        // Placeholder para funcionalidade futura
+        Utils.toast('Funcionalidade de Inventário Rápido em desenvolvimento.');
     },
 
     save: async (e) => {

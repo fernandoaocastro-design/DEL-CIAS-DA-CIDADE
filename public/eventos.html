@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Finanças - Kitchen OS</title>
+    <title>Eventos e Pedidos - Delícia da Cidade</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body class="bg-gray-100 font-sans">
@@ -21,11 +20,11 @@
             <nav class="flex-1 overflow-y-auto py-4">
                 <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
                 <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-users w-6"></i> Recursos Humanos</a>
-                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-boxes w-6"></i> Estoque</a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-boxes w-6"></i> Controle de Estoque</a>
                 <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-fire-burner w-6"></i> Produção</a>
-                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
+                <a href="eventos.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
                 <a href="mlpain.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-clipboard-list w-6"></i> M.L.PAIN</a>
-                <a href="financas.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-coins w-6"></i> Finanças</a>
+                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-coins w-6"></i> Finanças</a>
                 <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
                 <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-cog w-6"></i> Configurações</a>
             </nav>
@@ -35,10 +34,9 @@
         <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-8">
             <header class="flex justify-between items-center mb-8">
                 <div>
-                    <h2 class="text-3xl font-bold text-gray-800">Gestão Financeira</h2>
-                    <p class="text-gray-500">Controle de fluxo de caixa e orçamento</p>
+                    <h2 class="text-3xl font-bold text-gray-800">Eventos e Pedidos</h2>
+                    <p class="text-gray-500">Gestão de encomendas e eventos especiais</p>
                 </div>
-                <!-- Header Interativo (Simplificado para exemplo, idealmente componentizado) -->
                 <div class="flex items-center gap-4">
                     <div class="relative">
                         <button id="notif-btn" onclick="Utils.toggleNotifications()" class="p-2 text-gray-500 hover:text-blue-600 transition relative">
@@ -59,32 +57,66 @@
                 </div>
             </header>
 
-            <div id="financas-content">
-                <!-- NAVEGAÇÃO FINANCEIRA -->
-                <div class="flex gap-4 mb-6 border-b pb-2 overflow-x-auto">
-                    <button id="tab-fluxo" onclick="FinancasModule.setTab('fluxo')" class="tab-btn px-4 py-2 font-bold text-indigo-600 border-b-2 border-indigo-500 transition whitespace-nowrap">
-                        <i class="fas fa-exchange-alt"></i> Entradas & Saídas
-                    </button>
-                    <button id="tab-receber" onclick="FinancasModule.setTab('receber')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
-                        <i class="fas fa-hand-holding-usd"></i> Contas a Receber
-                    </button>
-                    <button id="tab-pagar" onclick="FinancasModule.setTab('pagar')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
-                        <i class="fas fa-file-invoice-dollar"></i> Contas a Pagar
-                    </button>
-                    <button id="tab-relatorios" onclick="FinancasModule.setTab('relatorios')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
-                        <i class="fas fa-chart-bar"></i> Relatórios
-                    </button>
+            <div id="eventos-content">
+                <!-- Controls -->
+                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                    <div class="flex bg-white p-1 rounded shadow">
+                        <button onclick="EventosModule.setView('calendar')" id="btn-view-calendar" class="px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition"><i class="fas fa-calendar-alt mr-2"></i> Calendário</button>
+                        <button onclick="EventosModule.setView('list')" id="btn-view-list" class="px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100 transition"><i class="fas fa-list mr-2"></i> Lista</button>
+                    </div>
+                    <div class="flex bg-white p-1 rounded shadow">
+                        <button onclick="EventosModule.exportPDF()" class="px-4 py-2 rounded text-sm font-bold text-red-600 hover:bg-red-50 transition"><i class="fas fa-file-pdf mr-2"></i> Exportar PDF</button>
+                    </div>
+                    
+                    <select id="filter-category" onchange="EventosModule.setFilter(this.value)" class="border p-2 rounded text-sm text-gray-600 bg-white shadow w-full md:w-auto">
+                        <option value="">Todas as Categorias</option>
+                        <option>Casamento</option>
+                        <option>Aniversário</option>
+                        <option>Festa</option>
+                        <option>Corporativo</option>
+                        <option>Outros</option>
+                    </select>
                 </div>
 
-                <!-- CONTEÚDO DA ABA (Injetado via JS) -->
-                <div id="tab-content"></div>
+                <!-- Chart Container -->
+                <div class="bg-white rounded-lg shadow p-6 mb-6">
+                    <h3 class="text-lg font-bold text-gray-700 mb-4">Receita: Prevista vs Realizada</h3>
+                    <div class="h-64"><canvas id="chartFinanceiroEventos"></canvas></div>
+                </div>
+
+                <!-- Calendar Container -->
+                <div id="calendar-view" class="bg-white rounded-lg shadow p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-xl font-bold text-gray-800 capitalize" id="calendar-month-year"></h3>
+                        <div class="flex gap-2">
+                            <button onclick="EventosModule.changeMonth(-1)" class="p-2 hover:bg-gray-100 rounded text-gray-600"><i class="fas fa-chevron-left"></i></button>
+                            <button onclick="EventosModule.changeMonth(1)" class="p-2 hover:bg-gray-100 rounded text-gray-600"><i class="fas fa-chevron-right"></i></button>
+                            <button onclick="EventosModule.modalEvento()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow ml-4 hover:bg-indigo-700 transition"><i class="fas fa-plus mr-2"></i> Novo Evento</button>
+                        </div>
+                    </div>
+                    
+                    <div class="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded overflow-hidden" id="calendar-grid">
+                        <!-- JS vai injetar o calendário aqui -->
+                    </div>
+                </div>
+
+                <!-- List View Container -->
+                <div id="list-view" class="hidden space-y-6">
+                    <!-- JS vai injetar a lista aqui -->
+                </div>
+
+                <!-- Print Area (Hidden) -->
+                <div id="print-area-eventos" class="hidden bg-white p-4 rounded">
+                    <div id="pdf-header" class="mb-6 border-b pb-4"></div>
+                    <div id="pdf-content"></div>
+                </div>
             </div>
         </main>
     </div>
 
     <!-- MODAL -->
     <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto py-10">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative animate-fade-in-up my-auto">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative my-auto">
             <div class="flex justify-between items-center mb-4 border-b pb-2">
                 <h3 class="text-xl font-bold text-gray-800" id="modal-title">Título</h3>
                 <button onclick="Utils.closeModal()" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
@@ -94,6 +126,6 @@
     </div>
 
     <script src="js/utils.js"></script>
-    <script src="js/financas.js"></script>
+    <script src="js/eventos.js"></script>
 </body>
 </html>

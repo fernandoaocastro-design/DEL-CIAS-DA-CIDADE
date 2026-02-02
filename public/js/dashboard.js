@@ -44,6 +44,13 @@ const DashboardModule = {
         const list = document.getElementById('monitoramento-list');
         let html = '';
 
+        if (mon.eventos && mon.eventos.length > 0) {
+            html += `<div class="p-3 bg-indigo-50 rounded border-l-4 border-indigo-500">
+                <div class="font-bold text-indigo-700">📅 Próximos Eventos</div>
+                ${mon.eventos.map(e => `<div class="text-sm flex justify-between"><span>${e.Titulo}</span> <span class="text-xs text-gray-500">${Utils.formatDate(e.Data)}</span></div>`).join('')}
+            </div>`;
+        }
+
         if (mon.aniversariantes.length > 0) {
             html += `<div class="p-3 bg-blue-50 rounded border-l-4 border-blue-500">
                 <div class="font-bold text-blue-700">🎂 Aniversariantes do Dia</div>

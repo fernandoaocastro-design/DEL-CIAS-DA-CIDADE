@@ -187,7 +187,7 @@ exports.handler = async (event) => {
             if (errUser || !user) throw new Error('Usuário não encontrado.');
             if (user.Senha !== senhaAtual) throw new Error('Senha atual incorreta.');
 
-            const updates = { Nome: nome, Email: email, Assinatura: assinatura };
+            const updates = { Nome: nome, Email: email, Assinatura: assinatura, Permissoes: user.Permissoes }; // Mantém permissões antigas ao editar perfil próprio
             if (novaSenha) updates.Senha = novaSenha;
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());
@@ -205,7 +205,8 @@ exports.handler = async (event) => {
                 resFinancas,
                 resAniversariantes,
                 resFerias,
-                resEstoque
+                resEstoque,
+                resEventos
             ] = await Promise.all([
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('Pratos').select('Categoria', { count: 'exact' }),
@@ -213,7 +214,8 @@ exports.handler = async (event) => {
                 supabase.from('Financas').select('*'), // Trazer tudo para calcular no JS (idealmente filtrar por data no SQL)
                 supabase.from('Funcionarios').select('Nome, Nascimento'), // Para filtrar aniversariantes
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
-                supabase.from('Estoque').select('Nome, Quantidade, Minimo')
+                supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
+                supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5)
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)
@@ -225,6 +227,7 @@ exports.handler = async (event) => {
             const ferias = resFerias.data || [];
             const estoqueBaixo = resEstoque.data || [];
             const pratos = resPratosData.data || [];
+            const eventosProximos = resEventos.data || [];
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
@@ -300,7 +303,8 @@ exports.handler = async (event) => {
                 monitoramento: {
                     aniversariantes: aniversariantesDia,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
-                    estoqueBaixo: estoqueCritico
+                    estoqueBaixo: estoqueCritico,
+                    eventos: eventosProximos
                 },
                 charts: {
                     financeiro: chartFin,

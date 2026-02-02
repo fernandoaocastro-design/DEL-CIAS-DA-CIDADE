@@ -124,6 +124,7 @@ const ConfigModule = {
             const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'getAll', table }) });
             const json = await res.json();
             const items = json.data || [];
+            const canDelete = Utils.checkPermission('Configuracoes', 'excluir');
 
             let html = `<h3 class="text-2xl font-bold text-gray-800 mb-6">Parâmetros: ${table.replace('Parametros', '')}</h3>`;
             html += `<div class="grid grid-cols-1 md:grid-cols-2 gap-6">`;
@@ -140,8 +141,7 @@ const ConfigModule = {
                             ${filtered.length ? filtered.map(item => `
                                 <li class="flex justify-between items-center bg-gray-50 p-2 rounded text-sm">
                                     <span>${item.Valor}</span>
-                                    <button onclick="ConfigModule.deleteParam('${table}', '${item.ID}')" class="text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button>
-                                </li>
+                                    >
                             `).join('') : '<li class="text-gray-400 text-xs italic">Nenhum item cadastrado.</li>'}
                         </ul>
                     </div>

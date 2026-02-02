@@ -7,6 +7,7 @@ CREATE TABLE "Usuarios" (
     "Senha" VARCHAR(255) NOT NULL,
     "Cargo" VARCHAR(100),
     "Assinatura" TEXT,
+    "Permissoes" JSONB,
     "Status" VARCHAR(50) DEFAULT 'Ativo',
     "UltimoAcesso" TIMESTAMP,
     "CriadoEm" TIMESTAMP DEFAULT NOW()

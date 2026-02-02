@@ -6,6 +6,7 @@
     <title>Estoque - Kitchen OS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100 font-sans">
 
@@ -13,47 +14,20 @@
         <!-- SIDEBAR -->
         <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col transition-all duration-300">
             <div class="p-6 text-center border-b border-gray-700">
-                <h1 class="text-2xl font-bold text-yellow-500 menu-text">Kitchen OS</h1>
-                <p class="text-xs text-gray-400 menu-text">Enterprise V2</p>
-                <i class="fas fa-utensils text-yellow-500 text-2xl hidden" id="sidebar-icon-only"></i>
+                <h1 class="text-2xl font-bold text-yellow-500">Delícia da Cidade</h1>
+                <p class="text-xs text-gray-400">Sistema de Gestão v1.0</p>
             </div>
             <nav class="flex-1 overflow-y-auto py-4">
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-chart-pie w-6"></i> <span class="menu-text">Dashboard</span>
-                </a>
-                <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-users w-6"></i> <span class="menu-text">Recursos Humanos</span>
-                </a>
-                <a href="estoque.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500 hover:bg-slate-700 transition">
-                    <i class="fas fa-boxes w-6"></i> <span class="menu-text">Estoque</span>
-                </a>
-                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-fire-burner w-6"></i> <span class="menu-text">Produção</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-clipboard-list w-6"></i> <span class="menu-text">Inventário</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-coins w-6"></i> <span class="menu-text">Finanças</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-calendar-alt w-6"></i> <span class="menu-text">Eventos e Pedidos</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-brain w-6"></i> <span class="menu-text">M.L.PAIN</span>
-                </a>
-                <a href="#" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-800 hover:text-white transition">
-                    <i class="fas fa-cog w-6"></i> <span class="menu-text">Configurações</span>
-                </a>
+                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
+                <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-users w-6"></i> Recursos Humanos</a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-boxes w-6"></i> Estoque</a>
+                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-fire-burner w-6"></i> Produção</a>
+                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
+                <a href="mlpain.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-clipboard-list w-6"></i> M.L.PAIN</a>
+                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-coins w-6"></i> Finanças</a>
+                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
+                <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-cog w-6"></i> Configurações</a>
             </nav>
-            <div class="p-4 border-t border-gray-700">
-                <button onclick="logout()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded text-sm flex items-center justify-center gap-2 transition-colors mb-2">
-                    <i class="fas fa-sign-out-alt"></i> <span class="menu-text">Sair</span>
-                </button>
-                <button onclick="Utils.toggleSidebar()" class="w-full text-gray-400 hover:text-white py-2 flex items-center justify-center transition-colors">
-                    <i class="fas fa-bars"></i>
-                </button>
-            </div>
         </aside>
 
         <!-- MAIN CONTENT -->
@@ -63,15 +37,28 @@
                     <h2 class="text-3xl font-bold text-gray-800">Controle de Estoque</h2>
                     <p class="text-gray-500">NutriCare - Gestão Centralizada de Insumos</p>
                 </div>
-                <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
-                    <div class="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center text-white font-bold">A</div>
-                    <span class="text-sm font-medium text-gray-700">Admin</span>
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <button id="notif-btn" onclick="Utils.toggleNotifications()" class="p-2 text-gray-500 hover:text-blue-600 transition relative">
+                            <i class="fas fa-bell text-xl"></i>
+                            <span class="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full hidden">0</span>
+                        </button>
+                        <div id="notification-panel" class="hidden absolute right-0 top-12 w-80 bg-white rounded-lg shadow-xl border z-50 overflow-hidden animate-fade-in-up">
+                            <div class="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Notificações</div>
+                            <div class="max-h-64 overflow-y-auto"></div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-lg shadow-sm">
+                        <div class="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center text-white font-bold">A</div>
+                        <span class="text-sm font-medium text-gray-700">Admin</span>
+                    </div>
                 </div>
             </header>
 
             <!-- Abas de Navegação do Módulo -->
             <div class="flex gap-4 mb-6 border-b pb-2">
-                <button id="tab-produtos" onclick="EstoqueModule.setTab('produtos')" class="tab-btn px-4 py-2 font-bold text-yellow-600 border-b-2 border-yellow-500 transition">📦 Produtos</button>
+                <button id="tab-dashboard" onclick="EstoqueModule.setTab('dashboard')" class="tab-btn px-4 py-2 font-bold text-yellow-600 border-b-2 border-yellow-500 transition">📊 Visão Geral</button>
+                <button id="tab-produtos" onclick="EstoqueModule.setTab('produtos')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition">📦 Produtos</button>
                 <button id="tab-movimentacoes" onclick="EstoqueModule.setTab('movimentacoes')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition">🚚 Movimentações</button>
                 <button id="tab-fornecedores" onclick="EstoqueModule.setTab('fornecedores')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition">🏭 Fornecedores</button>
             </div>

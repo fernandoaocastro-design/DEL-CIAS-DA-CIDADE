@@ -4,6 +4,7 @@ const MLPainModule = {
         areas: [],
         registros: [],
         pratos: [],
+        funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
         instituicao: []
     },
@@ -14,11 +15,12 @@ const MLPainModule = {
 
     fetchData: async () => {
         try {
-            const [areas, registros, inst, pratos] = await Promise.all([
+            const [areas, registros, inst, pratos, funcionarios] = await Promise.all([
                 MLPainModule.api('getAll', 'MLPain_Areas'),
                 MLPainModule.api('getAll', 'MLPain_Registros'),
                 MLPainModule.api('getAll', 'InstituicaoConfig'),
-                MLPainModule.api('getAll', 'Pratos')
+                MLPainModule.api('getAll', 'Pratos'),
+                MLPainModule.api('getAll', 'Funcionarios')
             ]);
             
             // Ordenar áreas pela ordem definida ou nome
@@ -26,6 +28,7 @@ const MLPainModule = {
             MLPainModule.state.registros = registros || [];
             MLPainModule.state.instituicao = inst || [];
             MLPainModule.state.pratos = pratos || [];
+            MLPainModule.state.funcionarios = funcionarios || [];
             
             MLPainModule.render();
         } catch (e) {
@@ -143,6 +146,7 @@ const MLPainModule = {
     renderLancamento: (container) => {
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
         const pratos = MLPainModule.state.pratos.filter(p => p.Status === 'Ativo');
+        const funcionarios = MLPainModule.state.funcionarios || [];
         const today = new Date().toISOString().split('T')[0];
 
         container.innerHTML = `
@@ -163,8 +167,11 @@ const MLPainModule = {
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável</label>
-                            <input name="Responsavel" class="border p-2 rounded w-full" placeholder="Responsável do Turno" required>
+                            <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável do Turno</label>
+                            <select name="Responsavel" class="border p-2 rounded w-full" required>
+                                <option value="">Selecione...</option>
+                                ${funcionarios.map(f => `<option value="${f.Nome}">${f.Nome}</option>`).join('')}
+                            </select>
                         </div>
                     </div>
 
@@ -217,6 +224,7 @@ const MLPainModule = {
     toggleFormType: (type) => {
         const container = document.getElementById('dynamic-fields');
         const pratos = MLPainModule.tempPratos || [];
+        const funcionarios = MLPainModule.state.funcionarios || [];
 
         // Atualizar Dropdown de Áreas conforme o Tipo selecionado
         const areaSelect = document.querySelector('select[name="AreaID"]');
@@ -242,7 +250,10 @@ const MLPainModule = {
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável Entrega</label>
-                        <input name="ResponsavelEntrega" class="border p-2 rounded w-full" placeholder="Quem entregou?">
+                        <select name="ResponsavelEntrega" class="border p-2 rounded w-full">
+                            <option value="">Selecione...</option>
+                            ${funcionarios.map(f => `<option value="${f.Nome}">${f.Nome}</option>`).join('')}
+                        </select>
                     </div>
                 </div>
             `;
@@ -259,7 +270,10 @@ const MLPainModule = {
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável Entrega</label>
-                        <input name="ResponsavelEntrega" class="border p-2 rounded w-full" placeholder="Quem entregou?">
+                        <select name="ResponsavelEntrega" class="border p-2 rounded w-full">
+                            <option value="">Selecione...</option>
+                            ${funcionarios.map(f => `<option value="${f.Nome}">${f.Nome}</option>`).join('')}
+                        </select>
                     </div>
                 </div>
             `;
@@ -352,6 +366,8 @@ const MLPainModule = {
         const daysInMonth = new Date(year, monthNum, 0).getDate();
         const days = Array.from({length: daysInMonth}, (_, i) => i + 1);
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
+        const solidAreas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
+        const liquidAreas = areas.filter(a => a.Tipo === 'Líquido');
         const weekDays = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 
         // Inicializa Matriz
@@ -375,7 +391,7 @@ const MLPainModule = {
         });
 
         // Função auxiliar para gerar cada tabela matricial
-        const renderMatrixTable = (title, typeKey, headerColorClass, badgeColorClass) => {
+        const renderMatrixTable = (title, typeKey, headerColorClass, badgeColorClass, areasToRender) => {
             return `
             <div class="mb-8 bg-white rounded shadow overflow-x-auto">
                 <h4 class="font-bold text-gray-700 p-4 border-b ${headerColorClass}">${title}</h4>
@@ -398,7 +414,7 @@ const MLPainModule = {
                         </tr>
                     </thead>
                     <tbody>
-                        ${areas.map(a => {
+                        ${areasToRender.map(a => {
                             let rowTotal = 0;
                             const cells = days.map(d => {
                                 const date = new Date(year, monthNum - 1, d);
@@ -454,9 +470,9 @@ const MLPainModule = {
             </div>
 
             <!-- TABELAS MATRICIAIS SEPARADAS -->
-            ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500')}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500')}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500')}
+            ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500', solidAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidAreas)}
 
             <!-- TABELA DETALHADA -->
             <div class="bg-white rounded shadow overflow-hidden">
@@ -524,11 +540,11 @@ const MLPainModule = {
         
         // Configura Cabeçalho
         header.innerHTML = `
-            <div class="flex items-center gap-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+            <div class="flex items-center gap-4 border-b pb-2 mb-4">
+                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-10 w-auto object-contain">` : ''}
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
-                    <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+                    <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
+                    <p class="text-xs text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
                 </div>
             </div>
         `;
@@ -536,15 +552,16 @@ const MLPainModule = {
         title.classList.remove('hidden');
 
         // Configura Rodapé
-        footer.innerHTML = `<p class="text-xs text-gray-400">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
+        footer.innerHTML = `<p class="text-[10px] text-gray-400 text-right mt-4 border-t pt-2">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
         footer.classList.remove('hidden');
         
         const opt = {
-            margin: 10,
+            margin: [10, 10, 10, 10],
             filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+            pagebreak: { mode: 'avoid-all' }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
@@ -557,6 +574,7 @@ const MLPainModule = {
         const areas = MLPainModule.state.areas;
         const solidas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
         const liquidas = areas.filter(a => a.Tipo === 'Líquido');
+        const canDelete = Utils.checkPermission('MLPain', 'excluir');
 
         const renderTable = (list, title, type, colorClass) => `
             <div class="mb-8">
@@ -576,7 +594,7 @@ const MLPainModule = {
                                     <td class="p-3"><span class="px-2 py-1 rounded text-xs ${a.Ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${a.Ativo ? 'Ativo' : 'Inativo'}</span></td>
                                     <td class="p-3 text-center">
                                         <button onclick="MLPainModule.modalArea('${type}', '${a.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
-                                        <button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                        ${canDelete ? `<button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                     </td>
                                 </tr>
                             `).join('')}

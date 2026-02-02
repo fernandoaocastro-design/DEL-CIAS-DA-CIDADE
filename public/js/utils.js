@@ -9,6 +9,21 @@ window.logout = () => {
     window.location.href = 'index.html';
 };
 
+// Injeta CSS para animação do Modal
+const modalStyle = document.createElement('style');
+modalStyle.innerHTML = `
+    #modal-container { transition: opacity 0.3s ease; }
+    #modal-container.hidden { opacity: 0; pointer-events: none; }
+    #modal-container:not(.hidden) { opacity: 1; pointer-events: auto; }
+    
+    #modal-container > div { transition: all 0.3s ease-out; opacity: 0; transform: scale(0.95); }
+    #modal-container.show-modal > div { opacity: 1; transform: scale(1); }
+    
+    /* Remove display:none do Tailwind para permitir transição de opacidade */
+    #modal-container.hidden { display: flex !important; visibility: hidden; }
+`;
+document.head.appendChild(modalStyle);
+
 const Utils = {
     formatCurrency: (val) => new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA' }).format(val || 0),
     
@@ -16,7 +31,16 @@ const Utils = {
     
     toast: (msg) => alert(msg), // TODO: Implementar toast nativo mais bonito futuramente
     
-    closeModal: () => document.getElementById('modal-container').classList.add('hidden'),
+    closeModal: () => {
+        const container = document.getElementById('modal-container');
+        if (container) {
+            container.classList.remove('show-modal');
+            // Aguarda a transição terminar antes de esconder
+            setTimeout(() => {
+                container.classList.add('hidden');
+            }, 300);
+        }
+    },
     
     openModal: (title, html) => {
         const titleEl = document.getElementById('modal-title');
@@ -25,7 +49,12 @@ const Utils = {
         
         if(titleEl) titleEl.innerText = title;
         if(bodyEl) bodyEl.innerHTML = html;
-        if(containerEl) containerEl.classList.remove('hidden');
+        if(containerEl) {
+            containerEl.classList.remove('hidden');
+            // Força um reflow para que a transição CSS funcione
+            void containerEl.offsetWidth;
+            containerEl.classList.add('show-modal');
+        }
     },
     
     toggleSidebar: () => {
@@ -199,6 +228,53 @@ const Utils = {
                 </div>
             `).join('');
         }
+    },
+
+    // --- SISTEMA DE PERMISSÕES ---
+    
+    // Verifica se o usuário tem permissão para uma ação específica em um módulo
+    checkPermission: (module, action) => {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        
+        // Administrador tem acesso total (Bypass)
+        if (user.Cargo === 'Administrador') return true;
+        
+        // Se não tiver permissões definidas, bloqueia tudo por segurança
+        if (!user.Permissoes) return false;
+
+        const modPerms = user.Permissoes[module];
+        if (!modPerms) return false;
+
+        // Verifica a ação específica (ver, criar, editar, excluir)
+        return modPerms[action] === true;
+    },
+
+    // Aplica regras visuais na barra lateral
+    applySidebarPermissions: () => {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        if (user.Cargo === 'Administrador') return;
+
+        const mapping = {
+            'dashboard.html': 'Dashboard',
+            'rh.html': 'RH',
+            'estoque.html': 'Estoque',
+            'producao.html': 'Producao',
+            'eventos.html': 'Eventos',
+            'mlpain.html': 'MLPain',
+            'financas.html': 'Financas',
+            'inventario.html': 'Inventario',
+            'configuracoes.html': 'Configuracoes'
+        };
+
+        document.querySelectorAll('#sidebar nav a').forEach(link => {
+            const href = link.getAttribute('href');
+            const module = mapping[href];
+            
+            // Se o módulo existe no mapa e o usuário não tem permissão de 'ver', esconde
+            if (module && !Utils.checkPermission(module, 'ver')) {
+                link.classList.add('hidden');
+            }
+        });
     }
 };
 
@@ -215,5 +291,12 @@ document.addEventListener('click', (e) => {
 
 // Inicializa notificações se houver o botão na tela
 document.addEventListener('DOMContentLoaded', () => {
-    if(document.getElementById('notif-btn')) Utils.fetchNotifications();
+    if(document.getElementById('notif-btn')) {
+        Utils.fetchNotifications();
+        // Atualiza notificações a cada 15 segundos sem recarregar a página
+        setInterval(() => Utils.fetchNotifications(), 15000);
+    }
+    
+    // Aplica permissões na sidebar
+    Utils.applySidebarPermissions();
 });

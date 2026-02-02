@@ -76,6 +76,7 @@ const RHModule = {
     renderFuncionarios: () => {
         RHModule.highlightTab('tab-funcionarios');
         const data = RHModule.state.cache.funcionarios || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold">Equipe (${data.length})</h3>
@@ -97,7 +98,7 @@ const RHModule = {
                                 <td class="p-3">${Utils.formatDate(f.Admissao)}</td>
                                 <td class="p-3">
                                     <button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>
-                                    <button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>
+                                    ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
                             </tr>
                         `).join('')}
@@ -191,6 +192,7 @@ const RHModule = {
     renderFrequencia: () => {
         RHModule.highlightTab('tab-frequencia');
         const data = RHModule.state.cache.frequencia || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         
         // Função auxiliar para calcular horas
         const calcHours = (start, end) => {
@@ -219,7 +221,7 @@ const RHModule = {
                             <td class="p-3 text-center">${r.Saida}</td>
                             <td class="p-3 text-center font-bold">${total.toFixed(2)}h</td>
                             <td class="p-3 text-center font-bold ${statusClass}">${statusText}</td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Frequencia', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Frequencia', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>`;
                     }).join('')}
                 </tbody>
@@ -259,6 +261,7 @@ const RHModule = {
     renderFerias: () => {
         RHModule.highlightTab('tab-ferias');
         const data = RHModule.state.cache.ferias || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="text-right mb-4"><button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button></div>
             <table class="w-full bg-white rounded shadow text-sm">
@@ -273,7 +276,7 @@ const RHModule = {
                             <td class="p-3 text-center">${r.Dias}</td>
                             <td class="p-3 text-center">${r.Pagamento13 === 'Sim' ? '✅' : '❌'}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded ${r.Status==='Aprovado'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}">${r.Status}</span></td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -357,6 +360,7 @@ const RHModule = {
     renderAvaliacoes: () => {
         RHModule.highlightTab('tab-avaliacoes');
         const data = RHModule.state.cache.avaliacoes || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="text-right mb-4"><button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button></div>
             <table class="w-full bg-white rounded shadow text-sm">
@@ -369,7 +373,7 @@ const RHModule = {
                             <td class="p-3 text-center">${Utils.formatDate(r.DataAvaliacao)}</td>
                             <td class="p-3 text-center font-bold">${r.MediaFinal}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded bg-gray-100 text-xs">${r.Conclusao || '-'}</span></td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Avaliacoes', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Avaliacoes', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -462,6 +466,7 @@ const RHModule = {
     renderTreinamento: () => {
         RHModule.highlightTab('tab-treinamento');
         const data = RHModule.state.cache.treinamentos || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="text-right mb-4"><button onclick="RHModule.modalTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Treinamento</button></div>
             <table class="w-full bg-white rounded shadow text-sm">
@@ -476,7 +481,7 @@ const RHModule = {
                             <td class="p-3 text-center">${Utils.formatDate(r.Inicio)}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.Termino)}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded bg-blue-100 text-blue-800 text-xs">${r.Status}</span></td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Treinamentos', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Treinamentos', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -526,6 +531,7 @@ const RHModule = {
     renderFolha: () => {
         RHModule.highlightTab('tab-folha');
         const data = RHModule.state.cache.folha || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         
         document.getElementById('tab-content').innerHTML = `
             <div class="text-right mb-4"><button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button></div>
@@ -541,7 +547,7 @@ const RHModule = {
                             <td class="p-3 text-right text-red-500">${Utils.formatCurrency(r.TotalDescontos)}</td>
                             <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(r.SalarioLiquido)}</td>
                             <td class="p-3 text-xs">${r.Banco || '-'} <br> ${r.Iban || '-'}</td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Folha', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Folha', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -639,6 +645,7 @@ const RHModule = {
     renderLicencas: () => {
         RHModule.highlightTab('tab-licencas');
         const data = RHModule.state.cache.licencas || [];
+        const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="text-right mb-4"><button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button></div>
             <table class="w-full bg-white rounded shadow text-sm">
@@ -651,7 +658,7 @@ const RHModule = {
                             <td class="p-3 font-bold">${r.Tipo}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.Inicio)}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.Retorno)}</td>
-                            <td class="p-3 text-center"><button onclick="RHModule.delete('Licencas', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button></td>
+                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Licencas', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
                     `).join('')}
                 </tbody>
