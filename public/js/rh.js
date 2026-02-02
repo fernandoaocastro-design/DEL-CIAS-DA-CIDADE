@@ -1,5 +1,12 @@
 const RHModule = {
-    state: { cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [], parametros: [], cargos: [], departamentos: [], instituicao: [] } },
+    state: { 
+        cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [], parametros: [], cargos: [], departamentos: [], instituicao: [] }, 
+        filterTerm: '',
+        pagination: {
+            currentPage: 1,
+            rowsPerPage: 15
+        }
+    },
 
     init: () => {
         RHModule.renderLayout();
@@ -65,18 +72,41 @@ const RHModule = {
     // --- 1. ABA FUNCIONÁRIOS ---
     renderFuncionarios: () => {
         RHModule.highlightTab('tab-funcionarios');
-        const data = RHModule.state.cache.funcionarios || [];
+        let filteredData = RHModule.state.cache.funcionarios || [];
         const canDelete = Utils.checkPermission('RH', 'excluir');
+
+        // Filtro de Busca
+        if (RHModule.state.filterTerm) {
+            const term = RHModule.state.filterTerm.toLowerCase();
+            filteredData = filteredData.filter(f => 
+                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
+                (f.BI && f.BI.toLowerCase().includes(term)) ||
+                (f.Departamento && f.Departamento.toLowerCase().includes(term))
+            );
+        }
+
+        // Lógica de Paginação
+        const { currentPage, rowsPerPage } = RHModule.state.pagination;
+        const totalRows = filteredData.length;
+        const totalPages = Math.ceil(totalRows / rowsPerPage) || 1;
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        const endIndex = startIndex + rowsPerPage;
+        const paginatedData = filteredData.slice(startIndex, endIndex);
+
         document.getElementById('tab-content').innerHTML = `
             <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold">Equipe (${data.length})</h3>
-                <button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Funcionário</button>
+                <h3 class="text-xl font-bold">Equipe (${filteredData.length})</h3>
+                <div class="flex gap-2">
+                    <input type="text" placeholder="🔍 Buscar por nome, BI ou depto..." class="border p-2 rounded text-sm w-64" value="${RHModule.state.filterTerm}" oninput="RHModule.updateFilter(this.value)">
+                    <button onclick="RHModule.exportCSV()" class="bg-green-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista filtrada para CSV"><i class="fas fa-file-csv"></i> Exportar</button>
+                    <button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>
+                </div>
             </div>
             <div class="overflow-x-auto">
                 <table class="w-full bg-white rounded shadow text-sm">
                     <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Salário</th><th>Telefone</th><th>BI</th><th>Admissão</th><th>Ações</th></tr></thead>
                     <tbody>
-                        ${data.map(f => `
+                        ${paginatedData.map(f => `
                             <tr class="border-t hover:bg-gray-50">
                                 <td class="p-3 font-mono text-xs">${f.ID}</td>
                                 <td class="p-3 font-bold">${f.Nome}</td>
@@ -95,7 +125,69 @@ const RHModule = {
                     </tbody>
                 </table>
             </div>
+            <!-- Controles de Paginação -->
+            <div class="flex justify-between items-center mt-4 text-sm text-gray-600">
+                <span>Mostrando ${Math.min(startIndex + 1, totalRows)} a ${Math.min(endIndex, totalRows)} de ${totalRows}</span>
+                <div class="flex gap-1">
+                    <button onclick="RHModule.changePage(1)" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Primeira</button>
+                    <button onclick="RHModule.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
+                    <span class="px-3 py-1 font-bold">Página ${currentPage} de ${totalPages}</span>
+                    <button onclick="RHModule.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Próxima</button>
+                    <button onclick="RHModule.changePage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Última</button>
+                </div>
+            </div>
         `;
+    },
+
+    updateFilter: (term) => {
+        RHModule.state.filterTerm = term;
+        RHModule.state.pagination.currentPage = 1; // Reseta para a primeira página ao filtrar
+        RHModule.renderFuncionarios();
+    },
+
+    changePage: (page) => {
+        let data = RHModule.state.cache.funcionarios || [];
+        if (RHModule.state.filterTerm) {
+            const term = RHModule.state.filterTerm.toLowerCase();
+            data = data.filter(f => 
+                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
+                (f.BI && f.BI.toLowerCase().includes(term)) ||
+                (f.Departamento && f.Departamento.toLowerCase().includes(term))
+            );
+        }
+        const totalPages = Math.ceil(data.length / RHModule.state.pagination.rowsPerPage) || 1;
+
+        if (page < 1 || page > totalPages) return;
+
+        RHModule.state.pagination.currentPage = page;
+        RHModule.renderFuncionarios();
+    },
+
+    exportCSV: () => {
+        let data = RHModule.state.cache.funcionarios || [];
+        if (RHModule.state.filterTerm) {
+            const term = RHModule.state.filterTerm.toLowerCase();
+            data = data.filter(f => 
+                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
+                (f.BI && f.BI.toLowerCase().includes(term)) ||
+                (f.Departamento && f.Departamento.toLowerCase().includes(term))
+            );
+        }
+
+        if (data.length === 0) return Utils.toast('Nenhum funcionário para exportar.', 'info');
+
+        const headers = ['Nome', 'Nascimento', 'BI', 'Telefone', 'Email', 'Cargo', 'Departamento', 'Turno', 'Salario', 'TipoContrato', 'Admissao', 'Iban', 'Status'];
+        
+        const escapeCSV = (str) => (str === null || str === undefined) ? '' : `"${String(str).replace(/"/g, '""')}"`;
+
+        const csvContent = [headers.join(','), ...data.map(row => headers.map(header => escapeCSV(row[header])).join(','))].join('\n');
+        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.setAttribute("href", URL.createObjectURL(blob));
+        link.setAttribute("download", "lista_funcionarios.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     },
 
     modalFuncionario: (id = null) => {
@@ -1209,7 +1301,7 @@ const RHModule = {
         }
 
         try {
-            await RHModule.api('save', table, data);
+            await Utils.api('save', table, data);
             Utils.toast('✅ Registro salvo com sucesso!'); 
             Utils.closeModal(); 
             RHModule.fetchData(); 
@@ -1221,7 +1313,7 @@ const RHModule = {
 
     delete: async (table, id) => {
         if(confirm('Tem certeza?')) {
-            await RHModule.api('delete', table, null, id);
+            await Utils.api('delete', table, null, id);
             RHModule.fetchData();
         }
     }

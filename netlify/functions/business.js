@@ -310,6 +310,12 @@ exports.handler = async (event) => {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
             const strSevenDaysAgo = sevenDaysAgo.toISOString().split('T')[0];
+            
+            // Otimização: Buscar apenas finanças dos últimos 12 meses para não pesar o sistema
+            const d = new Date();
+            d.setMonth(d.getMonth() - 11);
+            d.setDate(1);
+            const startOfFinanceData = d.toISOString().split('T')[0];
 
             // Consultas Paralelas
             const [
@@ -326,7 +332,7 @@ exports.handler = async (event) => {
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('Pratos').select('Categoria', { count: 'exact' }),
                 supabase.from('Funcionarios').select('*', { count: 'exact', head: true }),
-                supabase.from('Financas').select('*'), // Trazer tudo para calcular no JS (idealmente filtrar por data no SQL)
+                supabase.from('Financas').select('*').gte('Data', startOfFinanceData),
                 supabase.from('Funcionarios').select('Nome, Nascimento'), // Para filtrar aniversariantes
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),

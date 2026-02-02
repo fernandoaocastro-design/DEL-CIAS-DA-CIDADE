@@ -177,14 +177,19 @@ const ConfigModule = {
             const logs = await Utils.api('getAll', 'LogsAuditoria') || [];
             logs.sort((a,b) => new Date(b.DataHora) - new Date(a.DataHora));
 
-          Ad
+            container.innerHTML = `
+                <h3 class="text-2xl font-bold text-gray-800 mb-6">Logs de Auditoria</h3>
                 <div class="bg-white rounded shadow overflow-hidden">
-                    <table class="w-full text-sm text-left">xtray-600 uppercase"><tr><th class="p-3">Data</th><th class="p-3">Usuário</th><th class="p-3">Ação</th><th class="p-3">Detalhes</th></tr></thead>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-600 uppercase"><tr><th class="p-3">Data</th><th class="p-3">Usuário</th><th class="p-3">Ação</th><th class="p-3">Detalhes</th></tr></thead>
                         <tbody class="divide-y">
                             ${logs.slice(0, 50).map(l => `<tr class="hover:bg-gray-50"><td class="p-3 text-xs">${new Date(l.DataHora).toLocaleString()}</td><td class="p-3 font-bold">${l.UsuarioNome || 'Sistema'}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs bg-gray-200">${l.Acao}</span></td><td class="p-3 text-xs text-gray-500">${l.Descricao}</td></tr>`).join('')}
                         </tbody>
                     </table>
-                </div> `;
-        ()
+                </div>
+            `;
+        } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao carregar logs.</p>'; }
+    }
+};
 
 document.addEventListener('DOMContentLoaded', ConfigModule.init);

@@ -1,4 +1,5 @@
 const DashboardModule = {
+    charts: {}, // Armazena instâncias
     init: () => {
         DashboardModule.loadData();
     },
@@ -73,8 +74,11 @@ const DashboardModule = {
     renderCharts: (charts) => {
         if (!charts) return;
 
+        // Destruir gráficos anteriores
+        if (DashboardModule.charts.financeiro) DashboardModule.charts.financeiro.destroy();
+
         // Gráfico Financeiro
-        new Chart(document.getElementById('chartFinanceiro'), {
+        DashboardModule.charts.financeiro = new Chart(document.getElementById('chartFinanceiro'), {
             type: 'line',
             data: {
                 labels: charts.financeiro.labels,
@@ -85,8 +89,10 @@ const DashboardModule = {
             }
         });
 
+        if (DashboardModule.charts.atendimento) DashboardModule.charts.atendimento.destroy();
+
         // Gráfico Atendimento (Categorias)
-        new Chart(document.getElementById('chartAtendimento'), {
+        DashboardModule.charts.atendimento = new Chart(document.getElementById('chartAtendimento'), {
             type: 'doughnut',
             data: {
                 labels: charts.pratos.labels,
@@ -97,9 +103,11 @@ const DashboardModule = {
             }
         });
 
+        if (DashboardModule.charts.refeicoes) DashboardModule.charts.refeicoes.destroy();
+
         // Gráfico Refeições (Barras)
         if (charts.refeicoes && document.getElementById('chartRefeicoes')) {
-            new Chart(document.getElementById('chartRefeicoes'), {
+            DashboardModule.charts.refeicoes = new Chart(document.getElementById('chartRefeicoes'), {
                 type: 'bar',
                 data: {
                     labels: charts.refeicoes.labels,

@@ -20,7 +20,8 @@ const EstoqueModule = {
 
     fetchData: async () => {
         try {
-            c
+            const [data, inst] = await Promise.all([
+                Utils.api('getAll', 'Estoque'),
                 Utils.api('getAll', 'InstituicaoConfig')
             ]);
             EstoqueModule.state.items = data;

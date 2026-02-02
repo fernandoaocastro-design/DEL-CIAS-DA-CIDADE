@@ -7,6 +7,7 @@ const MLPainModule = {
         funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
         instituicao: [],
+        charts: {}, // Armazena instâncias dos gráficos
         lastEntryDate: null,
         lastEntryTurno: null,
         lastEntryResp: null
@@ -148,8 +149,12 @@ const MLPainModule = {
             </div>
         `;
 
+        // Destruir gráficos anteriores para evitar "piscar" e sobreposição
+        if (MLPainModule.state.charts.metas) MLPainModule.state.charts.metas.destroy();
+        if (MLPainModule.state.charts.evolucao) MLPainModule.state.charts.evolucao.destroy();
+
         // Renderizar Gráfico de Metas (Misto: Barra + Linha)
-        new Chart(document.getElementById('chartMetas'), {
+        MLPainModule.state.charts.metas = new Chart(document.getElementById('chartMetas'), {
             type: 'bar',
             data: {
                 labels: labels,
@@ -162,7 +167,7 @@ const MLPainModule = {
         });
 
         // Renderizar Gráfico de Evolução
-        new Chart(document.getElementById('chartEvolucaoDietas'), {
+        MLPainModule.state.charts.evolucao = new Chart(document.getElementById('chartEvolucaoDietas'), {
             type: 'line',
             data: {
                 labels: last30Days,
@@ -561,8 +566,12 @@ const MLPainModule = {
             </div>
         `;
 
+        // Destruir gráficos anteriores
+        if (MLPainModule.state.charts.geral) MLPainModule.state.charts.geral.destroy();
+        if (MLPainModule.state.charts.comparativo) MLPainModule.state.charts.comparativo.destroy();
+
         // Renderizar Gráfico
-        new Chart(document.getElementById('chartGeral'), {
+        MLPainModule.state.charts.geral = new Chart(document.getElementById('chartGeral'), {
             type: 'doughnut',
             data: {
                 labels: ['Sólidos', 'Sopa', 'Chá'],
@@ -572,7 +581,7 @@ const MLPainModule = {
         });
 
         // Renderizar Gráfico Comparativo
-        new Chart(document.getElementById('chartComparativo'), {
+        MLPainModule.state.charts.comparativo = new Chart(document.getElementById('chartComparativo'), {
             type: 'bar',
             data: {
                 labels: areaLabels,

@@ -7,15 +7,9 @@ const InventarioModule = {
 
     fetchData: async () => {
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'getAll', table: 'Inventario' })
-            });
-            const json = await res.json();
-            if (json.success) {
-                InventarioModule.state.bens = json.data;
-                InventarioModule.render();
-            }
+            const data = await Utils.api('getAll', 'Inventario');
+            InventarioModule.state.bens = data;
+            InventarioModule.render();
         } catch (e) { Utils.toast("Erro ao carregar inventário."); }
     },
 
@@ -118,11 +112,9 @@ const InventarioModule = {
         data.UserAction = user.Nome || 'Admin';
 
         try {
-            const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'saveInventario', data }) });
-            const json = await res.json();
-            if (json.success) { Utils.toast('✅ Bem salvo com sucesso!'); Utils.closeModal(); InventarioModule.fetchData(); }
-            else throw new Error(json.message);
-        } catch (err) { Utils.toast('❌ Erro: ' + err.message); }
+            await Utils.api('saveInventario', null, data);
+            Utils.toast('Bem salvo com sucesso!', 'success'); Utils.closeModal(); InventarioModule.fetchData();
+        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
     detalhes: (id) => {
