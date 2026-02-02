@@ -6,6 +6,7 @@ const MLPainModule = {
         pratos: [],
         funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
+        filterDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0],
         filterTurno: '', // Filtro de turno para detalhamento
         instituicao: [],
         charts: {}, // Armazena instâncias dos gráficos
@@ -14,6 +15,11 @@ const MLPainModule = {
         lastEntryResp: null,
         lastEntryType: 'Sólido', // Padrão inicial
         lastEntryArea: null
+    },
+
+    getLocalDate: () => {
+        const now = new Date();
+        return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
     },
 
     init: () => {
@@ -77,8 +83,8 @@ const MLPainModule = {
 
     // --- 1. VISÃO GERAL ---
     renderVisaoGeral: (container) => {
-        const today = new Date().toISOString().split('T')[0];
-        const recs = MLPainModule.state.registros.filter(r => r.Data === today);
+        const date = MLPainModule.state.filterDate || MLPainModule.getLocalDate();
+        const recs = MLPainModule.state.registros.filter(r => r.Data === date);
         
         const totalSolidos = recs.filter(r => r.Tipo === 'Sólido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
         const totalSopa = recs.filter(r => r.Subtipo === 'Sopa').reduce((acc, r) => acc + Number(r.Quantidade), 0);
@@ -102,7 +108,7 @@ const MLPainModule = {
         for (let i = 29; i >= 0; i--) {
             const d = new Date();
             d.setDate(d.getDate() - i);
-            const dateStr = d.toISOString().split('T')[0];
+            const dateStr = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
             const label = `${d.getDate()}/${d.getMonth() + 1}`;
             last30Days.push(label);
 
@@ -116,9 +122,17 @@ const MLPainModule = {
         }
 
         container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Visão Geral</h3>
+                <div class="flex items-center gap-2 bg-white p-2 rounded shadow-sm">
+                    <label class="text-sm font-bold text-gray-600">Data:</label>
+                    <input type="date" value="${date}" class="border p-1 rounded text-sm" onchange="MLPainModule.state.filterDate = this.value; MLPainModule.renderVisaoGeral(document.getElementById('mlpain-content'))">
+                </div>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
-                    <div class="text-gray-500 text-sm">Refeições Hoje</div>
+                    <div class="text-gray-500 text-sm">Refeições (${Utils.formatDate(date)})</div>
                     <div class="text-2xl font-bold">${totalSolidos + totalSopa + totalCha}</div>
                 </div>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
@@ -191,7 +205,7 @@ const MLPainModule = {
         const pratos = MLPainModule.state.pratos.filter(p => p.Status === 'Ativo');
         const funcionarios = MLPainModule.state.funcionarios || [];
         
-        const today = new Date().toISOString().split('T')[0];
+        const today = MLPainModule.getLocalDate();
         const defaultDate = MLPainModule.state.lastEntryDate || today;
         const defaultTurno = MLPainModule.state.lastEntryTurno || 'Manhã';
         const defaultResp = MLPainModule.state.lastEntryResp || '';
@@ -461,6 +475,17 @@ const MLPainModule = {
 
         // Função auxiliar para gerar cada tabela matricial
         const renderMatrixTable = (title, typeKey, headerColorClass, badgeColorClass, areasToRender) => {
+            // Calcular totais por coluna (dia)
+            const colTotals = {};
+            let grandTotal = 0;
+            days.forEach(d => {
+                colTotals[d] = 0;
+                areasToRender.forEach(a => {
+                    colTotals[d] += matrix[a.ID][d][typeKey] || 0;
+                });
+                grandTotal += colTotals[d];
+            });
+
             return `
             <div class="mb-8 bg-white rounded shadow overflow-x-auto">
                 <h4 class="font-bold text-gray-700 p-4 border-b ${headerColorClass}">${title}</h4>
@@ -504,6 +529,16 @@ const MLPainModule = {
                             </tr>`;
                         }).join('')}
                     </tbody>
+                    <tfoot>
+                        <tr class="bg-gray-100 font-bold border-t-2 border-gray-300">
+                            <td class="p-2 border text-left sticky left-0 bg-gray-100 z-10">TOTAL</td>
+                            ${days.map(d => {
+                                const val = colTotals[d];
+                                return `<td class="p-1 border text-gray-800">${val > 0 ? val : ''}</td>`;
+                            }).join('')}
+                            <td class="p-2 border bg-gray-200 text-gray-900">${grandTotal}</td>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>`;
         };
@@ -664,11 +699,12 @@ const MLPainModule = {
         const title = document.getElementById('pdf-title');
         const inst = MLPainModule.state.instituicao[0] || {};
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const showLogo = inst.ExibirLogoRelatorios;
         
         // Configura Cabeçalho
         header.innerHTML = `
-            <div class="flex items-center gap-4 border-b pb-2 mb-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-10 w-auto object-contain">` : ''}
+            <div class="border-b pb-2 mb-4 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
                     <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
                     <p class="text-xs text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>

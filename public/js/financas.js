@@ -397,11 +397,12 @@ const FinancasModule = {
         const footer = document.getElementById('pdf-footer');
         const inst = FinancasModule.state.instituicao[0] || {};
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const showLogo = inst.ExibirLogoRelatorios;
         
         // Cabeçalho
         header.innerHTML = `
-            <div class="flex items-center gap-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
                     <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório Financeiro'}</h1>
                     <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>

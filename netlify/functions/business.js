@@ -303,6 +303,74 @@ exports.handler = async (event) => {
 
             result = { success: true, message: 'Restauração concluída.' };
 
+        } else if (action === 'completeProductionOrder') {
+            const { id } = data; // ID da Ordem
+
+            // 1. Buscar Ordem
+            const { data: ordem, error: errOrdem } = await supabase.from('OrdensProducao').select('*').eq('ID', id).single();
+            if (errOrdem || !ordem) throw new Error('Ordem de produção não encontrada.');
+            
+            if (ordem.Status === 'Concluída') throw new Error('Esta ordem já foi concluída.');
+
+            // 2. Buscar Planejamento para pegar a Receita
+            const { data: plan, error: errPlan } = await supabase.from('PlanejamentoProducao').select('*').eq('ID', ordem.PlanejamentoID).single();
+            if (errPlan || !plan) throw new Error('Planejamento não encontrado.');
+
+            // 3. Buscar Ficha Técnica
+            const { data: ficha, error: errFicha } = await supabase.from('FichasTecnicas').select('*').eq('ID', plan.ReceitaID).single();
+            if (errFicha || !ficha) throw new Error('Ficha técnica não encontrada.');
+
+            const ingredientes = ficha.IngredientesJSON || [];
+            if (ingredientes.length === 0) throw new Error('Ficha técnica sem ingredientes definidos.');
+
+            // 4. Calcular Fator de Proporção
+            const rendimentoFicha = Number(ficha.Rendimento) || 1;
+            const qtdProduzida = Number(ordem.QtdProduzida) || 0;
+            
+            if (qtdProduzida <= 0) throw new Error('Quantidade produzida inválida. Atualize a ordem com a quantidade real antes de concluir.');
+
+            const factor = qtdProduzida / rendimentoFicha;
+
+            // 5. Processar Ingredientes
+            for (const ing of ingredientes) {
+                const qtdConsumo = Number(ing.quantidade) * factor;
+                
+                // Buscar item atual no estoque
+                const { data: itemEstoque } = await supabase.from('Estoque').select('*').eq('ID', ing.id).single();
+                
+                if (itemEstoque) {
+                    // Baixar Estoque
+                    const novaQtd = Number(itemEstoque.Quantidade) - qtdConsumo;
+                    
+                    await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', ing.id);
+
+                    // Registrar Movimentação
+                    await supabase.from('MovimentacoesEstoque').insert({
+                        ProdutoID: ing.id,
+                        Tipo: 'Saida',
+                        Quantidade: qtdConsumo,
+                        Responsavel: ordem.Responsavel || 'Sistema',
+                        Observacoes: `Produção Ordem #${ordem.Codigo}`,
+                        DetalhesJSON: { OrdemID: ordem.ID }
+                    });
+
+                    // Registrar Consumo Específico da Ordem
+                    await supabase.from('ConsumoIngredientes').insert({
+                        OrdemID: ordem.ID,
+                        ProdutoID: ing.id,
+                        ProdutoNome: itemEstoque.Nome,
+                        Quantidade: qtdConsumo,
+                        Responsavel: ordem.Responsavel || 'Sistema'
+                    });
+                }
+            }
+
+            // 6. Atualizar Status da Ordem
+            const { error: errUpdate } = await supabase.from('OrdensProducao').update({ Status: 'Concluída' }).eq('ID', id);
+            if (errUpdate) throw errUpdate;
+
+            result = { success: true };
+
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];

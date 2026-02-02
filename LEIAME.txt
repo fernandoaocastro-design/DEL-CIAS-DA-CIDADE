@@ -1,0 +1,45 @@
+# MANUAL DE OPERAÇÃO - SCRIPTS DE MANUTENÇÃO
+# DELÍCIA DA CIDADE - KITCHEN OS
+
+Este arquivo explica como utilizar os scripts automáticos criados para facilitar a manutenção, backup e atualização do sistema.
+
+----------------------------------------------------------------------
+1. BACKUP LOCAL (backup_local.bat)
+----------------------------------------------------------------------
+O QUE FAZ:
+Cria uma cópia completa e segura de todo o projeto para uma pasta externa chamada "Backups_DeliciaDaCidade".
+Cada backup é salvo em uma pasta com a Data e Hora atual, evitando sobrescrever backups antigos.
+
+COMO USAR:
+1. Vá até a pasta do projeto.
+2. Dê um duplo clique no arquivo "backup_local.bat".
+3. Aguarde a mensagem "BACKUP CONCLUIDO COM SUCESSO!".
+4. Pressione qualquer tecla para fechar.
+
+ONDE FICAM OS BACKUPS:
+Eles são salvos na pasta "Backups_DeliciaDaCidade" localizada um nível acima da pasta do projeto.
+
+----------------------------------------------------------------------
+2. RESTAURAÇÃO DE SISTEMA (restore_local.bat)
+----------------------------------------------------------------------
+O QUE FAZ:
+Permite recuperar o sistema para uma versão anterior salva pelo script de backup. Útil caso algo pare de funcionar após uma alteração.
+
+COMO USAR:
+1. Dê um duplo clique no arquivo "restore_local.bat".
+2. O script listará todos os backups disponíveis numerados.
+3. Digite o número do backup que deseja restaurar e pressione ENTER.
+4. O script substituirá os arquivos atuais pelos arquivos do backup escolhido.
+
+ATENÇÃO: Isso sobrescreve as alterações atuais! Faça um backup antes se não tiver certeza.
+
+----------------------------------------------------------------------
+3. ATUALIZAÇÃO NO SERVIDOR (atualizar.bat)
+----------------------------------------------------------------------
+O QUE FAZ:
+Envia as alterações feitas no código para o GitHub/Netlify, atualizando o sistema online.
+
+COMO USAR:
+1. Após fazer alterações no código, dê um duplo clique em "atualizar.bat".
+2. O script fará o processo de envio automaticamente.
+3. Aguarde a mensagem de sucesso.

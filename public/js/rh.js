@@ -381,6 +381,7 @@ const RHModule = {
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded ${r.Status==='Aprovado'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}">${r.Status}</span></td>
                             <td class="p-3 text-center flex justify-center gap-2">
                                 <button onclick="RHModule.printGuiaFerias('${r.ID}')" class="text-gray-600 hover:text-gray-900" title="Imprimir Guia"><i class="fas fa-print"></i></button>
+                                <button onclick="RHModule.shareGuiaFerias('${r.ID}')" class="text-blue-600 hover:text-blue-800" title="Enviar por Email/WhatsApp"><i class="fas fa-share-alt"></i></button>
                                 ${r.ComprovativoURL ? `<button onclick="RHModule.viewComprovativo('${r.ID}')" class="text-green-600 hover:text-green-800" title="Ver Comprovativo"><i class="fas fa-receipt"></i></button>` : ''}
                                 ${canDelete ? `<button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                             </td>
@@ -473,6 +474,7 @@ const RHModule = {
 
         const func = RHModule.state.cache.funcionarios.find(f => f.ID === ferias.FuncionarioID) || {};
         const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
 
         // Cálculos Auxiliares
         // 1. Data de Retorno (Dia seguinte ao fim)
@@ -492,15 +494,19 @@ const RHModule = {
 
         // Elemento temporário para impressão
         const printDiv = document.createElement('div');
-        printDiv.className = 'bg-white p-8 hidden';
+        printDiv.className = 'bg-white p-8';
+        printDiv.style.position = 'absolute';
+        printDiv.style.left = '-9999px'; // Esconde fora da tela
+        printDiv.style.top = '0';
+        printDiv.style.width = '210mm'; // Largura A4
         printDiv.id = 'guia-ferias-print';
         
         printDiv.innerHTML = `
             <div class="border-2 border-gray-800 p-8 max-w-3xl mx-auto font-serif text-gray-900">
                 <!-- Cabeçalho -->
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="flex items-center gap-4">
-                        ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                         <div>
                             <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
                             <p class="text-sm">${inst.Endereco || ''}</p>
@@ -568,6 +574,57 @@ const RHModule = {
         html2pdf().set(opt).from(printDiv).save().then(() => {
             document.body.removeChild(printDiv);
         });
+    },
+
+    shareGuiaFerias: (id) => {
+        const ferias = RHModule.state.cache.ferias.find(f => f.ID === id);
+        if (!ferias) return Utils.toast('Registro não encontrado.', 'error');
+
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === ferias.FuncionarioID) || {};
+        
+        // Prepara a Mensagem
+        const dataInicio = Utils.formatDate(ferias.DataInicio);
+        const dataFim = Utils.formatDate(ferias.DataFim);
+        const retorno = new Date(ferias.DataFim);
+        retorno.setDate(retorno.getDate() + 1);
+        const dataRetorno = Utils.formatDate(retorno.toISOString().split('T')[0]);
+        
+        const msg = `*GUIA DE FÉRIAS - DELÍCIA DA CIDADE*\n\n` +
+            `Olá *${func.Nome}*,\n` +
+            `Seguem os detalhes das suas férias:\n\n` +
+            `📅 *Período:* ${dataInicio} a ${dataFim}\n` +
+            `🏖️ *Dias:* ${ferias.Dias}\n` +
+            `🔙 *Retorno:* ${dataRetorno}\n\n` +
+            `Bom descanso!`;
+
+        const encodedMsg = encodeURIComponent(msg);
+        
+        // Limpeza do telefone (remove caracteres não numéricos)
+        let phone = func.Telefone || '';
+        phone = phone.replace(/\D/g, ''); 
+        
+        const email = func.Email || '';
+
+        Utils.openModal('Enviar Guia de Férias', `
+            <div class="text-center space-y-4">
+                <p class="text-gray-600">Escolha como deseja enviar as informações para <b>${func.Nome}</b>:</p>
+                
+                <div class="grid grid-cols-1 gap-3">
+                    <a href="https://wa.me/${phone}?text=${encodedMsg}" target="_blank" class="block w-full bg-green-500 text-white py-3 rounded font-bold hover:bg-green-600 flex items-center justify-center gap-2 transition">
+                        <i class="fab fa-whatsapp text-xl"></i> Enviar por WhatsApp
+                    </a>
+                    
+                    <a href="mailto:${email}?subject=Guia de Férias - ${func.Nome}&body=${encodedMsg}" class="block w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-2 transition">
+                        <i class="fas fa-envelope text-xl"></i> Enviar por E-mail
+                    </a>
+                </div>
+                
+                <div class="text-xs text-gray-400 mt-4 border-t pt-2">
+                    <p>Telefone cadastrado: ${func.Telefone || 'Não informado'}</p>
+                    <p>E-mail cadastrado: ${func.Email || 'Não informado'}</p>
+                </div>
+            </div>
+        `);
     },
 
     viewComprovativo: (id) => {
@@ -1224,11 +1281,12 @@ const RHModule = {
         const footer = document.getElementById('pdf-footer');
         const inst = RHModule.state.cache.instituicao[0] || {};
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const showLogo = inst.ExibirLogoRelatorios;
         
         // Monta o cabeçalho com Logotipo e Dados da Empresa
         header.innerHTML = `
-            <div class="flex items-center gap-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
                     <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
                     <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>

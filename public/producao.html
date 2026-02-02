@@ -6,6 +6,7 @@
     <title>Produção - Kitchen OS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body class="bg-gray-100 font-sans h-screen overflow-hidden">
 
@@ -35,7 +36,7 @@
             <header class="flex justify-between items-center mb-8">
                 <div>
                     <h2 class="text-3xl font-bold text-gray-800">Gestão de Produção</h2>
-                    <p class="text-gray-500">Controle de Pratos e Fichas Técnicas</p>
+                    <p class="text-gray-500">Planejamento, Execução e Controle de Cozinha</p>
                 </div>
                 <div class="flex items-center gap-4">
                     <div class="relative">
@@ -57,11 +58,28 @@
                 </div>
             </header>
 
+            <!-- NAVEGAÇÃO DE SUBMENUS -->
+            <div class="flex gap-2 mb-6 border-b pb-2 overflow-x-auto">
+                <button id="tab-planejamento" onclick="ProducaoModule.setTab('planejamento')" class="tab-btn px-4 py-2 font-bold text-orange-600 border-b-2 border-orange-500 transition whitespace-nowrap">🍽️ Planejamento</button>
+                <button id="tab-fichas" onclick="ProducaoModule.setTab('fichas')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">🧑‍🍳 Fichas Técnicas</button>
+                <button id="tab-ordens" onclick="ProducaoModule.setTab('ordens')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">🧾 Ordens de Produção</button>
+                <button id="tab-ingredientes" onclick="ProducaoModule.setTab('ingredientes')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">🧂 Ingredientes</button>
+                <button id="tab-desperdicio" onclick="ProducaoModule.setTab('desperdicio')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">♻️ Desperdício</button>
+                <button id="tab-custos" onclick="ProducaoModule.setTab('custos')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">🧮 Custos</button>
+                <button id="tab-relatorios" onclick="ProducaoModule.setTab('relatorios')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">📊 Relatórios</button>
+            </div>
+
             <div id="producao-content">
                 <div class="text-center py-20">
                     <i class="fas fa-circle-notch fa-spin text-4xl text-orange-500"></i>
-                    <p class="mt-4 text-gray-500">Carregando menu...</p>
+                    <p class="mt-4 text-gray-500">Carregando módulo de produção...</p>
                 </div>
+            </div>
+
+            <!-- ÁREA DE IMPRESSÃO (Oculta) -->
+            <div id="print-area-producao" class="hidden bg-white p-8">
+                <div id="pdf-header" class="mb-6 border-b pb-4"></div>
+                <div id="pdf-content"></div>
             </div>
             </main>
 
@@ -72,7 +90,7 @@
     </div>
 
     <!-- MODAL CONTAINER -->
-    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto py-10">
         <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative animate-fade-in-up">
             <div class="flex justify-between items-center mb-4 border-b pb-2">
                 <h3 class="text-xl font-bold text-gray-800" id="modal-title">Título</h3>

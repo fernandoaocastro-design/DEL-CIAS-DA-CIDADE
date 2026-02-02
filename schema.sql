@@ -225,17 +225,6 @@ CREATE TABLE "MovimentacoesEstoque" (
     "DetalhesJSON" JSONB -- Para dados extras (Nº Fatura, Destino, etc)
 );
 
-CREATE TABLE "Pratos" (
-    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "Nome" VARCHAR(255) NOT NULL,
-    "Categoria" VARCHAR(100),
-    "Preco" DECIMAL(12,2),
-    "TempoPreparo" VARCHAR(50),
-    "Descricao" TEXT,
-    "Status" VARCHAR(50) DEFAULT 'Ativo',
-    "CriadoEm" TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE "Notificacoes" (
     "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "UsuarioID" UUID, -- Opcional, se for para um user especifico
@@ -324,7 +313,9 @@ CREATE TABLE "InstituicaoConfig" (
     "Email" VARCHAR(100),
     "Website" VARCHAR(100),
     "Moeda" VARCHAR(10) DEFAULT 'Kz',
-    "FusoHorario" VARCHAR(50) DEFAULT 'Africa/Luanda'
+    "FusoHorario" VARCHAR(50) DEFAULT 'Africa/Luanda',
+    "ExibirLogoRelatorios" BOOLEAN DEFAULT FALSE,
+    "CorRelatorios" VARCHAR(20) DEFAULT '#3B82F6'
 );
 
 -- B. Estrutura Organizacional
@@ -385,6 +376,80 @@ CREATE TABLE "LogsAuditoria" (
     "Acao" VARCHAR(50), -- CRIAR, EDITAR, EXCLUIR
     "Descricao" TEXT,
     "DetalhesJSON" JSONB
+);
+
+-- 9. MÓDULO GESTÃO DE PRODUÇÃO (REFORMULADO)
+
+-- 2️⃣ Fichas Técnicas de Preparação
+CREATE TABLE "FichasTecnicas" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(255) NOT NULL,
+    "Categoria" VARCHAR(100), -- Prato principal, guarnição, sobremesa
+    "ModoPreparo" TEXT,
+    "Rendimento" DECIMAL(10,2), -- Nº de porções
+    "TempoPreparo" VARCHAR(50),
+    "CustoPorPorcao" DECIMAL(12,2),
+    "ValorNutricional" JSONB, -- {kcal, proteinas, gorduras...}
+    "IngredientesJSON" JSONB, -- [{nome, quantidade, unidade, custo}, ...]
+    "Status" VARCHAR(50) DEFAULT 'Ativo',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- 1️⃣ Planejamento de Produção
+CREATE TABLE "PlanejamentoProducao" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "DataProducao" DATE NOT NULL,
+    "TipoRefeicao" VARCHAR(50), -- Café, Almoço, Jantar
+    "Setor" VARCHAR(100), -- Clínica médica, Pediatria...
+    "QtdPacientes" INTEGER,
+    "ReceitaID" UUID REFERENCES "FichasTecnicas"("ID"),
+    "ReceitaNome" VARCHAR(255), -- Redundância para facilitar leitura
+    "QtdPlanejada" DECIMAL(12,2), -- kg ou porções
+    "ResponsavelTecnico" VARCHAR(255),
+    "Observacoes" TEXT,
+    "Status" VARCHAR(50) DEFAULT 'Planejado', -- Planejado, Em Produção, Concluído
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- 3️⃣ Ordem de Produção
+CREATE TABLE "OrdensProducao" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Codigo" SERIAL, -- Nº da Ordem
+    "PlanejamentoID" UUID REFERENCES "PlanejamentoProducao"("ID"),
+    "Data" DATE,
+    "Turno" VARCHAR(50),
+    "Responsavel" VARCHAR(255), -- Cozinheiro
+    "QtdProduzida" DECIMAL(12,2),
+    "Inicio" TIME,
+    "Fim" TIME,
+    "Observacoes" TEXT,
+    "Status" VARCHAR(50) DEFAULT 'Aberta',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- 4️⃣ Controle de Ingredientes (Baixa de Estoque vinculada à Ordem)
+CREATE TABLE "ConsumoIngredientes" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "OrdemID" UUID REFERENCES "OrdensProducao"("ID"),
+    "ProdutoID" UUID REFERENCES "Estoque"("ID"), -- Código do Ingrediente
+    "ProdutoNome" VARCHAR(255),
+    "Quantidade" DECIMAL(12,2),
+    "Lote" VARCHAR(50),
+    "Responsavel" VARCHAR(255), -- Estoquista
+    "DataRetirada" TIMESTAMP DEFAULT NOW()
+);
+
+-- 6️⃣ Controle de Desperdício e Sobras
+CREATE TABLE "ControleDesperdicio" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Data" DATE,
+    "TipoRefeicao" VARCHAR(50),
+    "SobraLimpa" DECIMAL(10,2), -- kg
+    "SobraSuja" DECIMAL(10,2), -- kg
+    "Motivo" TEXT,
+    "Responsavel" VARCHAR(255),
+    "Observacoes" TEXT,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
 
 -- 5. SEGURANÇA E DADOS INICIAIS

@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], activeTab: 'dashboard'
+    state: { items: [], movimentacoes: [], activeTab: 'dashboard' },
     // Classificação Inteligente
     taxonomy: {
         'Alimentos': {
@@ -102,8 +102,10 @@ const EstoqueModule = {
             <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                 <h3 class="text-xl font-bold">Cadastro de Produtos</h3>
                 <div class="flex flex-wrap gap-2">
-                    <input tyeclick="EstoqueModule.exportPDF()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-file-pdf"></i> PDF</button>
-                    <button onclick="EstoqueModule.modalEntrada()" clatoqueModule.modalSaida()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-up"></i> Saída</button>
+                    <input type="text" placeholder="🔍 Buscar..." class="border p-2 rounded text-sm w-64" value="${EstoqueModule.state.filterTerm || ''}" oninput="EstoqueModule.updateFilter(this.value)">
+                    <button onclick="EstoqueModule.exportPDF()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-file-pdf"></i> PDF</button>
+                    <button onclick="EstoqueModule.modalEntrada()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-down"></i> Entrada</button>
+                    <button onclick="EstoqueModule.modalSaida()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-up"></i> Saída</button>
                     <button onclick="EstoqueModule.modalItem()" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow transition">
                         <i class="fas fa-plus"></i> Novo Produto
                     </button>
@@ -113,8 +115,10 @@ const EstoqueModule = {
             <div id="print-area-estoque" class="overflow-x-auto bg-white rounded shadow">
                 <div id="pdf-header" class="hidden p-6 border-b"></div>
                 <table class="w-full text-sm">
-                                          <tr>
-h>
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-3 text-left">Produto</th>
+                            <th class="p-3 text-left">Tipo</th>
                             <th class="p-3 text-center">Local</th>
                             <th class="p-3 text-center">Qtd</th>
                             <th class="p-3 text-right">Custo Médio</th>
@@ -173,8 +177,13 @@ h>
             const hoje = new Date();
             const diffTime = val - hoje;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-            return diffDays <= 30 && diffDays >= 0; // Vencendo em 30 dias
+            return diffDays <= 30; // Vencendo em 30 dias ou já vencido
         });
+
+        // Alerta Visual ao carregar Dashboard
+        if (vencendo.length > 0) {
+            Utils.toast(`⚠️ Atenção: ${vencendo.length} produtos com validade crítica ou vencidos!`, 'error');
+        }
 
         // Consumo por Categoria (Saídas)
         const consumoMap = {};
@@ -268,13 +277,20 @@ h>
                         <table class="w-full text-sm">
                             <thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="p-2 text-left">Produto</th><th class="p-2 text-center">Lote</th><th class="p-2 text-center">Validade</th></tr></thead>
                             <tbody>
-                                ${vencendo.map(i => `
+                                ${vencendo.map(i => {
+                                    const val = new Date(i.Validade);
+                                    const hoje = new Date();
+                                    const diffTime = val - hoje;
+                                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                    const status = diffDays < 0 ? 'VENCIDO' : (diffDays === 0 ? 'HOJE' : `${diffDays} dias`);
+                                    const colorClass = diffDays < 0 ? 'text-red-600' : 'text-yellow-600';
+                                    return `
                                     <tr class="border-b">
                                         <td class="p-2 font-medium">${i.Nome}</td>
                                         <td class="p-2 text-center text-xs">${i.Lote || '-'}</td>
-                                        <td class="p-2 text-center text-yellow-600 font-bold">${Utils.formatDate(i.Validade)}</td>
+                                        <td class="p-2 text-center ${colorClass} font-bold">${Utils.formatDate(i.Validade)} <br> <span class="text-[10px] uppercase">${status}</span></td>
                                     </tr>
-                                `).join('')}
+                                `}).join('')}
                             </tbody>
                         </table>
                     </div>
@@ -563,10 +579,11 @@ h>
         const footer = document.getElementById('pdf-footer');
         const inst = EstoqueModule.state.instituicao[0] || {};
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const showLogo = inst.ExibirLogoRelatorios;
 
         header.innerHTML = `
-            <div class="flex items-center gap-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
                     <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
                     <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
