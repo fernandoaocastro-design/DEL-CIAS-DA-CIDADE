@@ -281,7 +281,9 @@ const RHModule = {
             if(!start || !end) return 0;
             const [h1, m1] = start.split(':').map(Number);
             const [h2, m2] = end.split(':').map(Number);
-            return ((h2*60+m2) - (h1*60+m1)) / 60;
+            let diff = (h2*60+m2) - (h1*60+m1);
+            if (diff < 0) diff += 24 * 60; // Ajuste para virada de dia (24h)
+            return diff / 60;
         };
 
         document.getElementById('tab-content').innerHTML = `
@@ -290,8 +292,13 @@ const RHModule = {
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status (Ref: 8h)</th><th>Ações</th></tr></thead>
                 <tbody>
                     ${data.map(r => {
+                        // Busca funcionário para saber o turno
+                        const func = RHModule.state.cache.funcionarios.find(f => f.ID === r.FuncionarioID);
+                        const is24h = func && func.Turno === 'Regime de Turno';
+                        const refHours = is24h ? 24 : 8;
+
                         const total = calcHours(r.Entrada, r.Saida);
-                        const diff = total - 8;
+                        const diff = total - refHours;
                         const statusClass = diff < 0 ? 'text-red-500' : (diff > 0 ? 'text-green-500' : 'text-gray-500');
                         const statusText = diff < 0 ? `Falta: ${Math.abs(diff).toFixed(1)}h` : (diff > 0 ? `Extra: ${diff.toFixed(1)}h` : 'Normal');
                         

@@ -6,11 +6,14 @@ const MLPainModule = {
         pratos: [],
         funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
+        filterTurno: '', // Filtro de turno para detalhamento
         instituicao: [],
         charts: {}, // Armazena instâncias dos gráficos
         lastEntryDate: null,
         lastEntryTurno: null,
-        lastEntryResp: null
+        lastEntryResp: null,
+        lastEntryType: 'Sólido', // Padrão inicial
+        lastEntryArea: null
     },
 
     init: () => {
@@ -65,6 +68,8 @@ const MLPainModule = {
             MLPainModule.renderLancamento(container);
         } else if (tab === 'tabela') {
             MLPainModule.renderTabela(container);
+        } else if (tab === 'detalhamento') {
+            MLPainModule.renderDetalhamento(container);
         } else if (tab === 'areas') {
             MLPainModule.renderAreas(container);
         }
@@ -190,6 +195,8 @@ const MLPainModule = {
         const defaultDate = MLPainModule.state.lastEntryDate || today;
         const defaultTurno = MLPainModule.state.lastEntryTurno || 'Manhã';
         const defaultResp = MLPainModule.state.lastEntryResp || '';
+        const defaultType = MLPainModule.state.lastEntryType || 'Sólido';
+        const defaultArea = MLPainModule.state.lastEntryArea || '';
 
         // Contagem de refeições lançadas hoje
         const totalToday = MLPainModule.state.registros
@@ -235,11 +242,11 @@ const MLPainModule = {
                         <label class="block text-sm font-bold text-gray-700 mb-2">Tipo de Refeição:</label>
                         <div class="flex gap-4">
                             <label class="flex items-center gap-2 cursor-pointer bg-blue-50 px-4 py-2 rounded border border-blue-200">
-                                <input type="radio" name="TipoRefeicao" value="Sólido" checked onchange="MLPainModule.toggleFormType('Sólido')">
+                                <input type="radio" name="TipoRefeicao" value="Sólido" ${defaultType === 'Sólido' ? 'checked' : ''} onchange="MLPainModule.toggleFormType('Sólido')">
                                 <span class="font-bold text-blue-800">🍽️ Sólidos (Geral)</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer bg-orange-50 px-4 py-2 rounded border border-orange-200">
-                                <input type="radio" name="TipoRefeicao" value="Líquido" onchange="MLPainModule.toggleFormType('Líquido')">
+                                <input type="radio" name="TipoRefeicao" value="Líquido" ${defaultType === 'Líquido' ? 'checked' : ''} onchange="MLPainModule.toggleFormType('Líquido')">
                                 <span class="font-bold text-orange-800">🥣 Líquidos (Sopa/Chá)</span>
                             </label>
                         </div>
@@ -273,10 +280,10 @@ const MLPainModule = {
 
         // Armazena pratos no estado global para acesso no toggle
         MLPainModule.tempPratos = pratos;
-        MLPainModule.toggleFormType('Sólido'); // Inicializa com Sólido
+        MLPainModule.toggleFormType(defaultType, defaultArea); // Inicializa com o tipo e área persistidos
     },
 
-    toggleFormType: (type) => {
+    toggleFormType: (type, selectedAreaId = null) => {
         const container = document.getElementById('dynamic-fields');
         const pratos = MLPainModule.tempPratos || [];
         const funcionarios = MLPainModule.state.funcionarios || [];
@@ -286,7 +293,7 @@ const MLPainModule = {
         if (areaSelect) {
             const areasFiltradas = MLPainModule.state.areas.filter(a => a.Ativo && (a.Tipo === type || (!a.Tipo && type === 'Sólido')));
             areaSelect.innerHTML = '<option value="">Selecione a Área...</option>' + 
-                areasFiltradas.map(a => `<option value="${a.ID}">${a.Nome}</option>`).join('');
+                areasFiltradas.map(a => `<option value="${a.ID}" ${selectedAreaId === a.ID ? 'selected' : ''}>${a.Nome}</option>`).join('');
         }
         
         if (type === 'Sólido') {
@@ -343,6 +350,8 @@ const MLPainModule = {
         MLPainModule.state.lastEntryDate = formData.get('Data');
         MLPainModule.state.lastEntryTurno = formData.get('Turno');
         MLPainModule.state.lastEntryResp = formData.get('Responsavel');
+        MLPainModule.state.lastEntryType = formData.get('TipoRefeicao');
+        MLPainModule.state.lastEntryArea = formData.get('AreaID');
         
         const areaId = formData.get('AreaID');
         const area = MLPainModule.state.areas.find(a => a.ID === areaId);
@@ -534,34 +543,6 @@ const MLPainModule = {
             ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidAreas)}
             ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidAreas)}
 
-            <!-- TABELA DETALHADA -->
-            <div class="bg-white rounded shadow overflow-hidden">
-                <h4 class="font-bold text-gray-700 p-4 border-b">Detalhamento dos Lançamentos</h4>
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Detalhe</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
-                    </thead>
-                    <tbody class="divide-y">
-                        ${recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).map(r => `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3">${Utils.formatDate(r.Data)}</td>
-                                <td class="p-3">${r.Turno || '-'}</td>
-                                <td class="p-3 font-medium">${r.AreaNome}</td>
-                                <td class="p-3">
-                                    <span class="px-2 py-1 rounded text-xs font-bold ${r.Tipo === 'Sólido' ? 'bg-green-100 text-green-800' : (r.Subtipo === 'Sopa' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800')}">
-                                        ${r.Tipo === 'Sólido' ? 'Sólido' : r.Subtipo}
-                                    </span>
-                                </td>
-                                <td class="p-3 text-xs text-gray-500">${r.Tipo === 'Sólido' ? (r.Prato || '-') : '-'}</td>
-                                <td class="p-3 text-right font-bold">${r.Quantidade}</td>
-                                <td class="p-3 text-xs text-gray-500">${r.Responsavel || '-'}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-                ${recs.length === 0 ? '<div class="p-4 text-center text-gray-500">Nenhum registro neste mês.</div>' : ''}
-            </div>
-            
             <div id="pdf-footer" class="hidden mt-10 pt-4 border-t text-center"></div>
             </div>
         `;
@@ -592,6 +573,88 @@ const MLPainModule = {
             },
             options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
         });
+    },
+
+    // --- 3.1 DETALHAMENTO DOS LANÇAMENTOS ---
+    renderDetalhamento: (container) => {
+        const month = MLPainModule.state.filterMonth;
+        const turno = MLPainModule.state.filterTurno;
+        
+        let recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+        if (turno) {
+            recs = recs.filter(r => r.Turno === turno);
+        }
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Detalhamento dos Lançamentos</h3>
+                <div class="flex gap-2">
+                    <select class="border p-2 rounded text-sm" onchange="MLPainModule.state.filterTurno = this.value; MLPainModule.renderDetalhamento(document.getElementById('mlpain-content'))">
+                        <option value="">Todos os Turnos</option>
+                        <option ${turno === 'Manhã' ? 'selected' : ''}>Manhã</option>
+                        <option ${turno === 'Tarde' ? 'selected' : ''}>Tarde</option>
+                        <option ${turno === 'Noite' ? 'selected' : ''}>Noite</option>
+                    </select>
+                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.state.filterMonth = this.value; MLPainModule.renderDetalhamento(document.getElementById('mlpain-content'))">
+                    <button onclick="MLPainModule.exportDetalhamentoCSV()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition flex items-center gap-2">
+                        <i class="fas fa-file-csv"></i> CSV
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Detalhe</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).map(r => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3">${Utils.formatDate(r.Data)}</td>
+                                <td class="p-3">${r.Turno || '-'}</td>
+                                <td class="p-3 font-medium">${r.AreaNome}</td>
+                                <td class="p-3">
+                                    <span class="px-2 py-1 rounded text-xs font-bold ${r.Tipo === 'Sólido' ? 'bg-green-100 text-green-800' : (r.Subtipo === 'Sopa' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800')}">
+                                        ${r.Tipo === 'Sólido' ? 'Sólido' : r.Subtipo}
+                                    </span>
+                                </td>
+                                <td class="p-3 text-xs text-gray-500">${r.Tipo === 'Sólido' ? (r.Prato || '-') : '-'}</td>
+                                <td class="p-3 text-right font-bold">${r.Quantidade}</td>
+                                <td class="p-3 text-xs text-gray-500">${r.Responsavel || '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                ${recs.length === 0 ? '<div class="p-4 text-center text-gray-500">Nenhum registro neste mês.</div>' : ''}
+            </div>
+        `;
+    },
+
+    exportDetalhamentoCSV: () => {
+        const month = MLPainModule.state.filterMonth;
+        const turno = MLPainModule.state.filterTurno;
+        
+        let recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+        if (turno) {
+            recs = recs.filter(r => r.Turno === turno);
+        }
+
+        if (recs.length === 0) return Utils.toast('Nenhum registro para exportar.', 'info');
+
+        const headers = ['Data', 'Turno', 'Area', 'Tipo', 'Subtipo', 'Detalhe', 'Quantidade', 'Responsavel'];
+        const escapeCSV = (str) => (str === null || str === undefined) ? '' : `"${String(str).replace(/"/g, '""')}"`;
+
+        const csvContent = [headers.join(','), ...recs.map(r => {
+            return [r.Data, r.Turno, r.AreaNome, r.Tipo, r.Subtipo, r.Tipo === 'Sólido' ? r.Prato : '-', r.Quantidade, r.Responsavel].map(escapeCSV).join(',');
+        })].join('\n');
+
+        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `detalhamento_mlpain_${month}${turno ? '_' + turno : ''}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     },
 
     exportPDF: () => {

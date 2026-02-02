@@ -9,7 +9,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
-<body class="bg-gray-100 font-sans">
+<body class="bg-gray-100 font-sans h-screen overflow-hidden">
     <div class="flex h-screen overflow-hidden">
         <!-- SIDEBAR -->
         <aside id="sidebar" class="w-64 bg-slate-900 text-white flex flex-col transition-all duration-300">
@@ -30,8 +30,9 @@
             </nav>
         </aside>
 
-        <!-- MAIN CONTENT -->
-        <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-8">
+        <!-- CONTENT WRAPPER -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <main class="flex-1 overflow-y-auto bg-gray-50 p-8">
             <header class="flex justify-between items-center mb-8">
                 <h2 class="text-3xl font-bold text-gray-800">M.L. Pain - Controle de Dietas</h2>
                 <div class="flex items-center gap-4">
@@ -65,6 +66,9 @@
                 <button id="tab-tabela" onclick="MLPainModule.setTab('tabela')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
                     <i class="fas fa-table"></i> Tabela Mensal
                 </button>
+                <button id="tab-detalhamento" onclick="MLPainModule.setTab('detalhamento')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
+                    <i class="fas fa-list-alt"></i> Detalhamento
+                </button>
                 <button id="tab-areas" onclick="MLPainModule.setTab('areas')" class="tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap">
                     <i class="fas fa-map-marker-alt"></i> Áreas
                 </button>
@@ -72,7 +76,12 @@
 
             <!-- CONTEÚDO DINÂMICO -->
             <div id="mlpain-content"></div>
-        </main>
+            </main>
+
+            <footer class="bg-white border-t p-4 text-center text-xs text-gray-500">
+                &copy; 2024 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+            </footer>
+        </div>
     </div>
 
     <!-- MODAL E SCRIPTS -->
