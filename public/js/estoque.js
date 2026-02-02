@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], activeTab: 'dashboard' },
+    state: { items: [], movimentacoes: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
     // Classificação Inteligente
     taxonomy: {
         'Alimentos': {
@@ -39,8 +39,10 @@ const EstoqueModule = {
 
     fetchMovimentacoes: async () => {
         try {
-            const data = await Utils.api('getAll', 'MovimentacoesEstoque');
-            EstoqueModule.state.movimentacoes = data;
+            const { page, limit } = EstoqueModule.state.pagination;
+            const response = await Utils.api('getAll', 'MovimentacoesEstoque', { page, limit });
+            EstoqueModule.state.movimentacoes = response.data || [];
+            EstoqueModule.state.pagination.total = response.total || 0;
         } catch(e) { console.error(e); }
     },
 
@@ -81,6 +83,8 @@ const EstoqueModule = {
 
         const totalValue = data.reduce((acc, item) => acc + (Number(item.Quantidade) * Number(item.CustoUnitario)), 0);
         const criticalItems = data.filter(i => Number(i.Quantidade) <= Number(i.Minimo)).length;
+        const canCreate = Utils.checkPermission('Estoque', 'criar');
+        const canEdit = Utils.checkPermission('Estoque', 'editar');
         const canDelete = Utils.checkPermission('Estoque', 'excluir');
 
         document.getElementById('estoque-content').innerHTML = `
@@ -104,11 +108,11 @@ const EstoqueModule = {
                 <div class="flex flex-wrap gap-2">
                     <input type="text" placeholder="🔍 Buscar..." class="border p-2 rounded text-sm w-64" value="${EstoqueModule.state.filterTerm || ''}" oninput="EstoqueModule.updateFilter(this.value)">
                     <button onclick="EstoqueModule.exportPDF()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-file-pdf"></i> PDF</button>
-                    <button onclick="EstoqueModule.modalEntrada()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-down"></i> Entrada</button>
+                    ${canCreate ? `<button onclick="EstoqueModule.modalEntrada()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-down"></i> Entrada</button>
                     <button onclick="EstoqueModule.modalSaida()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-up"></i> Saída</button>
                     <button onclick="EstoqueModule.modalItem()" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow transition">
                         <i class="fas fa-plus"></i> Novo Produto
-                    </button>
+                    </button>` : ''}
                 </div>
             </div>
 
@@ -153,7 +157,7 @@ const EstoqueModule = {
                                 <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(total)}</td>
                                 <td class="p-3 text-center">${Utils.formatDate(i.Validade)}</td>
                                 <td class="p-3 text-center">
-                                    <button onclick="EstoqueModule.modalItem('${i.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                    ${canEdit ? `<button onclick="EstoqueModule.modalItem('${i.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                     ${canDelete ? `<button onclick="EstoqueModule.delete('${i.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
                             </tr>`;
@@ -222,15 +226,6 @@ const EstoqueModule = {
                 <div class="bg-white p-6 rounded shadow">
                     <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Ações Rápidas</h4>
                     <div class="grid grid-cols-2 gap-3">
-                        <button onclick="EstoqueModule.modalRequisicao()" class="bg-indigo-50 text-indigo-700 p-3 rounded hover:bg-indigo-100 text-sm font-bold flex flex-col items-center gap-2">
-                            <i class="fas fa-clipboard-list text-xl"></i> Requisição
-                        </button>
-                        <button onclick="EstoqueModule.modalTransferencia()" class="bg-orange-50 text-orange-700 p-3 rounded hover:bg-orange-100 text-sm font-bold flex flex-col items-center gap-2">
-                            <i class="fas fa-exchange-alt text-xl"></i> Transferência
-                        </button>
-                        <button onclick="EstoqueModule.modalInventarioRapido()" class="bg-purple-50 text-purple-700 p-3 rounded hover:bg-purple-100 text-sm font-bold flex flex-col items-center gap-2">
-                            <i class="fas fa-tasks text-xl"></i> Inv. Rápido
-                        </button>
                         <button onclick="EstoqueModule.setTab('produtos')" class="bg-gray-50 text-gray-700 p-3 rounded hover:bg-gray-100 text-sm font-bold flex flex-col items-center gap-2">
                             <i class="fas fa-boxes text-xl"></i> Ver Produtos
                         </button>
@@ -315,33 +310,149 @@ const EstoqueModule = {
     },
 
     renderMovimentacoes: () => {
-        const movs = EstoqueModule.state.movimentacoes || [];
+        let movs = EstoqueModule.state.movimentacoes || [];
+        const items = EstoqueModule.state.items || [];
+        
+        // Obter Subtipos únicos para o filtro
+        const subtipos = [...new Set(items.map(i => i.Subtipo).filter(Boolean))].sort();
+
+        // Filtrar por Subtipo se selecionado
+        if (EstoqueModule.state.filterMovSubtipo) {
+            movs = movs.filter(m => {
+                const prod = items.find(i => i.ID === m.ProdutoID);
+                return prod && prod.Subtipo === EstoqueModule.state.filterMovSubtipo;
+            });
+        }
+
         // Ordenar por data (mais recente primeiro)
         movs.sort((a, b) => new Date(b.Data) - new Date(a.Data));
 
+        // Dados para o Gráfico de Movimentações (Últimos 6 meses)
+        const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+        const movMap = {};
+        
+        movs.forEach(m => {
+            const d = new Date(m.Data);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!movMap[key]) movMap[key] = { entrada: 0, saida: 0 };
+            
+            if (m.Tipo === 'Entrada') movMap[key].entrada += Number(m.Quantidade);
+            else if (m.Tipo === 'Saida') movMap[key].saida += Number(m.Quantidade);
+        });
+
+        const sortedKeys = Object.keys(movMap).sort().slice(-6); // Últimos 6 meses com dados
+        const labels = sortedKeys.map(k => months[parseInt(k.split('-')[1]) - 1]);
+        const dataEntrada = sortedKeys.map(k => movMap[k].entrada);
+        const dataSaida = sortedKeys.map(k => movMap[k].saida);
+
         document.getElementById('estoque-content').innerHTML = `
-            <h3 class="text-xl font-bold mb-4">Histórico de Movimentações</h3>
-            <div class="overflow-x-auto">
-                <table class="w-full bg-white rounded shadow text-sm">
-                    <thead class="bg-gray-100"><tr><th>Data</th><th>Tipo</th><th>Produto</th><th>Qtd</th><th>Responsável</th><th>Obs</th></tr></thead>
-                    <tbody>
+            <div class="bg-white p-4 rounded-lg shadow-sm mb-6 border border-gray-100">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            <i class="fas fa-history text-yellow-500"></i> Histórico de Movimentações
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-1">Visualize e filtre as entradas e saídas de estoque.</p>
+                    </div>
+                    
+                    <div class="flex gap-3 items-center w-full md:w-auto">
+                        <div class="relative w-full md:w-64">
+                            <select onchange="EstoqueModule.setMovFilter(this.value)" class="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-yellow-500 transition-all cursor-pointer shadow-sm hover:bg-gray-100">
+                                <option value="">📂 Todos os Subtipos</option>
+                                ${subtipos.map(s => `<option value="${s}" ${EstoqueModule.state.filterMovSubtipo === s ? 'selected' : ''}>🔹 ${s}</option>`).join('')}
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+                        
+                        <button onclick="EstoqueModule.exportMovimentacoesPDF()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
+                            <i class="fas fa-file-pdf"></i> <span class="hidden md:inline">Exportar PDF</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow mb-6 border border-gray-100">
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Volume de Movimentações (Últimos Meses)</h4>
+                <div class="h-64"><canvas id="chartMovimentacoes"></canvas></div>
+            </div>
+
+            <div id="print-area-movimentacoes" class="overflow-x-auto bg-white rounded-lg shadow border border-gray-100">
+                <div id="pdf-header-mov" class="hidden p-6 border-b"></div>
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider">
+                        <tr>
+                            <th class="p-4 font-semibold">Data</th>
+                            <th class="p-4 font-semibold">Tipo</th>
+                            <th class="p-4 font-semibold">Produto</th>
+                            <th class="p-4 font-semibold">Subtipo</th>
+                            <th class="p-4 text-center font-semibold">Qtd</th>
+                            <th class="p-4 font-semibold">Responsável</th>
+                            <th class="p-4 font-semibold">Obs</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
                         ${movs.map(m => {
                             const prod = EstoqueModule.state.items.find(i => i.ID === m.ProdutoID);
                             const nomeProd = prod ? prod.Nome : 'Item Excluído';
-                            const color = m.Tipo === 'Entrada' ? 'text-green-600' : 'text-red-600';
-                            return `<tr class="border-t hover:bg-gray-50">
-                                <td class="p-3 text-center">${new Date(m.Data).toLocaleString()}</td>
-                                <td class="p-3 font-bold ${color}">${m.Tipo}</td>
-                                <td class="p-3">${nomeProd}</td>
-                                <td class="p-3 text-center font-bold">${m.Quantidade}</td>
-                                <td class="p-3">${m.Responsavel || '-'}</td>
-                                <td class="p-3 text-xs text-gray-500">${m.Observacoes || '-'}</td>
+                            const subtipo = prod ? prod.Subtipo : '-';
+                            const color = m.Tipo === 'Entrada' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
+                            const tipoIcon = m.Tipo === 'Entrada' ? 'fa-arrow-down' : 'fa-arrow-up';
+                            
+                            return `<tr class="hover:bg-yellow-50 transition-colors duration-150">
+                                <td class="p-4 whitespace-nowrap text-gray-500">${new Date(m.Data).toLocaleString()}</td>
+                                <td class="p-4">
+                                    <span class="px-2 py-1 rounded-full text-xs font-bold ${color} inline-flex items-center gap-1">
+                                        <i class="fas ${tipoIcon}"></i> ${m.Tipo}
+                                    </span>
+                                </td>
+                                <td class="p-4 font-medium text-gray-800">${nomeProd}</td>
+                                <td class="p-4 text-xs text-gray-500">
+                                    <span class="bg-gray-100 px-2 py-1 rounded border border-gray-200">${subtipo}</span>
+                                </td>
+                                <td class="p-4 text-center font-bold text-gray-700">${m.Quantidade}</td>
+                                <td class="p-4 text-sm text-gray-600">${m.Responsavel || '-'}</td>
+                                <td class="p-4 text-xs text-gray-400 italic max-w-xs truncate" title="${m.Observacoes || ''}">${m.Observacoes || '-'}</td>
                             </tr>`;
                         }).join('')}
+                        ${movs.length === 0 ? '<tr><td colspan="7" class="p-10 text-center text-gray-400 flex flex-col items-center"><i class="fas fa-search text-3xl mb-2 text-gray-300"></i>Nenhuma movimentação encontrada para este filtro.</td></tr>' : ''}
                     </tbody>
                 </table>
+                <div id="pdf-footer-mov" class="hidden p-4 border-t text-center text-xs text-gray-400"></div>
+            </div>
+            
+            <!-- Paginação -->
+            <div class="flex justify-between items-center mt-4 text-sm text-gray-600">
+                <span>Total: ${EstoqueModule.state.pagination.total} registros</span>
+                <div class="flex gap-2">
+                    <button onclick="EstoqueModule.changePage(-1)" class="px-3 py-1 border rounded hover:bg-gray-100" ${EstoqueModule.state.pagination.page === 1 ? 'disabled' : ''}>Anterior</button>
+                    <span class="px-3 py-1">Página ${EstoqueModule.state.pagination.page}</span>
+                    <button onclick="EstoqueModule.changePage(1)" class="px-3 py-1 border rounded hover:bg-gray-100" 
+                        ${(EstoqueModule.state.pagination.page * EstoqueModule.state.pagination.limit) >= EstoqueModule.state.pagination.total ? 'disabled' : ''}>Próxima</button>
+                </div>
             </div>
         `;
+
+        // Renderizar Gráfico
+        if (EstoqueModule.state.charts.movimentacoes) EstoqueModule.state.charts.movimentacoes.destroy();
+
+        EstoqueModule.state.charts.movimentacoes = new Chart(document.getElementById('chartMovimentacoes'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: 'Entradas', data: dataEntrada, backgroundColor: '#10B981', borderRadius: 4 },
+                    { label: 'Saídas', data: dataSaida, backgroundColor: '#EF4444', borderRadius: 4 }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+        });
+    },
+
+    changePage: (offset) => {
+        EstoqueModule.state.pagination.page += offset;
+        EstoqueModule.fetchMovimentacoes().then(EstoqueModule.renderMovimentacoes);
     },
 
     modalItem: (id = null) => {
@@ -481,42 +592,6 @@ const EstoqueModule = {
         `);
     },
 
-    modalRequisicao: () => {
-        // Reutiliza modal de saída com título diferente para simplificar
-        EstoqueModule.modalSaida();
-        document.getElementById('modal-title').innerText = 'Requisição Interna de Materiais';
-    },
-
-    modalTransferencia: () => {
-        const prods = EstoqueModule.state.items;
-        Utils.openModal('Transferência entre Setores', `
-            <form onsubmit="EstoqueModule.saveMovimentacao(event, 'Transferencia')">
-                <div class="mb-3">
-                    <label class="text-xs font-bold">Produto</label>
-                    <select name="produtoId" class="border p-2 rounded w-full" required>
-                        <option value="">Selecione...</option>
-                        ${prods.map(p => `<option value="${p.ID}">${p.Nome} (${p.Localizacao || 'Geral'})</option>`).join('')}
-                    </select>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Quantidade</label><input type="number" step="0.01" name="quantidade" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Destino (Setor)</label>
-                        <select name="detalhes[destino]" class="border p-2 rounded w-full">
-                            <option>Cozinha</option><option>Bar</option><option>Produção</option><option>Despensa</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="responsavel" class="border p-2 rounded w-full" required></div>
-                <button class="w-full bg-orange-500 text-white py-3 rounded font-bold">Confirmar Transferência</button>
-            </form>
-        `);
-    },
-
-    modalInventarioRapido: () => {
-        // Placeholder para funcionalidade futura
-        Utils.toast('Funcionalidade de Inventário Rápido em desenvolvimento.');
-    },
-
     save: async (e) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
@@ -578,7 +653,7 @@ const EstoqueModule = {
         const header = document.getElementById('pdf-header');
         const footer = document.getElementById('pdf-footer');
         const inst = EstoqueModule.state.instituicao[0] || {};
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
 
         header.innerHTML = `
@@ -599,6 +674,50 @@ const EstoqueModule = {
         const opt = {
             margin: 10,
             filename: 'relatorio-estoque.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(element).save().then(() => {
+            header.classList.add('hidden');
+            footer.classList.add('hidden');
+        });
+    },
+
+    setMovFilter: (subtipo) => {
+        EstoqueModule.state.filterMovSubtipo = subtipo;
+        EstoqueModule.renderMovimentacoes();
+    },
+
+    exportMovimentacoesPDF: () => {
+        const element = document.getElementById('print-area-movimentacoes');
+        const header = document.getElementById('pdf-header-mov');
+        const footer = document.getElementById('pdf-footer-mov');
+        const inst = EstoqueModule.state.instituicao[0] || {};
+        const user = Utils.getUser();
+        const showLogo = inst.ExibirLogoRelatorios;
+        const subtipo = EstoqueModule.state.filterMovSubtipo || 'Geral';
+
+        header.innerHTML = `
+            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Movimentações'}</h1>
+                    <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
+                    <p class="text-xs font-bold text-yellow-600 mt-1 uppercase">Filtro: ${subtipo}</p>
+                </div>
+            </div>
+            <div class="mt-4 text-right text-xs text-gray-500">Data: ${new Date().toLocaleDateString()}</div>
+        `;
+        header.classList.remove('hidden');
+        
+        footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
+        footer.classList.remove('hidden');
+
+        const opt = {
+            margin: 10,
+            filename: `movimentacoes-${subtipo.toLowerCase().replace(/\s+/g, '-')}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }

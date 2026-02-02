@@ -14,7 +14,8 @@ const MLPainModule = {
         lastEntryTurno: null,
         lastEntryResp: null,
         lastEntryType: 'Sólido', // Padrão inicial
-        lastEntryArea: null
+        lastEntryArea: null,
+        pagination: { page: 1, limit: 20, total: 0 }
     },
 
     getLocalDate: () => {
@@ -32,7 +33,7 @@ const MLPainModule = {
                 Utils.api('getAll', 'MLPain_Areas'),
                 Utils.api('getAll', 'MLPain_Registros'),
                 Utils.api('getAll', 'InstituicaoConfig'),
-                Utils.api('getAll', 'Pratos'),
+                Utils.api('getAll', 'FichasTecnicas'),
                 Utils.api('getAll', 'Funcionarios')
             ]);
             
@@ -90,6 +91,7 @@ const MLPainModule = {
         const totalSopa = recs.filter(r => r.Subtipo === 'Sopa').reduce((acc, r) => acc + Number(r.Quantidade), 0);
         const totalCha = recs.filter(r => r.Subtipo === 'Chá').reduce((acc, r) => acc + Number(r.Quantidade), 0);
 
+        const canCreate = Utils.checkPermission('MLPain', 'criar');
         // Dados para o Gráfico de Metas
         const areasAtivas = MLPainModule.state.areas.filter(a => a.Ativo);
         const labels = areasAtivas.map(a => a.Nome);
@@ -162,9 +164,9 @@ const MLPainModule = {
 
             <div class="bg-white p-6 rounded shadow text-center">
                 <h3 class="text-lg font-bold text-gray-700 mb-4">Acesso Rápido</h3>
-                <button onclick="MLPainModule.setTab('lancamento')" class="bg-indigo-600 text-white px-6 py-3 rounded shadow hover:bg-indigo-700 transition">
+                ${canCreate ? `<button onclick="MLPainModule.setTab('lancamento')" class="bg-indigo-600 text-white px-6 py-3 rounded shadow hover:bg-indigo-700 transition">
                     <i class="fas fa-plus-circle mr-2"></i> Novo Lançamento de Refeições
-                </button>
+                </button>` : ''}
             </div>
         `;
 
@@ -212,6 +214,7 @@ const MLPainModule = {
         const defaultType = MLPainModule.state.lastEntryType || 'Sólido';
         const defaultArea = MLPainModule.state.lastEntryArea || '';
 
+        const canCreate = Utils.checkPermission('MLPain', 'criar');
         // Contagem de refeições lançadas hoje
         const totalToday = MLPainModule.state.registros
             .filter(r => r.Data === today)
@@ -285,9 +288,9 @@ const MLPainModule = {
                         <textarea name="Observacoes" class="border p-2 rounded w-full h-16"></textarea>
                     </div>
 
-                    <button type="submit" class="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition shadow">
+                    ${canCreate ? `<button type="submit" class="w-full bg-green-600 text-white py-3 rounded font-bold hover:bg-green-700 transition shadow">
                         Adicionar Lançamento
-                    </button>
+                    </button>` : ''}
                 </form>
             </div>
         `;
@@ -662,7 +665,22 @@ const MLPainModule = {
                 </table>
                 ${recs.length === 0 ? '<div class="p-4 text-center text-gray-500">Nenhum registro neste mês.</div>' : ''}
             </div>
+
+            <!-- Paginação -->
+            <div class="flex justify-between items-center mt-4 text-sm text-gray-600">
+                <span>Mostrando ${start + 1}-${Math.min(end, total)} de ${total}</span>
+                <div class="flex gap-2">
+                    <button onclick="MLPainModule.changePage(-1)" class="px-3 py-1 border rounded hover:bg-gray-100" ${page === 1 ? 'disabled' : ''}>Anterior</button>
+                    <span class="px-3 py-1">Página ${page}</span>
+                    <button onclick="MLPainModule.changePage(1)" class="px-3 py-1 border rounded hover:bg-gray-100" ${end >= total ? 'disabled' : ''}>Próxima</button>
+                </div>
+            </div>
         `;
+    },
+
+    changePage: (offset) => {
+        MLPainModule.state.pagination.page += offset;
+        MLPainModule.renderDetalhamento();
     },
 
     exportDetalhamentoCSV: () => {
@@ -698,7 +716,7 @@ const MLPainModule = {
         const footer = document.getElementById('pdf-footer');
         const title = document.getElementById('pdf-title');
         const inst = MLPainModule.state.instituicao[0] || {};
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         
         // Configura Cabeçalho
@@ -718,17 +736,30 @@ const MLPainModule = {
         footer.innerHTML = `<p class="text-[10px] text-gray-400 text-right mt-4 border-t pt-2">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
         footer.classList.remove('hidden');
         
+        // --- CORREÇÃO PARA TABELAS LARGAS ---
+        // Remove temporariamente a rolagem para que o html2canvas capture tudo
+        const scrollables = element.querySelectorAll('.overflow-x-auto');
+        scrollables.forEach(el => {
+            el.classList.remove('overflow-x-auto');
+            el.style.overflow = 'visible';
+        });
+
         const opt = {
-            margin: [10, 10, 10, 10],
+            margin: [5, 5, 5, 5],
             filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, windowWidth: 3000 },
+            jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' },
             pagebreak: { mode: 'avoid-all' }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden'); title.classList.add('hidden'); footer.classList.add('hidden');
+            // Restaura a rolagem
+            scrollables.forEach(el => {
+                el.classList.add('overflow-x-auto');
+                el.style.overflow = '';
+            });
         });
     },
 
@@ -737,13 +768,15 @@ const MLPainModule = {
         const areas = MLPainModule.state.areas;
         const solidas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
         const liquidas = areas.filter(a => a.Tipo === 'Líquido');
+        const canCreate = Utils.checkPermission('MLPain', 'criar');
+        const canEdit = Utils.checkPermission('MLPain', 'editar');
         const canDelete = Utils.checkPermission('MLPain', 'excluir');
 
         const renderTable = (list, title, type, colorClass) => `
             <div class="mb-8">
                 <div class="flex justify-between items-center mb-4">
                     <h4 class="text-lg font-bold ${colorClass}">${title}</h4>
-                    <button onclick="MLPainModule.modalArea('${type}')" class="${colorClass.replace('text-', 'bg-').replace('700', '600')} text-white px-4 py-2 rounded shadow hover:opacity-90">+ Nova Área ${type}</button>
+                    ${canCreate ? `<button onclick="MLPainModule.modalArea('${type}')" class="${colorClass.replace('text-', 'bg-').replace('700', '600')} text-white px-4 py-2 rounded shadow hover:opacity-90">+ Nova Área ${type}</button>` : ''}
                 </div>
                 <div class="bg-white rounded shadow overflow-hidden">
                     <table class="w-full text-sm text-left">
@@ -756,7 +789,7 @@ const MLPainModule = {
                                     <td class="p-3 text-center font-mono text-blue-600">${a.MetaDiaria || 0}</td>
                                     <td class="p-3"><span class="px-2 py-1 rounded text-xs ${a.Ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${a.Ativo ? 'Ativo' : 'Inativo'}</span></td>
                                     <td class="p-3 text-center">
-                                        <button onclick="MLPainModule.modalArea('${type}', '${a.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                        ${canEdit ? `<button onclick="MLPainModule.modalArea('${type}', '${a.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                         ${canDelete ? `<button onclick="MLPainModule.deleteArea('${a.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                     </td>
                                 </tr>

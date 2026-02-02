@@ -32,17 +32,73 @@
             <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded transition shadow-lg">
                 Entrar no Sistema
             </button>
+            <div class="text-center mt-4">
+                <button type="button" onclick="openRecoveryModal()" class="text-sm text-blue-500 hover:text-blue-700 underline">Esqueci minha senha</button>
+            </div>
             <p id="error-msg" class="text-red-500 text-center mt-4 text-sm hidden bg-red-100 p-2 rounded border border-red-200"></p>
         </form>
     </div>
 
+    <!-- Modal de Recuperação de Senha -->
+    <div id="recovery-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-96 animate-fade-in-up">
+            <h3 class="text-xl font-bold mb-2 text-gray-800">Recuperar Senha</h3>
+            <p class="text-sm text-gray-600 mb-4">Digite seu email para receber as instruções.</p>
+            <form onsubmit="handleRecovery(event)">
+                <input type="email" id="recovery-email" class="w-full border p-2 rounded mb-4 focus:outline-none focus:border-blue-500" placeholder="seu@email.com" required>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closeRecoveryModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm font-bold">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold">Enviar Link</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
+        // Verifica se já está logado ao carregar a página
+        if (localStorage.getItem('user') && localStorage.getItem('token')) {
+            window.location.href = 'dashboard.html';
+        }
+
+        function validateEmail(email) {
+            const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return re.test(email);
+        }
+
+        function openRecoveryModal() {
+            document.getElementById('recovery-modal').classList.remove('hidden');
+        }
+
+        function closeRecoveryModal() {
+            document.getElementById('recovery-modal').classList.add('hidden');
+        }
+
+        function handleRecovery(e) {
+            e.preventDefault();
+            const email = document.getElementById('recovery-email').value;
+            
+            if (!validateEmail(email)) {
+                alert('Por favor, insira um email válido.');
+                return;
+            }
+
+            // Simulação de envio (backend não implementado)
+            alert(`Se o email ${email} estiver cadastrado, você receberá um link de recuperação em instantes.`);
+            closeRecoveryModal();
+        }
+
         async function handleLogin(e) {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
             const btn = e.target.querySelector('button');
             const errorMsg = document.getElementById('error-msg');
+
+            if (!validateEmail(email)) {
+                errorMsg.innerText = 'Por favor, insira um email válido.';
+                errorMsg.classList.remove('hidden');
+                return;
+            }
 
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Verificando...';
             errorMsg.classList.add('hidden');
@@ -60,7 +116,7 @@
                 if (json.success) { 
                     localStorage.setItem('user', JSON.stringify(json.data));
                     localStorage.setItem('token', json.data.token); // Salva o token seguro
-                    window.location.href = 'rh.html'; 
+                    window.location.href = 'dashboard.html'; 
                 }
                 else { throw new Error(json.message || 'Dados inválidos'); }
             } catch (err) { errorMsg.innerText = err.message; errorMsg.classList.remove('hidden'); } 

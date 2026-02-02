@@ -73,12 +73,13 @@ const ProducaoModule = {
     // 🍽️ 1️⃣ Planejamento de Produção
     renderPlanejamento: (container) => {
         const data = ProducaoModule.state.planejamento;
+        const canCreate = Utils.checkPermission('Producao', 'criar');
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Planejamento de Produção</h3>
-                <button onclick="ProducaoModule.modalPlanejamento()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
+                ${canCreate ? `<button onclick="ProducaoModule.modalPlanejamento()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
                     <i class="fas fa-plus"></i> Novo Planejamento
-                </button>
+                </button>` : ''}
             </div>
             <div class="bg-white rounded shadow overflow-x-auto">
                 <table class="w-full text-sm text-left">
@@ -95,7 +96,7 @@ const ProducaoModule = {
                                 <td class="p-3">${p.QtdPlanejada}</td>
                                 <td class="p-3"><span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">${p.Status}</span></td>
                                 <td class="p-3">
-                                    <button onclick="ProducaoModule.gerarOrdem('${p.ID}')" class="text-green-600 hover:text-green-800" title="Gerar Ordem"><i class="fas fa-file-signature"></i></button>
+                                    ${canCreate ? `<button onclick="ProducaoModule.gerarOrdem('${p.ID}')" class="text-green-600 hover:text-green-800" title="Gerar Ordem"><i class="fas fa-file-signature"></i></button>` : ''}
                                 </td>
                             </tr>
                         `).join('')}
@@ -142,12 +143,15 @@ const ProducaoModule = {
     // 🧑‍🍳 2️⃣ Fichas Técnicas
     renderFichas: (container) => {
         const data = ProducaoModule.state.fichas;
+        const canCreate = Utils.checkPermission('Producao', 'criar');
+        const canEdit = Utils.checkPermission('Producao', 'editar');
+        const canDelete = Utils.checkPermission('Producao', 'excluir');
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Fichas Técnicas</h3>
-                <button onclick="ProducaoModule.modalFicha()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
+                ${canCreate ? `<button onclick="ProducaoModule.modalFicha()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
                     <i class="fas fa-plus"></i> Nova Ficha
-                </button>
+                </button>` : ''}
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 ${data.map(f => `
@@ -160,8 +164,9 @@ const ProducaoModule = {
                             <div class="font-bold text-green-600">💰 Custo: ${Utils.formatCurrency(f.CustoPorPorcao)}</div>
                         </div>
                         <div class="flex gap-3 mt-2">
-                            <button onclick="ProducaoModule.modalFicha('${f.ID}')" class="text-blue-600 text-sm hover:underline">Editar</button>
-                            <button onclick="ProducaoModule.duplicarFicha('${f.ID}')" class="text-gray-600 text-sm hover:text-gray-800" title="Duplicar"><i class="fas fa-copy"></i> Duplicar</button>
+                            ${canEdit ? `<button onclick="ProducaoModule.modalFicha('${f.ID}')" class="text-blue-600 text-sm hover:underline">Editar</button>` : ''}
+                            ${canCreate ? `<button onclick="ProducaoModule.duplicarFicha('${f.ID}')" class="text-gray-600 text-sm hover:text-gray-800" title="Duplicar"><i class="fas fa-copy"></i> Duplicar</button>` : ''}
+                            ${canDelete ? `<button onclick="ProducaoModule.deleteFicha('${f.ID}')" class="text-red-500 text-sm hover:text-red-700 ml-auto" title="Excluir"><i class="fas fa-trash"></i></button>` : ''}
                         </div>
                     </div>
                 `).join('')}
@@ -284,6 +289,7 @@ const ProducaoModule = {
     renderOrdens: (container) => {
         const data = ProducaoModule.state.ordens;
         const planejamento = ProducaoModule.state.planejamento;
+        const canEdit = Utils.checkPermission('Producao', 'editar');
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Ordens de Produção</h3>
@@ -318,9 +324,9 @@ const ProducaoModule = {
                                 <td class="p-3">${o.QtdProduzida || 0} ${alertHtml}</td>
                                 <td class="p-3"><span class="px-2 py-1 rounded text-xs ${o.Status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${o.Status}</span></td>
                                 <td class="p-3 flex gap-2">
-                                    <button onclick="ProducaoModule.modalOrdem('${o.ID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>
+                                    ${canEdit ? `<button onclick="ProducaoModule.modalOrdem('${o.ID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>` : ''}
                                     <button onclick="ProducaoModule.printOrdem('${o.ID}')" class="text-gray-600 hover:text-gray-800" title="Imprimir Ficha"><i class="fas fa-print"></i></button>
-                                    ${o.Status !== 'Concluída' ? `<button onclick="ProducaoModule.concluirOrdem('${o.ID}')" class="text-green-600 hover:text-green-800 ml-2" title="Concluir e Baixar Estoque"><i class="fas fa-check-circle"></i></button>` : ''}
+                                    ${o.Status !== 'Concluída' && canEdit ? `<button onclick="ProducaoModule.concluirOrdem('${o.ID}')" class="text-green-600 hover:text-green-800 ml-2" title="Concluir e Baixar Estoque"><i class="fas fa-check-circle"></i></button>` : ''}
                                 </td>
                             </tr>
                         `}).join('')}
@@ -502,12 +508,13 @@ const ProducaoModule = {
     // ♻️ 6️⃣ Controle de Desperdício
     renderDesperdicio: (container) => {
         const data = ProducaoModule.state.desperdicio;
+        const canCreate = Utils.checkPermission('Producao', 'criar');
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Controle de Desperdício</h3>
-                <button onclick="ProducaoModule.modalDesperdicio()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700">
+                ${canCreate ? `<button onclick="ProducaoModule.modalDesperdicio()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700">
                     <i class="fas fa-trash-alt"></i> Registrar Perda
-                </button>
+                </button>` : ''}
             </div>
             <div class="bg-white rounded shadow overflow-x-auto">
                 <table class="w-full text-sm text-left">
@@ -722,10 +729,10 @@ const ProducaoModule = {
         } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
-    delete: async (table, id) => {
+    deleteFicha: async (id) => {
         if(confirm('Tem certeza que deseja excluir?')) { 
             try {
-                await Utils.api('delete', table, null, id); 
+                await Utils.api('delete', 'FichasTecnicas', null, id); 
                 ProducaoModule.fetchData(); 
             } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
         }

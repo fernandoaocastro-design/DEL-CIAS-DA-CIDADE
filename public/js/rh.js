@@ -2,6 +2,7 @@ const RHModule = {
     state: { 
         cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [], parametros: [], cargos: [], departamentos: [], instituicao: [] }, 
         filterTerm: '',
+        filterVencidas: false,
         pagination: {
             currentPage: 1,
             rowsPerPage: 15
@@ -73,6 +74,13 @@ const RHModule = {
     renderFuncionarios: () => {
         RHModule.highlightTab('tab-funcionarios');
         let filteredData = RHModule.state.cache.funcionarios || [];
+        
+        // Ordenação Alfabética
+        filteredData.sort((a, b) => a.Nome.localeCompare(b.Nome));
+
+        const ferias = RHModule.state.cache.ferias || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
+        const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
 
         // Filtro de Busca
@@ -83,6 +91,24 @@ const RHModule = {
                 (f.BI && f.BI.toLowerCase().includes(term)) ||
                 (f.Departamento && f.Departamento.toLowerCase().includes(term))
             );
+        }
+
+        // Filtro de Férias Vencidas
+        if (RHModule.state.filterVencidas) {
+            const hoje = new Date();
+            filteredData = filteredData.filter(f => {
+                if (!f.Admissao) return false;
+                const adm = new Date(f.Admissao);
+                const diffTime = Math.abs(hoje - adm);
+                const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
+                const direito = Math.floor(diffYears) * 30;
+                
+                const taken = ferias
+                    .filter(r => r.FuncionarioID === f.ID && r.Status === 'Aprovado')
+                    .reduce((acc, r) => acc + (Number(r.Dias) || 0), 0);
+                
+                return (direito - taken) > 30;
+            });
         }
 
         // Lógica de Paginação
@@ -98,15 +124,42 @@ const RHModule = {
                 <h3 class="text-xl font-bold">Equipe (${filteredData.length})</h3>
                 <div class="flex gap-2">
                     <input type="text" placeholder="🔍 Buscar por nome, BI ou depto..." class="border p-2 rounded text-sm w-64" value="${RHModule.state.filterTerm}" oninput="RHModule.updateFilter(this.value)">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer bg-white px-3 border rounded hover:bg-gray-50">
+                        <input type="checkbox" ${RHModule.state.filterVencidas ? 'checked' : ''} onchange="RHModule.toggleVencidas(this.checked)">
+                        <span class="text-red-600 font-bold">Férias Vencidas</span>
+                    </label>
                     <button onclick="RHModule.exportCSV()" class="bg-green-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista filtrada para CSV"><i class="fas fa-file-csv"></i> Exportar</button>
-                    <button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>
+                    ${canCreate ? `<button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>` : ''}
                 </div>
             </div>
             <div class="overflow-x-auto">
-                <table class="w-full bg-white rounded shadow text-sm">
-                    <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Salário</th><th>Telefone</th><th>BI</th><th>Admissão</th><th>Ações</th></tr></thead>
+                <table class="w-full bg-white rounded shadow text-sm" data-total-rows="${totalRows}">
+                    <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Salário</th><th>Telefone</th><th>Saldo Férias</th><th>Admissão</th><th>Ações</th></tr></thead>
                     <tbody>
-                        ${paginatedData.map(f => `
+                        ${paginatedData.map(f => {
+                            // Cálculo de Saldo de Férias
+                            let saldo = '-';
+                            let saldoClass = 'text-gray-500';
+                            
+                            if (f.Admissao) {
+                                const adm = new Date(f.Admissao);
+                                const hoje = new Date();
+                                const diffTime = Math.abs(hoje - adm);
+                                const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25); 
+                                const direito = Math.floor(diffYears) * 30; // 30 dias por ano completo
+                                
+                                const taken = ferias
+                                    .filter(r => r.FuncionarioID === f.ID && r.Status === 'Aprovado')
+                                    .reduce((acc, r) => acc + (Number(r.Dias) || 0), 0);
+                                    
+                                const valSaldo = direito - taken;
+                                saldo = valSaldo + ' dias';
+                                
+                                if (valSaldo > 30) saldoClass = 'text-red-600 font-bold'; // Vencidas
+                                else if (valSaldo > 0) saldoClass = 'text-green-600 font-bold';
+                            }
+
+                            return `
                             <tr class="border-t hover:bg-gray-50">
                                 <td class="p-3 font-mono text-xs">${f.ID}</td>
                                 <td class="p-3 font-bold">${f.Nome}</td>
@@ -114,14 +167,14 @@ const RHModule = {
                                 <td class="p-3">${f.Departamento || '-'}</td>
                                 <td class="p-3 text-green-600 font-bold">${Utils.formatCurrency(f.Salario)}</td>
                                 <td class="p-3">${f.Telefone || '-'}</td>
-                                <td class="p-3">${f.BI || '-'}</td>
+                                <td class="p-3 ${saldoClass}">${saldo}</td>
                                 <td class="p-3">${Utils.formatDate(f.Admissao)}</td>
                                 <td class="p-3">
-                                    <button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>
+                                    ${canEdit ? `<button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                     ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     </tbody>
                 </table>
             </div>
@@ -145,17 +198,15 @@ const RHModule = {
         RHModule.renderFuncionarios();
     },
 
+    toggleVencidas: (checked) => {
+        RHModule.state.filterVencidas = checked;
+        RHModule.state.pagination.currentPage = 1;
+        RHModule.renderFuncionarios();
+    },
+
     changePage: (page) => {
-        let data = RHModule.state.cache.funcionarios || [];
-        if (RHModule.state.filterTerm) {
-            const term = RHModule.state.filterTerm.toLowerCase();
-            data = data.filter(f => 
-                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
-                (f.BI && f.BI.toLowerCase().includes(term)) ||
-                (f.Departamento && f.Departamento.toLowerCase().includes(term))
-            );
-        }
-        const totalPages = Math.ceil(data.length / RHModule.state.pagination.rowsPerPage) || 1;
+        const totalRows = document.getElementById('tab-content').querySelector('tbody').getAttribute('data-total-rows');
+        const totalPages = Math.ceil(totalRows / RHModule.state.pagination.rowsPerPage) || 1;
 
         if (page < 1 || page > totalPages) return;
 
@@ -188,6 +239,7 @@ const RHModule = {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        Utils.toast('Exportação concluída!', 'success');
     },
 
     modalFuncionario: (id = null) => {
@@ -224,7 +276,7 @@ const RHModule = {
 
         Utils.openModal(id ? 'Editar' : 'Novo Funcionário', `
             <form onsubmit="RHModule.save(event, 'Funcionarios')">
-                <input type="hidden" name="ID" value="${f.ID || ''}">
+                <input type="hidden" name="ID" value="${f.ID || ''}" id="func-id">
                 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">1️⃣ Informações Pessoais</h4>
                 <div class="grid grid-cols-2 gap-3 mb-3">
@@ -274,6 +326,7 @@ const RHModule = {
     renderFrequencia: () => {
         RHModule.highlightTab('tab-frequencia');
         const data = RHModule.state.cache.frequencia || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         // Função auxiliar para calcular horas
@@ -287,7 +340,7 @@ const RHModule = {
         };
 
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalFrequencia()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Registrar Ponto</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFrequencia()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Registrar Ponto</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status (Ref: 8h)</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -364,9 +417,10 @@ const RHModule = {
     renderFerias: () => {
         RHModule.highlightTab('tab-ferias');
         const data = RHModule.state.cache.ferias || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Início</th><th>Retorno</th><th>Dias</th><th>Subsídio de Férias</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -396,13 +450,26 @@ const RHModule = {
         const funcs = RHModule.state.cache.funcionarios;
         
         // Script para preencher dados automaticamente
-        const fillData = (select) => {
-            const f = RHModule.state.cache.funcionarios.find(x => x.ID === select.value);
+        const updateSubsidio = () => {
+            const funcId = document.querySelector('select[name="FuncionarioID"]').value;
+            const dias = Number(document.querySelector('input[name="Dias"]').value || 0);
+            const f = RHModule.state.cache.funcionarios.find(x => x.ID === funcId);
+            const inst = RHModule.state.cache.instituicao[0] || {};
+            const percentual = Number(inst.SubsidioFeriasPorcentagem || 50) / 100;
+            
             if(f) {
-                select.form.FuncionarioNome.value = f.Nome;
-                document.getElementById('f-cargo').value = f.Cargo;
-                document.getElementById('f-dept').value = f.Departamento || '';
-                document.getElementById('f-adm').value = f.Admissao || '';
+                // Preencher dados básicos se chamado pelo select
+                if (event && event.target.name === 'FuncionarioID') {
+                    document.querySelector('input[name="FuncionarioNome"]').value = f.Nome;
+                    document.getElementById('f-cargo').value = f.Cargo;
+                    document.getElementById('f-dept').value = f.Departamento || '';
+                    document.getElementById('f-adm').value = f.Admissao || '';
+                }
+
+                // Cálculo do Subsídio (Baseado na configuração global)
+                const valorDiario = Number(f.Salario || 0) / 30;
+                const subsidio = (valorDiario * dias) * percentual;
+                document.getElementById('f-subsidio').value = Utils.formatCurrency(subsidio);
             }
         };
 
@@ -412,7 +479,7 @@ const RHModule = {
                 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1">Nome do Funcionario</label>
-                    <select name="FuncionarioID" class="border p-2 rounded w-full mb-2" onchange="(${fillData})(this)" required>
+                    <select name="FuncionarioID" class="border p-2 rounded w-full mb-2" onchange="(${updateSubsidio})()" required>
                         <option value="">Selecione...</option>
                         ${funcs.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
                     </select>
@@ -428,7 +495,7 @@ const RHModule = {
                 <div class="grid grid-cols-3 gap-2 mb-3">
                     <div><label class="text-xs font-bold">DATA DE INICIO DAS FERIAS</label><input type="date" name="DataInicio" class="border p-2 rounded w-full" required></div>
                     <div><label class="text-xs font-bold">DATA DE RETORNO</label><input type="date" name="DataFim" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">TOTAL DE DIAS</label><input type="number" name="Dias" class="border p-2 rounded w-full" required></div>
+                    <div><label class="text-xs font-bold">TOTAL DE DIAS</label><input type="number" name="Dias" class="border p-2 rounded w-full" required oninput="(${updateSubsidio})()"></div>
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">2. FRACCIONAMENTO</h4>
@@ -442,6 +509,7 @@ const RHModule = {
                     <div><label class="text-xs font-bold block">PAGAMENTO COM 1/3 CONSTITUCIONAL</label><select name="Pagamento13" class="border p-2 rounded w-full"><option>Não</option><option>Sim</option></select></div>
                     <div><label class="text-xs font-bold block">ADIANTAMENTO DE 13º SLÁRIO</label><select name="Adiantamento13" class="border p-2 rounded w-full"><option>Não</option><option>Sim</option></select></div>
                     <div><label class="text-xs font-bold block">DATA DE PAGAMENTO</label><input type="date" name="DataPagamento" class="border p-2 rounded w-full"></div>
+                    <div class="col-span-3 mt-2"><label class="text-xs font-bold block text-green-700">SUBSÍDIO ESTIMADO</label><input id="f-subsidio" class="border p-2 rounded w-full bg-green-50 font-bold text-green-800" readonly></div>
                 </div>
                 <div class="mb-3">
                     <label class="text-xs font-bold block">COMPROVATIVO DE PAGAMENTO (ANEXO)</label>
@@ -643,9 +711,10 @@ const RHModule = {
     renderAvaliacoes: () => {
         RHModule.highlightTab('tab-avaliacoes');
         const data = RHModule.state.cache.avaliacoes || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Data</th><th>Média (0-10)</th><th>Conclusão</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -749,9 +818,10 @@ const RHModule = {
     renderTreinamento: () => {
         RHModule.highlightTab('tab-treinamento');
         const data = RHModule.state.cache.treinamentos || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Treinamento</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Treinamento</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Título</th><th>Tipo</th><th>Início</th><th>Término</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -814,10 +884,11 @@ const RHModule = {
     renderFolha: () => {
         RHModule.highlightTab('tab-folha');
         const data = RHModule.state.cache.folha || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th class="text-right">Salário Base</th><th class="text-right">Vencimentos</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th>Banco/IBAN</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -928,9 +999,10 @@ const RHModule = {
     renderLicencas: () => {
         RHModule.highlightTab('tab-licencas');
         const data = RHModule.state.cache.licencas || [];
+        const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4"><button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button></div>
+            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button>` : ''}</div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Tipo</th><th>Início</th><th>Retorno</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -1077,10 +1149,13 @@ const RHModule = {
     updateRelatorios: () => {
         const start = document.getElementById('rel-inicio').value;
         const end = document.getElementById('rel-fim').value;
+        const mesAniversario = document.getElementById('rel-mes-aniversario') ? document.getElementById('rel-mes-aniversario').value : (new Date().getMonth() + 1);
         let funcs = RHModule.state.cache.funcionarios || [];
         const ferias = RHModule.state.cache.ferias || [];
         const frequencia = RHModule.state.cache.frequencia || [];
 
+        // --- ANIVERSARIANTES DO MÊS ---
+        // --- ALERTA DE 1 ANO DE CASA ---
         // --- RELATÓRIO DE FÉRIAS VENCIDAS ---
         const vencidas = [];
         const hoje = new Date();
@@ -1091,6 +1166,11 @@ const RHModule = {
             // Cálculo aproximado de anos de casa
             const diffTime = Math.abs(hoje - adm);
             const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25); 
+            
+            // Alerta de 1 ano exato (com margem de 1 mês)
+            if (diffYears >= 1 && diffYears < 1.1) {
+                Utils.toast(`🎉 ${f.Nome} completou 1 ano de casa! Direito a férias adquirido.`, 'info');
+            }
             const direito = Math.floor(diffYears) * 30; // 30 dias por ano
             
             const taken = ferias
@@ -1102,9 +1182,19 @@ const RHModule = {
             if(saldo > 30) vencidas.push({ nome: f.Nome, saldo: Math.floor(saldo), dept: f.Departamento });
         });
 
+        // --- ANIVERSARIANTES DO MÊS ---
+        const mesSelecionado = Number(mesAniversario);
+        const aniversariantes = funcs.filter(f => {
+            if (!f.Nascimento) return false;
+            const d = new Date(f.Nascimento);
+            return (d.getMonth() + 1) === mesSelecionado;
+        }).sort((a, b) => new Date(a.Nascimento).getDate() - new Date(b.Nascimento).getDate());
+
+
         // --- RELATÓRIO DE PONTUALIDADE (ATRASOS) ---
         const atrasosMap = {};
         const evolutionMap = {}; // Para o gráfico de linha
+        const tempoCasaMap = { '< 1 Ano': 0, '1-3 Anos': 0, '> 3 Anos': 0 };
 
         frequencia.forEach(r => {
             if (start && r.Data < start) return;
@@ -1139,6 +1229,15 @@ const RHModule = {
         const deptMap = {};
         const salaryMap = {};
 
+        // Cálculo de Tempo de Casa para Gráfico
+        funcs.forEach(f => {
+            if(!f.Admissao) return;
+            const anos = (hoje - new Date(f.Admissao)) / (1000 * 60 * 60 * 24 * 365.25);
+            if (anos < 1) tempoCasaMap['< 1 Ano']++;
+            else if (anos <= 3) tempoCasaMap['1-3 Anos']++;
+            else tempoCasaMap['> 3 Anos']++;
+        });
+
         funcs.forEach(f => {
             const dept = f.Departamento || 'Sem Departamento';
             deptMap[dept] = (deptMap[dept] || 0) + 1;
@@ -1158,6 +1257,23 @@ const RHModule = {
         })).sort((a,b) => b.avg - a.avg);
 
         const total = funcs.length;
+
+        const htmlAniversariantes = `
+            <div class="mt-8 mb-8">
+                <h4 class="text-lg font-bold text-blue-700 mb-4 border-b border-blue-200 pb-2">🎂 Aniversariantes</h4>
+                <div class="mb-2"><label class="text-xs font-bold text-gray-500 mr-2">Filtrar Mês:</label><select id="rel-mes-aniversario" onchange="RHModule.updateRelatorios()" class="border p-1 rounded text-sm"><option value="1" ${mesSelecionado===1?'selected':''}>Janeiro</option><option value="2" ${mesSelecionado===2?'selected':''}>Fevereiro</option><option value="3" ${mesSelecionado===3?'selected':''}>Março</option><option value="4" ${mesSelecionado===4?'selected':''}>Abril</option><option value="5" ${mesSelecionado===5?'selected':''}>Maio</option><option value="6" ${mesSelecionado===6?'selected':''}>Junho</option><option value="7" ${mesSelecionado===7?'selected':''}>Julho</option><option value="8" ${mesSelecionado===8?'selected':''}>Agosto</option><option value="9" ${mesSelecionado===9?'selected':''}>Setembro</option><option value="10" ${mesSelecionado===10?'selected':''}>Outubro</option><option value="11" ${mesSelecionado===11?'selected':''}>Novembro</option><option value="12" ${mesSelecionado===12?'selected':''}>Dezembro</option></select></div>
+                <div class="bg-white p-4 border rounded shadow overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-blue-50 text-blue-800">
+                            <tr><th class="p-2 text-left">Dia</th><th class="p-2 text-left">Funcionário</th><th class="p-2 text-left">Departamento</th></tr>
+                        </thead>
+                        <tbody>
+                            ${aniversariantes.map(a => `<tr class="border-b"><td class="p-2 font-bold">${new Date(a.Nascimento).getDate()}</td><td class="p-2">${a.Nome}</td><td class="p-2">${a.Departamento || '-'}</td></tr>`).join('')}
+                            ${aniversariantes.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-gray-500">Nenhum aniversariante neste mês.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
 
         const htmlVencidas = `
             <div class="mt-8 mb-8">
@@ -1211,7 +1327,7 @@ const RHModule = {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
                 <div class="bg-white p-4 border rounded shadow">
                     <h4 class="font-bold text-gray-700 mb-4">Média Salarial por Departamento (Kz)</h4>
                     <div class="h-64"><canvas id="chartSalarios"></canvas></div>
@@ -1220,8 +1336,12 @@ const RHModule = {
                     <h4 class="font-bold text-gray-700 mb-4">Evolução de Atrasos</h4>
                     <div class="h-64"><canvas id="chartEvolucaoAtrasos"></canvas></div>
                 </div>
+                <div class="bg-white p-4 border rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4">Tempo de Casa</h4>
+                    <div class="h-64"><canvas id="chartTempoCasa"></canvas></div>
+                </div>
             </div>
-        ` + htmlVencidas + htmlAtrasos;
+        ` + htmlAniversariantes + htmlVencidas + htmlAtrasos;
 
         document.getElementById('relatorio-results').innerHTML = html;
 
@@ -1270,6 +1390,19 @@ const RHModule = {
                     scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
                 }
             });
+
+            new Chart(document.getElementById('chartTempoCasa'), {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(tempoCasaMap),
+                    datasets: [{
+                        label: 'Funcionários',
+                        data: Object.values(tempoCasaMap),
+                        backgroundColor: ['#60A5FA', '#34D399', '#FBBF24']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
         } else if (total === 0) {
             document.getElementById('relatorio-results').innerHTML = '<p class="text-center text-gray-500 py-10">Nenhum funcionário encontrado neste período.</p>';
         }
@@ -1280,7 +1413,7 @@ const RHModule = {
         const header = document.getElementById('pdf-header');
         const footer = document.getElementById('pdf-footer');
         const inst = RHModule.state.cache.instituicao[0] || {};
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         
         // Monta o cabeçalho com Logotipo e Dados da Empresa
@@ -1321,6 +1454,33 @@ const RHModule = {
     save: async (e, table) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+
+        // Geração Automática de ID para Funcionários (Iniciais + Sequencial)
+        if (table === 'Funcionarios' && !data.ID) {
+            const nome = data.Nome.trim();
+            if (nome) {
+                const parts = nome.split(' ');
+                const first = parts[0][0].toUpperCase();
+                const last = parts[parts.length - 1][0].toUpperCase();
+                const prefix = first + last;
+                
+                // Encontrar o próximo número para este prefixo
+                const existingIds = RHModule.state.cache.funcionarios
+                    .map(f => f.ID)
+                    .filter(id => id && id.startsWith(prefix + '-'));
+                
+                let maxSeq = 0;
+                existingIds.forEach(id => {
+                    const partsId = id.split('-');
+                    if (partsId.length === 2) {
+                        const seq = parseInt(partsId[1]);
+                        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                    }
+                });
+                
+                data.ID = `${prefix}-${String(maxSeq + 1).padStart(2, '0')}`;
+            }
+        }
 
         // Lógica de Upload de Arquivo (Férias)
         if (table === 'Ferias') {

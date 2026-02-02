@@ -53,6 +53,13 @@ const DashboardModule = {
             </div>`;
         }
 
+        if (mon.jubileu && mon.jubileu.length > 0) {
+            html += `<div class="p-3 bg-purple-50 rounded border-l-4 border-purple-500">
+                <div class="font-bold text-purple-700">🎉 Jubileu de Casa (Hoje)</div>
+                ${mon.jubileu.map(j => `<div class="text-sm">${j.Nome} (${j.Anos} anos)</div>`).join('')}
+            </div>`;
+        }
+
         if (mon.estoqueBaixo.length > 0) {
             html += `<div class="p-3 bg-red-50 rounded border-l-4 border-red-500">
                 <div class="font-bold text-red-700">⚠️ Estoque Baixo</div>

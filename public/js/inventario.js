@@ -1,5 +1,5 @@
 const InventarioModule = {
-    state: { bens: [] },
+    state: { bens: [], filteredBens: null },
 
     init: () => {
         InventarioModule.fetchData();
@@ -14,13 +14,15 @@ const InventarioModule = {
     },
 
     render: () => {
-        const data = InventarioModule.state.bens || [];
+        const data = InventarioModule.state.filteredBens || InventarioModule.state.bens || [];
         const tbody = document.getElementById('tabela-inventario');
         
         // KPIs
         const totalValor = data.reduce((acc, b) => acc + Number(b.ValorAquisicao || 0), 0);
         const emManutencao = data.filter(b => b.EstadoConservacao === 'Em Manutenção').length;
         const deptos = new Set(data.map(b => b.Departamento)).size;
+
+        const canEdit = Utils.checkPermission('Inventario', 'editar');
 
         document.getElementById('kpi-total').innerText = data.length;
         document.getElementById('kpi-valor').innerText = Utils.formatCurrency(totalValor);
@@ -46,7 +48,7 @@ const InventarioModule = {
                     <td class="p-3 text-right font-bold text-gray-700">${Utils.formatCurrency(b.ValorAquisicao)}</td>
                     <td class="p-3 text-center">
                         <button onclick="InventarioModule.detalhes('${b.ID}')" class="text-blue-600 hover:bg-blue-50 p-2 rounded" title="Detalhes/QR Code"><i class="fas fa-eye"></i></button>
-                        <button onclick="InventarioModule.modalBem('${b.ID}')" class="text-gray-600 hover:bg-gray-100 p-2 rounded" title="Editar"><i class="fas fa-edit"></i></button>
+                        ${canEdit ? `<button onclick="InventarioModule.modalBem('${b.ID}')" class="text-gray-600 hover:bg-gray-100 p-2 rounded" title="Editar"><i class="fas fa-edit"></i></button>` : ''}
                     </td>
                 </tr>
             `;
@@ -84,6 +86,7 @@ const InventarioModule = {
                     <div><label class="text-xs font-bold">Valor (Kz)</label><input type="number" step="0.01" name="ValorAquisicao" value="${bem.ValorAquisicao || ''}" class="border p-2 rounded w-full"></div>
                     <div><label class="text-xs font-bold">Estado</label><select name="EstadoConservacao" class="border p-2 rounded w-full"><option>Novo</option><option>Bom</option><option>Regular</option><option>Ruim</option><option>Em Manutenção</option></select></div>
                 </div>
+                <div class="mb-3"><label class="text-xs font-bold">Fornecedor</label><input name="Fornecedor" value="${bem.Fornecedor || ''}" class="border p-2 rounded w-full" placeholder="Nome do Fornecedor"></div>
 
                 <div class="mb-4"><label class="text-xs font-bold">Observações</label><textarea name="Observacoes" class="border p-2 rounded w-full h-16">${bem.Observacoes || ''}</textarea></div>
                 
@@ -108,7 +111,7 @@ const InventarioModule = {
         if (!data.Categoria) return Utils.toast('⚠️ Erro: A categoria é obrigatória.');
         if (data.ValorAquisicao && Number(data.ValorAquisicao) < 0) return Utils.toast('⚠️ Erro: O valor não pode ser negativo.');
 
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         data.UserAction = user.Nome || 'Admin';
 
         try {
@@ -153,7 +156,94 @@ const InventarioModule = {
         new QRCode(document.getElementById("qrcode"), { text: `INV:${bem.Codigo}`, width: 100, height: 100 });
     },
 
-    filtrar: () => { /* TODO: Implementar filtro local */ }
+    gerarRelatorioEstado: () => {
+        const data = InventarioModule.state.bens;
+        const stats = {};
+        
+        // Agrupar por estado
+        data.forEach(b => {
+            const estado = b.EstadoConservacao || 'Não Definido';
+            if (!stats[estado]) stats[estado] = { qtd: 0, valor: 0 };
+            stats[estado].qtd++;
+            stats[estado].valor += Number(b.ValorAquisicao || 0);
+        });
+
+        let html = `
+            <div id="print-relatorio-estado" class="p-4 bg-white">
+                <div class="text-center mb-6 border-b pb-4">
+                    <h3 class="text-xl font-bold text-gray-800">Relatório de Bens por Estado</h3>
+                    <p class="text-xs text-gray-500">Gerado em ${new Date().toLocaleString()}</p>
+                </div>
+                <table class="w-full text-sm text-left border-collapse">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-2 border">Estado de Conservação</th>
+                            <th class="p-2 border text-center">Quantidade</th>
+                            <th class="p-2 border text-right">Valor Total (Kz)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        let totalQtd = 0;
+        let totalValor = 0;
+
+        Object.keys(stats).forEach(estado => {
+            totalQtd += stats[estado].qtd;
+            totalValor += stats[estado].valor;
+            html += `
+                <tr>
+                    <td class="p-2 border">${estado}</td>
+                    <td class="p-2 border text-center">${stats[estado].qtd}</td>
+                    <td class="p-2 border text-right">${Utils.formatCurrency(stats[estado].valor)}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                    <tr class="bg-gray-50 font-bold">
+                        <td class="p-2 border">TOTAL GERAL</td>
+                        <td class="p-2 border text-center">${totalQtd}</td>
+                        <td class="p-2 border text-right">${Utils.formatCurrency(totalValor)}</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-4 text-center">
+                <button onclick="InventarioModule.printRelatorio()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf mr-2"></i> Baixar PDF</button>
+            </div>
+        `;
+
+        Utils.openModal('Relatório de Patrimônio', html);
+    },
+
+    printRelatorio: () => {
+        const element = document.getElementById('print-relatorio-estado');
+        const opt = {
+            margin: 10,
+            filename: 'relatorio-patrimonio-estado.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(element).save();
+    },
+
+    filtrar: () => {
+        const term = document.getElementById('search-bem').value.toLowerCase();
+        const dept = document.getElementById('filter-dept').value;
+        
+        let filtered = InventarioModule.state.bens.filter(b => {
+            const matchTerm = b.Nome.toLowerCase().includes(term) || 
+                              b.Codigo.toLowerCase().includes(term) ||
+                              (b.Responsavel && b.Responsavel.toLowerCase().includes(term));
+            const matchDept = dept === '' || b.Departamento === dept;
+            return matchTerm && matchDept;
+        });
+
+        InventarioModule.state.filteredBens = filtered;
+        InventarioModule.render();
+    }
 };
 
 document.addEventListener('DOMContentLoaded', InventarioModule.init);

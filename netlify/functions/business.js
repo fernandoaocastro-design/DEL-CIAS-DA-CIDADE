@@ -41,7 +41,18 @@ exports.handler = async (event) => {
         }
 
         if (action === 'getAll') {
-            ({ data: result, error } = await supabase.from(table).select('*'));
+            const { page, limit } = data || {};
+            
+            if (page && limit) {
+                const from = (page - 1) * limit;
+                const to = from + limit - 1;
+                
+                const { data: rows, count, error: err } = await supabase.from(table).select('*', { count: 'exact' }).range(from, to).order('CriadoEm', { ascending: false });
+                error = err;
+                result = { data: rows, total: count };
+            } else {
+                ({ data: result, error } = await supabase.from(table).select('*'));
+            }
         } else if (action === 'login') {
             const email = data.email ? data.email.trim() : '';
             const password = data.password ? data.password.trim() : '';
@@ -268,7 +279,7 @@ exports.handler = async (event) => {
             const tables = [
                 'Usuarios', 'Funcionarios', 'Frequencia', 'Ferias', 'Avaliacoes', 'Treinamentos', 'Licencas', 'Folha',
                 'Financas', 'ContasReceber', 'ContasPagar', 'Estoque', 'Fornecedores', 'MovimentacoesEstoque',
-                'Pratos', 'Notificacoes', 'MLPain_Areas', 'MLPain_Registros', 'Inventario', 'HistoricoInventario',
+                'FichasTecnicas', 'PlanejamentoProducao', 'OrdensProducao', 'ConsumoIngredientes', 'ControleDesperdicio', 'PedidosCompra', 'ItensPedidoCompra', 'Notificacoes', 'MLPain_Areas', 'MLPain_Registros', 'Inventario', 'HistoricoInventario',
                 'InstituicaoConfig', 'Departamentos', 'Cargos', 'ParametrosRH', 'ParametrosCozinha',
                 'ParametrosEstoque', 'ParametrosPatrimonio', 'ParametrosFinanceiro', 'LogsAuditoria'
             ];
@@ -371,6 +382,37 @@ exports.handler = async (event) => {
 
             result = { success: true };
 
+        } else if (action === 'savePurchaseOrder') {
+            const { Solicitante, ValorTotal, Status, Itens } = data;
+
+            // 1. Criar o Pedido
+            const { data: pedido, error: errPedido } = await supabase.from('PedidosCompra').insert({
+                Solicitante, ValorTotal, Status
+            }).select().single();
+
+            if (errPedido) throw new Error('Erro ao criar pedido: ' + errPedido.message);
+
+            // 2. Inserir Itens
+            const itensParaInserir = Itens.map(item => ({
+                PedidoID: pedido.ID,
+                ProdutoNome: item.name,
+                Quantidade: item.qty,
+                CustoUnitario: item.price,
+                Subtotal: item.total,
+                Observacao: item.obs
+            }));
+
+            const { error: errItens } = await supabase.from('ItensPedidoCompra').insert(itensParaInserir);
+            if (errItens) throw new Error('Erro ao salvar itens do pedido: ' + errItens.message);
+
+            result = { success: true, pedidoId: pedido.ID };
+
+        } else if (action === 'getPurchaseOrderDetails') {
+            const { id } = data;
+            const { data: itens, error } = await supabase.from('ItensPedidoCompra').select('*').eq('PedidoID', id);
+            if (error) throw error;
+            result = itens;
+
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];
@@ -398,10 +440,10 @@ exports.handler = async (event) => {
                 resRefeicoes
             ] = await Promise.all([
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
-                supabase.from('Pratos').select('Categoria', { count: 'exact' }),
+                supabase.from('FichasTecnicas').select('Categoria', { count: 'exact' }),
                 supabase.from('Funcionarios').select('*', { count: 'exact', head: true }),
                 supabase.from('Financas').select('*').gte('Data', startOfFinanceData),
-                supabase.from('Funcionarios').select('Nome, Nascimento'), // Para filtrar aniversariantes
+                supabase.from('Funcionarios').select('Nome, Nascimento, Admissao'), // Para filtrar aniversariantes e jubileu
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
@@ -451,6 +493,14 @@ exports.handler = async (event) => {
                 const d = new Date(f.Nascimento);
                 return (d.getMonth() + 1) === month && (d.getDate()) === day;
             });
+            
+            const jubileuDia = aniversariantes.filter(f => {
+                if(!f.Admissao) return false;
+                const d = new Date(f.Admissao);
+                // Verifica se é o mesmo dia e mês, mas ano diferente
+                return (d.getMonth() + 1) === month && (d.getDate()) === day && d.getFullYear() < new Date().getFullYear();
+            }).map(f => ({ ...f, Anos: new Date().getFullYear() - new Date(f.Admissao).getFullYear() }));
+
             const estoqueCritico = estoqueBaixo.filter(e => e.Quantidade <= e.Minimo);
 
             // Dados para Gráficos
@@ -507,6 +557,7 @@ exports.handler = async (event) => {
                 },
                 monitoramento: {
                     aniversariantes: aniversariantesDia,
+                    jubileu: jubileuDia,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
                     estoqueBaixo: estoqueCritico,
                     eventos: eventosProximos

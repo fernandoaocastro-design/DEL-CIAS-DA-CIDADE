@@ -43,3 +43,35 @@ COMO USAR:
 1. Após fazer alterações no código, dê um duplo clique em "atualizar.bat".
 2. O script fará o processo de envio automaticamente.
 3. Aguarde a mensagem de sucesso.
+
+----------------------------------------------------------------------
+4. SEGURANÇA E BACKUP DO BANCO DE DADOS (Supabase)
+----------------------------------------------------------------------
+O arquivo "seguranca_e_backup.sql" contém comandos para proteger seus dados.
+
+COMO USAR:
+1. Abra o arquivo "seguranca_e_backup.sql" no VS Code ou Bloco de Notas.
+2. Copie o código desejado (ex: Parte 2 para criar cópia dos dados).
+3. Cole no "SQL Editor" dentro do painel do seu projeto no Supabase.
+4. Clique em "Run" para executar.
+
+----------------------------------------------------------------------
+5. AGENDAMENTO AUTOMÁTICO NO SUPABASE (agendamento_backup.sql)
+----------------------------------------------------------------------
+Este arquivo permite configurar o Supabase para criar cópias das tabelas automaticamente todo dia.
+
+COMO USAR:
+1. Ative a extensão "pg_cron" no painel do Supabase (Database > Extensions).
+2. Rode o script "agendamento_backup.sql" no SQL Editor.
+3. O sistema criará tabelas como "Backup_Estoque_2023_..." automaticamente toda madrugada.
+
+----------------------------------------------------------------------
+6. TESTE E DIAGNÓSTICO AUTOMÁTICO (testar_sistema.bat)
+----------------------------------------------------------------------
+Ferramenta para verificar se existem erros de código ou arquivos faltando antes de atualizar.
+
+COMO USAR:
+1. Dê um duplo clique em "testar_sistema.bat".
+2. O script verificará a sintaxe de todos os arquivos JavaScript.
+3. Verificará se todos os links (CSS, JS, Páginas) nos arquivos HTML estão corretos.
+4. Exibirá um relatório de saúde do sistema.

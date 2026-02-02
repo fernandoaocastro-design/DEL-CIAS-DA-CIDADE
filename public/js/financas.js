@@ -99,14 +99,16 @@ const FinancasModule = {
         const data = isReceber ? FinancasModule.state.receber : FinancasModule.state.pagar;
         const title = isReceber ? 'Contas a Receber' : 'Contas a Pagar';
         const btnColor = isReceber ? 'bg-green-600' : 'bg-red-600';
+        const canCreate = Utils.checkPermission('Financas', 'criar');
+        const canEdit = Utils.checkPermission('Financas', 'editar');
         const canDelete = Utils.checkPermission('Financas', 'excluir');
         
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-700">${title}</h3>
-                <button onclick="FinancasModule.modalConta('${table}')" class="${btnColor} text-white px-4 py-2 rounded shadow hover:opacity-90 transition">
+                ${canCreate ? `<button onclick="FinancasModule.modalConta('${table}')" class="${btnColor} text-white px-4 py-2 rounded shadow hover:opacity-90 transition">
                     + Nova Conta
-                </button>
+                </button>` : ''}
             </div>
             <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 ${data.map(item => {
@@ -137,9 +139,9 @@ const FinancasModule = {
                             
                             ${!isPaid ? `
                                 <div class="mt-4 pt-3 border-t flex gap-2">
-                                    <button onclick="FinancasModule.modalBaixa('${item.ID}', '${table}')" class="flex-1 bg-indigo-50 text-indigo-700 py-1 rounded text-sm font-bold hover:bg-indigo-100">
+                                    ${canEdit ? `<button onclick="FinancasModule.modalBaixa('${item.ID}', '${table}')" class="flex-1 bg-indigo-50 text-indigo-700 py-1 rounded text-sm font-bold hover:bg-indigo-100">
                                         <i class="fas fa-check"></i> ${isReceber ? 'Receber' : 'Pagar'}
-                                    </button>
+                                    </button>` : ''}
                                     ${canDelete ? `<button onclick="FinancasModule.delete('${table}', '${item.ID}')" class="px-3 text-red-400 hover:text-red-600"><i class="fas fa-trash"></i></button>` : ''}
                                 </div>
                             ` : ''}
@@ -396,7 +398,7 @@ const FinancasModule = {
         const header = document.getElementById('pdf-header');
         const footer = document.getElementById('pdf-footer');
         const inst = FinancasModule.state.instituicao[0] || {};
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         
         // Cabeçalho

@@ -315,7 +315,8 @@ CREATE TABLE "InstituicaoConfig" (
     "Moeda" VARCHAR(10) DEFAULT 'Kz',
     "FusoHorario" VARCHAR(50) DEFAULT 'Africa/Luanda',
     "ExibirLogoRelatorios" BOOLEAN DEFAULT FALSE,
-    "CorRelatorios" VARCHAR(20) DEFAULT '#3B82F6'
+    "CorRelatorios" VARCHAR(20) DEFAULT '#3B82F6',
+    "SubsidioFeriasPorcentagem" DECIMAL(5,2) DEFAULT 50.00
 );
 
 -- B. Estrutura Organizacional
@@ -450,6 +451,27 @@ CREATE TABLE "ControleDesperdicio" (
     "Responsavel" VARCHAR(255),
     "Observacoes" TEXT,
     "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- 10. MÓDULO PEDIDOS DE COMPRA (HISTÓRICO)
+CREATE TABLE "PedidosCompra" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Codigo" SERIAL,
+    "Solicitante" VARCHAR(255),
+    "DataSolicitacao" DATE DEFAULT CURRENT_DATE,
+    "ValorTotal" DECIMAL(12,2),
+    "Status" VARCHAR(50) DEFAULT 'Pendente', -- Pendente, Aprovado, Comprado, Cancelado
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE "ItensPedidoCompra" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "PedidoID" UUID REFERENCES "PedidosCompra"("ID"),
+    "ProdutoNome" VARCHAR(255),
+    "Quantidade" DECIMAL(12,2),
+    "CustoUnitario" DECIMAL(12,2),
+    "Subtotal" DECIMAL(12,2),
+    "Observacao" TEXT
 );
 
 -- 5. SEGURANÇA E DADOS INICIAIS

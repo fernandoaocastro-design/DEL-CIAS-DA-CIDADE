@@ -91,6 +91,10 @@ const ConfigModule = {
                             <label class="text-sm font-bold mr-2">Cor Principal:</label>
                             <input type="color" name="CorRelatorios" value="${dados.CorRelatorios || '#3B82F6'}" class="border p-1 rounded h-8 w-20 align-middle cursor-pointer">
                         </div>
+                        <div class="col-span-2 mt-2">
+                            <label class="text-sm font-bold mr-2">Porcentagem do Subsídio de Férias (%):</label>
+                            <input type="number" name="SubsidioFeriasPorcentagem" value="${dados.SubsidioFeriasPorcentagem || 50}" class="border p-2 rounded w-24" min="0" max="100" step="0.1">
+                        </div>
                     </div>
                     <button class="mt-4 bg-blue-600 text-white px-6 py-2 rounded font-bold hover:bg-blue-700 w-full md:w-auto">Salvar Configurações</button>
                 </form>
@@ -134,6 +138,7 @@ const ConfigModule = {
     renderParametros: async (container, table, types) => {
         try {
             const items = await Utils.api('getAll', table) || [];
+            const canCreate = Utils.checkPermission('Configuracoes', 'criar');
             const canDelete = Utils.checkPermission('Configuracoes', 'excluir');
 
             let html = `<h3 class="text-2xl font-bold text-gray-800 mb-6">Parâmetros: ${table.replace('Parametros', '')}</h3>`;
@@ -145,7 +150,7 @@ const ConfigModule = {
                     <div class="bg-white p-4 rounded shadow">
                         <div class="flex justify-between items-center mb-3 border-b pb-2">
                             <h4 class="font-bold text-gray-700">${type.replace(/([A-Z])/g, ' $1').trim()}</h4>
-                            <button onclick="ConfigModule.modalParam('${table}', '${type}')" class="text-blue-600 text-sm hover:underline">+ Adicionar</button>
+                            ${canCreate ? `<button onclick="ConfigModule.modalParam('${table}', '${type}')" class="text-blue-600 text-sm hover:underline">+ Adicionar</button>` : ''}
                         </div>
                         <ul class="space-y-2">
                             ${filtered.length ? filtered.map(item => `
@@ -198,14 +203,16 @@ const ConfigModule = {
     renderUsuarios: async (container) => {
         try {
             const users = await Utils.api('getAll', 'Usuarios') || [];
+            const canCreate = Utils.checkPermission('Configuracoes', 'criar');
+            const canEdit = Utils.checkPermission('Configuracoes', 'editar');
             const canDelete = Utils.checkPermission('Configuracoes', 'excluir');
 
             container.innerHTML = `
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="text-2xl font-bold text-gray-800">Gestão de Usuários</h3>
-                    <button onclick="ConfigModule.modalUsuario()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+                    ${canCreate ? `<button onclick="ConfigModule.modalUsuario()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
                         <i class="fas fa-user-plus mr-2"></i> Novo Usuário
-                    </button>
+                    </button>` : ''}
                 </div>
 
                 <div class="bg-white rounded shadow overflow-hidden">
@@ -227,7 +234,7 @@ const ConfigModule = {
                                     <td class="p-3">${u.Cargo || '-'}</td>
                                     <td class="p-3"><span class="px-2 py-1 rounded text-xs ${u.Status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${u.Status}</span></td>
                                     <td class="p-3 text-center">
-                                        <button onclick="ConfigModule.modalUsuario('${u.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>
+                                        ${canEdit ? `<button onclick="ConfigModule.modalUsuario('${u.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                         ${canDelete ? `<button onclick="ConfigModule.deleteUsuario('${u.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                     </td>
                                 </tr>
@@ -240,8 +247,7 @@ const ConfigModule = {
     },
 
     modalUsuario: async (id = null) => {
-        let user = {};
-        if (id) {
+        let user = {
             const users = await Utils.api('getAll', 'Usuarios');
             user = users.find(u => u.ID === id) || {};
         }

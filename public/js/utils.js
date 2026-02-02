@@ -46,6 +46,14 @@ const Utils = {
     
     formatDate: (date) => date ? new Date(date).toLocaleDateString('pt-BR') : '-',
     
+    getUser: () => {
+        try {
+            return JSON.parse(localStorage.getItem('user')) || {};
+        } catch (e) {
+            return {};
+        }
+    },
+
     // Nova API Centralizada com Token
     api: async (action, table, data = null, id = null) => {
         const token = localStorage.getItem('token');
@@ -167,7 +175,7 @@ const Utils = {
     },
 
     modalEditProfile: () => {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         Utils.openModal('Editar Perfil', `
             <form onsubmit="Utils.handleUpdateProfile(event)">
                 <input type="hidden" name="id" value="${user.ID}">
@@ -210,7 +218,7 @@ const Utils = {
             await Utils.api('updateProfile', null, data);
             
                 // Atualiza local storage
-                const currentUser = JSON.parse(localStorage.getItem('user'));
+                const currentUser = Utils.getUser();
                 currentUser.Nome = data.nome;
                 currentUser.Email = data.email;
                 currentUser.Assinatura = data.assinatura;
@@ -277,7 +285,7 @@ const Utils = {
     
     // Verifica se o usuário tem permissão para uma ação específica em um módulo
     checkPermission: (module, action) => {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         
         // Administrador tem acesso total (Bypass)
         if (user.Cargo === 'Administrador') return true;
@@ -294,7 +302,7 @@ const Utils = {
 
     // Aplica regras visuais na barra lateral
     applySidebarPermissions: () => {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const user = Utils.getUser();
         if (user.Cargo === 'Administrador') return;
 
         const mapping = {
