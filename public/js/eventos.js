@@ -14,8 +14,8 @@ const EventosModule = {
     fetchData: async () => {
         try {
             const [events, inst] = await Promise.all([
-                EventosModule.api('getAll', 'Eventos'),
-                EventosModule.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'Eventos'),
+                Utils.api('getAll', 'InstituicaoConfig')
             ]);
             EventosModule.state.events = events || [];
             EventosModule.state.instituicao = inst || [];
@@ -23,13 +23,6 @@ const EventosModule = {
             console.log("Erro ao carregar dados.");
         }
         EventosModule.render();
-    },
-
-    api: async (action, table, data = null, id = null) => {
-        const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action, table, data, id }) });
-        const json = await res.json();
-        if (json.success) return json.data;
-        throw new Error(json.message || 'Erro na API');
     },
 
     setView: (view) => {
@@ -179,9 +172,9 @@ const EventosModule = {
         if (!data.Data) return Utils.toast('⚠️ A data do evento é obrigatória.');
 
         try {
-            await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'save', table: 'Eventos', data }) });
-            Utils.toast('✅ Evento salvo!'); Utils.closeModal(); EventosModule.fetchData();
-        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message); }
+            await Utils.api('save', 'Eventos', data);
+            Utils.toast('Evento salvo!', 'success'); Utils.closeModal(); EventosModule.fetchData();
+        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message, 'error'); }
     }
 };
 

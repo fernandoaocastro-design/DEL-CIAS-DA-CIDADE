@@ -15,10 +15,10 @@ const FinancasModule = {
         try {
             // Busca dados das 3 tabelas em paralelo
             const [fluxo, receber, pagar, inst] = await Promise.all([
-                FinancasModule.api('getAll', 'Financas'),
-                FinancasModule.api('getAll', 'ContasReceber'),
-                FinancasModule.api('getAll', 'ContasPagar'),
-                FinancasModule.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'Financas'),
+                Utils.api('getAll', 'ContasReceber'),
+                Utils.api('getAll', 'ContasPagar'),
+                Utils.api('getAll', 'InstituicaoConfig')
             ]);
             
             FinancasModule.state.fluxo = fluxo || [];
@@ -29,18 +29,8 @@ const FinancasModule = {
             FinancasModule.render();
         } catch (e) {
             console.error(e);
-            Utils.toast("Erro ao carregar dados financeiros.");
+            Utils.toast("Erro ao carregar dados financeiros.", 'error');
         }
-    },
-
-    api: async (action, table, data = null, id = null) => {
-        const res = await fetch('/.netlify/functions/business', {
-            method: 'POST',
-            body: JSON.stringify({ action, table, data, id })
-        });
-        const json = await res.json();
-        if (json.success) return json.data;
-        throw new Error(json.message || 'Erro na API');
     },
 
     setTab: (tab) => {
@@ -492,19 +482,16 @@ const FinancasModule = {
         const data = Object.fromEntries(new FormData(e.target).entries());
         
         // Validação de Dados Reais
-        if (!data.Descricao || data.Descricao.trim() === '') return Utils.toast('⚠️ A descrição é obrigatória.');
-        if (Number(data.ValorTotal) <= 0) return Utils.toast('⚠️ O valor deve ser maior que zero.');
-        if (!data.DataVencimento) return Utils.toast('⚠️ A data de vencimento é obrigatória.');
+        if (!data.Descricao || data.Descricao.trim() === '') return Utils.toast('A descrição é obrigatória.', 'error');
+        if (Number(data.ValorTotal) <= 0) return Utils.toast('O valor deve ser maior que zero.', 'error');
+        if (!data.DataVencimento) return Utils.toast('A data de vencimento é obrigatória.', 'error');
 
         try {
-            await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'save', table, data })
-            });
-            Utils.toast('✅ Salvo com sucesso!');
+            await Utils.api('save', table, data);
+            Utils.toast('Salvo com sucesso!', 'success');
             Utils.closeModal();
             FinancasModule.fetchData();
-        } catch(err) { Utils.toast('Erro ao salvar'); }
+        } catch(err) { Utils.toast('Erro ao salvar', 'error'); }
     },
 
     settle: async (e, id, table) => {
@@ -514,28 +501,19 @@ const FinancasModule = {
         data.table = table;
         
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'settleAccount', data })
-            });
-            const json = await res.json();
-            if(json.success) {
-                Utils.toast('✅ Conta baixada com sucesso!');
-                Utils.closeModal();
-                FinancasModule.fetchData();
-            } else throw new Error(json.message);
-        } catch(err) { Utils.toast('Erro: ' + err.message); }
+            await Utils.api('settleAccount', null, data);
+            Utils.toast('Conta baixada com sucesso!', 'success');
+            Utils.closeModal();
+            FinancasModule.fetchData();
+        } catch(err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
     delete: async (table, id) => {
         if(!confirm('Tem certeza que deseja excluir?')) return;
         try {
-            await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'delete', table, id })
-            });
+            await Utils.api('delete', table, null, id);
             FinancasModule.fetchData();
-        } catch(e) { Utils.toast('Erro ao excluir'); }
+        } catch(e) { Utils.toast('Erro ao excluir', 'error'); }
     }
 };
 

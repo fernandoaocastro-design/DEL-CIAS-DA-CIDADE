@@ -6,7 +6,10 @@ const MLPainModule = {
         pratos: [],
         funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
-        instituicao: []
+        instituicao: [],
+        lastEntryDate: null,
+        lastEntryTurno: null,
+        lastEntryResp: null
     },
 
     init: () => {
@@ -147,7 +150,11 @@ const MLPainModule = {
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
         const pratos = MLPainModule.state.pratos.filter(p => p.Status === 'Ativo');
         const funcionarios = MLPainModule.state.funcionarios || [];
+        
         const today = new Date().toISOString().split('T')[0];
+        const defaultDate = MLPainModule.state.lastEntryDate || today;
+        const defaultTurno = MLPainModule.state.lastEntryTurno || 'Manhã';
+        const defaultResp = MLPainModule.state.lastEntryResp || '';
 
         container.innerHTML = `
             <div class="bg-white p-6 rounded shadow max-w-4xl mx-auto">
@@ -158,19 +165,21 @@ const MLPainModule = {
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-gray-50 p-4 rounded">
                         <div>
                             <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Data</label>
-                            <input type="date" name="Data" value="${today}" class="border p-2 rounded w-full" required>
+                            <input type="date" name="Data" value="${defaultDate}" class="border p-2 rounded w-full" required>
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Turno</label>
                             <select name="Turno" class="border p-2 rounded w-full">
-                                <option>Manhã</option><option>Tarde</option><option>Noite</option>
+                                <option ${defaultTurno === 'Manhã' ? 'selected' : ''}>Manhã</option>
+                                <option ${defaultTurno === 'Tarde' ? 'selected' : ''}>Tarde</option>
+                                <option ${defaultTurno === 'Noite' ? 'selected' : ''}>Noite</option>
                             </select>
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Responsável do Turno</label>
                             <select name="Responsavel" class="border p-2 rounded w-full" required>
                                 <option value="">Selecione...</option>
-                                ${funcionarios.map(f => `<option value="${f.Nome}">${f.Nome}</option>`).join('')}
+                                ${funcionarios.map(f => `<option value="${f.Nome}" ${defaultResp === f.Nome ? 'selected' : ''}>${f.Nome}</option>`).join('')}
                             </select>
                         </div>
                     </div>
@@ -283,6 +292,11 @@ const MLPainModule = {
     saveLancamento: async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
+
+        // Persistir contexto para próximos lançamentos em sequência
+        MLPainModule.state.lastEntryDate = formData.get('Data');
+        MLPainModule.state.lastEntryTurno = formData.get('Turno');
+        MLPainModule.state.lastEntryResp = formData.get('Responsavel');
         
         const areaId = formData.get('AreaID');
         const area = MLPainModule.state.areas.find(a => a.ID === areaId);
@@ -332,7 +346,7 @@ const MLPainModule = {
             await Promise.all(promises);
             Utils.toast('✅ Lançamentos salvos com sucesso!');
             MLPainModule.fetchData();
-            MLPainModule.setTab('tabela'); // Redireciona para tabela para ver o resultado
+            // Mantém na tela de lançamento para continuar inserindo
         } catch (err) { Utils.toast('Erro ao salvar: ' + err.message); }
     },
 

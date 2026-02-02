@@ -102,6 +102,23 @@ const DashboardModule = {
                 }]
             }
         });
+
+        // Gráfico Refeições (Barras)
+        if (charts.refeicoes && document.getElementById('chartRefeicoes')) {
+            new Chart(document.getElementById('chartRefeicoes'), {
+                type: 'bar',
+                data: {
+                    labels: charts.refeicoes.labels,
+                    datasets: [{
+                        label: 'Refeições Servidas',
+                        data: charts.refeicoes.data,
+                        backgroundColor: '#F59E0B',
+                        borderRadius: 4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
     }
 };
 

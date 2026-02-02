@@ -9,17 +9,17 @@ const RHModule = {
     fetchData: async () => {
         try {
             const [funcs, ferias, freq, aval, trein, lic, folha, params, cargos, deptos, inst] = await Promise.all([
-                RHModule.api('getAll', 'Funcionarios'),
-                RHModule.api('getAll', 'Ferias'),
-                RHModule.api('getAll', 'Frequencia'),
-                RHModule.api('getAll', 'Avaliacoes'),
-                RHModule.api('getAll', 'Treinamentos'),
-                RHModule.api('getAll', 'Licencas'),
-                RHModule.api('getAll', 'Folha'),
-                RHModule.api('getAll', 'ParametrosRH'),
-                RHModule.api('getAll', 'Cargos'),
-                RHModule.api('getAll', 'Departamentos'),
-                RHModule.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'Funcionarios'),
+                Utils.api('getAll', 'Ferias'),
+                Utils.api('getAll', 'Frequencia'),
+                Utils.api('getAll', 'Avaliacoes'),
+                Utils.api('getAll', 'Treinamentos'),
+                Utils.api('getAll', 'Licencas'),
+                Utils.api('getAll', 'Folha'),
+                Utils.api('getAll', 'ParametrosRH'),
+                Utils.api('getAll', 'Cargos'),
+                Utils.api('getAll', 'Departamentos'),
+                Utils.api('getAll', 'InstituicaoConfig')
             ]);
             RHModule.state.cache = { 
                 funcionarios: funcs, ferias, frequencia: freq, avaliacoes: aval, treinamentos: trein, licencas: lic, folha: folha, 
@@ -28,7 +28,7 @@ const RHModule = {
             RHModule.renderFuncionarios();
         } catch (e) { 
             console.error("Erro crítico ao carregar dados do servidor:", e);
-            Utils.toast("❌ Erro de Conexão: Verifique se o backend está online.");
+            Utils.toast("Erro de Conexão: Verifique se o backend está online.", 'error');
             document.getElementById('rh-content').innerHTML = `
                 <div class="flex flex-col items-center justify-center h-64 text-red-600">
                     <i class="fas fa-server text-4xl mb-4"></i>
@@ -37,16 +37,6 @@ const RHModule = {
                 </div>
             `;
         }
-    },
-
-    api: async (action, table, data = null, id = null) => {
-        const res = await fetch('/.netlify/functions/business', {
-            method: 'POST',
-            body: JSON.stringify({ action, table, data, id })
-        });
-        const json = await res.json();
-        if (json.success) return json.data;
-        throw new Error(json.message || 'Erro na API');
     },
 
     renderLayout: () => {
@@ -231,6 +221,7 @@ const RHModule = {
 
     modalFrequencia: () => {
         const funcs = RHModule.state.cache.funcionarios;
+        const today = new Date().toISOString().split('T')[0];
         Utils.openModal('Registro de Frequência', `
             <form onsubmit="RHModule.save(event, 'Frequencia')">
                 <div class="mb-4">
@@ -241,10 +232,16 @@ const RHModule = {
                     </select>
                     <input type="hidden" name="FuncionarioNome">
                 </div>
-                <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" class="border p-2 rounded w-full" required></div>
+                <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" value="${today}" class="border p-2 rounded w-full" required></div>
                 <div class="grid grid-cols-2 gap-4 mb-4">
-                    <div><label class="text-xs">Entrada</label><input type="time" name="Entrada" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs">Saída</label><input type="time" name="Saida" class="border p-2 rounded w-full" required></div>
+                    <div>
+                        <label class="text-xs">Entrada</label>
+                        <div class="flex gap-1"><input type="time" name="Entrada" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                    </div>
+                    <div>
+                        <label class="text-xs">Saída</label>
+                        <div class="flex gap-1"><input type="time" name="Saida" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                    </div>
                 </div>
                 <div class="mb-4">
                     <input name="Assinatura" placeholder="Assinatura Digital (Texto)" class="border p-2 rounded w-full bg-gray-50">
@@ -255,6 +252,13 @@ const RHModule = {
                 <button class="w-full bg-blue-600 text-white py-2 rounded">Registrar</button>
             </form>
         `);
+    },
+
+    setCurrentTime: (field) => {
+        const now = new Date();
+        const time = now.toTimeString().slice(0, 5);
+        const input = document.querySelector(`input[name="${field}"]`);
+        if(input) input.value = time;
     },
 
     // --- 3. ABA FÉRIAS ---
@@ -276,7 +280,11 @@ const RHModule = {
                             <td class="p-3 text-center">${r.Dias}</td>
                             <td class="p-3 text-center">${r.Pagamento13 === 'Sim' ? '✅' : '❌'}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded ${r.Status==='Aprovado'?'bg-green-100 text-green-700':'bg-yellow-100 text-yellow-700'}">${r.Status}</span></td>
-                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
+                            <td class="p-3 text-center flex justify-center gap-2">
+                                <button onclick="RHModule.printGuiaFerias('${r.ID}')" class="text-gray-600 hover:text-gray-900" title="Imprimir Guia"><i class="fas fa-print"></i></button>
+                                ${r.ComprovativoURL ? `<button onclick="RHModule.viewComprovativo('${r.ID}')" class="text-green-600 hover:text-green-800" title="Ver Comprovativo"><i class="fas fa-receipt"></i></button>` : ''}
+                                ${canDelete ? `<button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
+                            </td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -335,6 +343,10 @@ const RHModule = {
                     <div><label class="text-xs font-bold block">ADIANTAMENTO DE 13º SLÁRIO</label><select name="Adiantamento13" class="border p-2 rounded w-full"><option>Não</option><option>Sim</option></select></div>
                     <div><label class="text-xs font-bold block">DATA DE PAGAMENTO</label><input type="date" name="DataPagamento" class="border p-2 rounded w-full"></div>
                 </div>
+                <div class="mb-3">
+                    <label class="text-xs font-bold block">COMPROVATIVO DE PAGAMENTO (ANEXO)</label>
+                    <input type="file" id="file-comprovativo" class="border p-2 rounded w-full text-xs bg-gray-50">
+                </div>
 
                 <div class="mb-4">
                     <label class="text-xs font-bold block">OBSERVAÇÕES</label>
@@ -354,6 +366,121 @@ const RHModule = {
                 <button class="w-full bg-blue-600 text-white py-2 rounded">Salvar</button>
             </form>
         `);
+    },
+
+    printGuiaFerias: (id) => {
+        const ferias = RHModule.state.cache.ferias.find(f => f.ID === id);
+        if (!ferias) return Utils.toast('Registro não encontrado.', 'error');
+
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === ferias.FuncionarioID) || {};
+        const inst = RHModule.state.cache.instituicao[0] || {};
+
+        // Cálculos Auxiliares
+        // 1. Data de Retorno (Dia seguinte ao fim)
+        const dataFim = new Date(ferias.DataFim);
+        const dataRetorno = new Date(dataFim);
+        dataRetorno.setDate(dataRetorno.getDate() + 1);
+
+        // 2. Saldo de Férias (Estimativa simples: 30 - dias gozados no ano atual)
+        const anoAtual = new Date().getFullYear();
+        const feriasAno = RHModule.state.cache.ferias.filter(f => 
+            f.FuncionarioID === ferias.FuncionarioID && 
+            f.Status === 'Aprovado' && 
+            new Date(f.DataInicio).getFullYear() === anoAtual
+        );
+        const diasGozados = feriasAno.reduce((acc, cur) => acc + Number(cur.Dias), 0);
+        const saldoRestante = 30 - diasGozados; // Assumindo direito a 30 dias/ano
+
+        // Elemento temporário para impressão
+        const printDiv = document.createElement('div');
+        printDiv.className = 'bg-white p-8 hidden';
+        printDiv.id = 'guia-ferias-print';
+        
+        printDiv.innerHTML = `
+            <div class="border-2 border-gray-800 p-8 max-w-3xl mx-auto font-serif text-gray-900">
+                <!-- Cabeçalho -->
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="flex items-center gap-4">
+                        ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">GUIA DE FÉRIAS</h2>
+                        <p class="text-sm">Ref: ${new Date().getFullYear()}/${ferias.ID.slice(0,4)}</p>
+                    </div>
+                </div>
+
+                <!-- Dados do Colaborador -->
+                <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
+                    <h3 class="font-bold border-b border-gray-300 mb-2 uppercase text-sm">Dados do Colaborador</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><span class="font-bold text-sm">Nome:</span> <span class="text-lg block">${func.Nome || ferias.FuncionarioNome}</span></div>
+                        <div><span class="font-bold text-sm">Cargo/Função:</span> <span class="text-lg block">${func.Cargo || '-'}</span></div>
+                        <div><span class="font-bold text-sm">Departamento:</span> <span class="block">${func.Departamento || '-'}</span></div>
+                        <div><span class="font-bold text-sm">Nº Funcionário:</span> <span class="block">${func.ID.slice(0,8)}</span></div>
+                    </div>
+                </div>
+
+                <!-- Detalhes das Férias -->
+                <div class="mb-8">
+                    <h3 class="font-bold border-b border-gray-800 mb-4 uppercase text-sm">Detalhamento do Período</h3>
+                    <table class="w-full text-left border-collapse border border-gray-300">
+                        <tr class="bg-gray-100"><th class="border p-2">Início das Férias</th><th class="border p-2">Término das Férias</th><th class="border p-2">Dias de Gozo</th></tr>
+                        <tr>
+                            <td class="border p-3 text-lg">${Utils.formatDate(ferias.DataInicio)}</td>
+                            <td class="border p-3 text-lg">${Utils.formatDate(ferias.DataFim)}</td>
+                            <td class="border p-3 text-lg font-bold text-center">${ferias.Dias}</td>
+                        </tr>
+                    </table>
+                    <div class="mt-4 grid grid-cols-2 gap-4">
+                        <div class="p-3 border bg-blue-50"><span class="font-bold">Data de Retorno ao Trabalho:</span> <br> ${dataRetorno.toLocaleDateString('pt-BR')}</div>
+                        <div class="p-3 border bg-gray-50"><span class="font-bold">Saldo Restante (Estimado):</span> <br> ${saldoRestante > 0 ? saldoRestante : 0} dias</div>
+                    </div>
+                </div>
+
+                <!-- Assinaturas -->
+                <div class="mt-16 grid grid-cols-2 gap-16 text-center">
+                    <div class="border-t border-gray-800 pt-2">
+                        <p class="font-bold">${func.Nome}</p>
+                        <p class="text-xs">Assinatura do Colaborador</p>
+                    </div>
+                    <div class="border-t border-gray-800 pt-2">
+                        <p class="font-bold">Recursos Humanos / Gestão</p>
+                        <p class="text-xs">Autorizado por</p>
+                    </div>
+                </div>
+                <div class="mt-8 text-center text-xs text-gray-400">Documento gerado eletronicamente em ${new Date().toLocaleString()}</div>
+            </div>
+        `;
+
+        document.body.appendChild(printDiv);
+        
+        const opt = {
+            margin: 10,
+            filename: `guia-ferias-${func.Nome.split(' ')[0]}-${ferias.DataInicio}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(printDiv).save().then(() => {
+            document.body.removeChild(printDiv);
+        });
+    },
+
+    viewComprovativo: (id) => {
+        const r = RHModule.state.cache.ferias.find(x => x.ID === id);
+        if(r && r.ComprovativoURL) {
+            Utils.openModal('Comprovativo de Pagamento', `
+                <div class="text-center">
+                    <img src="${r.ComprovativoURL}" class="max-w-full max-h-[70vh] mx-auto border rounded shadow">
+                    <a href="${r.ComprovativoURL}" download="comprovativo-${r.FuncionarioNome}.png" class="inline-block mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Baixar Imagem</a>
+                </div>
+            `);
+        }
     },
 
     // --- 4. ABA AVALIAÇÃO ---
@@ -795,6 +922,58 @@ const RHModule = {
         const start = document.getElementById('rel-inicio').value;
         const end = document.getElementById('rel-fim').value;
         let funcs = RHModule.state.cache.funcionarios || [];
+        const ferias = RHModule.state.cache.ferias || [];
+        const frequencia = RHModule.state.cache.frequencia || [];
+
+        // --- RELATÓRIO DE FÉRIAS VENCIDAS ---
+        const vencidas = [];
+        const hoje = new Date();
+        
+        funcs.forEach(f => {
+            if(!f.Admissao) return;
+            const adm = new Date(f.Admissao);
+            // Cálculo aproximado de anos de casa
+            const diffTime = Math.abs(hoje - adm);
+            const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25); 
+            const direito = Math.floor(diffYears) * 30; // 30 dias por ano
+            
+            const taken = ferias
+                .filter(r => r.FuncionarioID === f.ID && r.Status === 'Aprovado')
+                .reduce((acc, r) => acc + (Number(r.Dias) || 0), 0);
+                
+            const saldo = direito - taken;
+            
+            if(saldo > 30) vencidas.push({ nome: f.Nome, saldo: Math.floor(saldo), dept: f.Departamento });
+        });
+
+        // --- RELATÓRIO DE PONTUALIDADE (ATRASOS) ---
+        const atrasosMap = {};
+        const evolutionMap = {}; // Para o gráfico de linha
+
+        frequencia.forEach(r => {
+            if (start && r.Data < start) return;
+            if (end && r.Data > end) return;
+            
+            // Regra: Entrada após 08:15 é considerada atraso (Tolerância de 15min)
+            if (r.Entrada && r.Entrada > '08:15') {
+                atrasosMap[r.FuncionarioNome] = (atrasosMap[r.FuncionarioNome] || 0) + 1;
+                
+                const month = r.Data.substring(0, 7); // YYYY-MM
+                evolutionMap[month] = (evolutionMap[month] || 0) + 1;
+            }
+        });
+
+        const rankingAtrasos = Object.entries(atrasosMap)
+            .map(([nome, qtd]) => ({ nome, qtd }))
+            .sort((a, b) => b.qtd - a.qtd)
+            .slice(0, 5); // Top 5
+            
+        const sortedMonths = Object.keys(evolutionMap).sort();
+        const evoLabels = sortedMonths.map(m => {
+            const [y, mo] = m.split('-');
+            return `${mo}/${y}`;
+        });
+        const evoData = sortedMonths.map(m => evolutionMap[m]);
 
         // Filtragem por Data de Admissão
         if (start) funcs = funcs.filter(f => f.Admissao >= start);
@@ -802,16 +981,57 @@ const RHModule = {
 
         // Agrupar por Departamento
         const deptMap = {};
+        const salaryMap = {};
+
         funcs.forEach(f => {
             const dept = f.Departamento || 'Sem Departamento';
             deptMap[dept] = (deptMap[dept] || 0) + 1;
+            
+            if(!salaryMap[dept]) salaryMap[dept] = { total: 0, count: 0 };
+            salaryMap[dept].total += Number(f.Salario || 0);
+            salaryMap[dept].count++;
         });
 
         const reportData = Object.entries(deptMap)
             .map(([dept, count]) => ({ dept, count }))
             .sort((a, b) => b.count - a.count);
 
+        const salaryData = Object.entries(salaryMap).map(([dept, val]) => ({
+            dept,
+            avg: val.count ? val.total / val.count : 0
+        })).sort((a,b) => b.avg - a.avg);
+
         const total = funcs.length;
+
+        const htmlVencidas = `
+            <div class="mt-8 mb-8">
+                <h4 class="text-lg font-bold text-red-700 mb-4 border-b border-red-200 pb-2">⚠️ Funcionários com Férias Vencidas (>30 dias)</h4>
+                <div class="bg-white p-4 border rounded shadow overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-red-50 text-red-800">
+                            <tr><th class="p-2 text-left">Funcionário</th><th class="p-2 text-left">Departamento</th><th class="p-2 text-right">Saldo (Dias)</th></tr>
+                        </thead>
+                        <tbody>
+                            ${vencidas.map(v => `<tr class="border-b"><td class="p-2 font-bold">${v.nome}</td><td class="p-2">${v.dept || '-'}</td><td class="p-2 text-right font-bold text-red-600">${v.saldo}</td></tr>`).join('')}
+                            ${vencidas.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-gray-500">Nenhuma pendência encontrada.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+            
+        const htmlAtrasos = `
+            <div class="mt-6 bg-white p-4 border rounded shadow">
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">🕒 Ranking de Atrasos (Entrada após 08:15)</h4>
+                <table class="w-full text-sm">
+                    <thead class="bg-orange-50 text-orange-800">
+                        <tr><th class="p-2 text-left">Funcionário</th><th class="p-2 text-right">Qtd. Atrasos</th></tr>
+                    </thead>
+                    <tbody>
+                        ${rankingAtrasos.map(r => `<tr class="border-b"><td class="p-2 font-medium">${r.nome}</td><td class="p-2 text-right font-bold text-orange-600">${r.qtd}</td></tr>`).join('')}
+                        ${rankingAtrasos.length === 0 ? '<tr><td colspan="2" class="p-4 text-center text-gray-500">Nenhum atraso registrado no período.</td></tr>' : ''}
+                    </tbody>
+                </table>
+            </div>`;
 
         const html = `
             <h4 class="text-lg font-bold text-gray-700 mb-4">Lotação por Departamento ${start || end ? '(Filtrado)' : '(Geral)'}</h4>
@@ -834,7 +1054,18 @@ const RHModule = {
                      <div class="w-full h-64"><canvas id="chartRelatorioRH"></canvas></div>
                 </div>
             </div>
-        `;
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                <div class="bg-white p-4 border rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4">Média Salarial por Departamento (Kz)</h4>
+                    <div class="h-64"><canvas id="chartSalarios"></canvas></div>
+                </div>
+                <div class="bg-white p-4 border rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4">Evolução de Atrasos</h4>
+                    <div class="h-64"><canvas id="chartEvolucaoAtrasos"></canvas></div>
+                </div>
+            </div>
+        ` + htmlVencidas + htmlAtrasos;
 
         document.getElementById('relatorio-results').innerHTML = html;
 
@@ -843,6 +1074,45 @@ const RHModule = {
                 type: 'doughnut',
                 data: { labels: reportData.map(r => r.dept), datasets: [{ data: reportData.map(r => r.count), backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#6B7280', '#EC4899', '#14B8A6'] }] },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+            });
+            
+            new Chart(document.getElementById('chartSalarios'), {
+                type: 'bar',
+                data: { 
+                    labels: salaryData.map(d => d.dept), 
+                    datasets: [{ 
+                        label: 'Média Salarial', 
+                        data: salaryData.map(d => d.avg), 
+                        backgroundColor: '#10B981',
+                        borderRadius: 4
+                    }] 
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { callback: (v) => Utils.formatCurrency(v) } } }
+                }
+            });
+
+            new Chart(document.getElementById('chartEvolucaoAtrasos'), {
+                type: 'line',
+                data: {
+                    labels: evoLabels,
+                    datasets: [{
+                        label: 'Atrasos',
+                        data: evoData,
+                        borderColor: '#F97316',
+                        backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
             });
         } else if (total === 0) {
             document.getElementById('relatorio-results').innerHTML = '<p class="text-center text-gray-500 py-10">Nenhum funcionário encontrado neste período.</p>';
@@ -894,6 +1164,24 @@ const RHModule = {
     save: async (e, table) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+
+        // Lógica de Upload de Arquivo (Férias)
+        if (table === 'Ferias') {
+            const fileInput = document.getElementById('file-comprovativo');
+            if (fileInput && fileInput.files[0]) {
+                try {
+                    const toBase64 = file => new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = error => reject(error);
+                    });
+                    data.ComprovativoURL = await toBase64(fileInput.files[0]);
+                } catch (err) {
+                    return Utils.toast('Erro ao processar arquivo: ' + err.message);
+                }
+            }
+        }
 
         // VALIDAÇÕES DE REGRAS DE NEGÓCIO
         if (table === 'Frequencia') {

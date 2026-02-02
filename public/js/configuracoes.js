@@ -39,11 +39,7 @@ const ConfigModule = {
     // --- 1. GERAL (INSTITUIÇÃO & LOGO) ---
     renderGeral: async (container) => {
         try {
-            const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'getAll', table: 'InstituicaoConfig' }) });
-            const json = await res.json();
-            const dados = (json.data && json.data[0]) ? json.data[0] : {};
-            ConfigModule.state.instituicao = dados;
-
+            const   = (dat 
             container.innerHTML = `
                 <h3 class="text-2xl font-bold text-gray-800 mb-6">🏢 Dados da Instituição</h3>
                 <form onsubmit="ConfigModule.saveInstituicao(event)" class="bg-white p-6 rounded shadow max-w-3xl">
@@ -97,10 +93,10 @@ const ConfigModule = {
         // Função auxiliar para enviar
         const send = async (payload) => {
             try {
-                await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'save', table: 'InstituicaoConfig', data: payload }) });
-                Utils.toast('✅ Dados salvos com sucesso!');
+                await Utils.api('save', 'InstituicaoConfig', payload);
+                Utils.toast('Dados salvos com sucesso!', 'success');
                 ConfigModule.setTab('geral'); // Recarrega para mostrar o logo novo
-            } catch (err) { Utils.toast('Erro ao salvar.'); }
+            } catch (err) { Utils.toast('Erro ao salvar: ' + err.message, 'error'); }
         };
 
         // Se houver arquivo, converte para Base64
@@ -121,18 +117,13 @@ const ConfigModule = {
     // --- 2. PARÂMETROS GENÉRICOS ---
     renderParametros: async (container, table, types) => {
         try {
-            const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'getAll', table }) });
-            const json = await res.json();
-            const items = json.data || [];
+            const items = await Utils.api('getAll', table) || [];
             const canDelete = Utils.checkPermission('Configuracoes', 'excluir');
 
             let html = `<h3 class="text-2xl font-bold text-gray-800 mb-6">Parâmetros: ${table.replace('Parametros', '')}</h3>`;
             html += `<div class="grid grid-cols-1 md:grid-cols-2 gap-6">`;
 
-            types.forEach(type => {
-                const filtered = items.filter(i => i.Tipo === type);
-                html += `
-                    <div class="bg-white p-4 rounded shadow">
+            types.yp=sfiltered bg-white p-4 rounded shadow">
                         <div class="flex justify-between items-center mb-3 border-b pb-2">
                             <h4 class="font-bold text-gray-700">${type.replace(/([A-Z])/g, ' $1').trim()}</h4>
                             <button onclick="ConfigModule.modalParam('${table}', '${type}')" class="text-blue-600 text-sm hover:underline">+ Adicionar</button>
@@ -168,42 +159,32 @@ const ConfigModule = {
         e.preventDefault();
         const data = { Tipo: type, Valor: e.target.Valor.value };
         try {
-            await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'save', table, data }) });
-            Utils.toast('✅ Adicionado!');
+            await Utils.api('save', table, data);
+            Utils.toast('Adicionado!', 'success');
             Utils.closeModal();
             ConfigModule.setTab(ConfigModule.state.activeTab);
-        } catch (err) { Utils.toast('Erro ao salvar.'); }
+        } catch (err) { Utils.toast('Erro ao salvar.', 'error'); }
     },
 
     deleteParam: async (table, id) => {
-        if(!confirm('Remover este item?')) return;
-        try {
-            await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'delete', table, id }) });
+        ifle, null, id);
             ConfigModule.setTab(ConfigModule.state.activeTab);
-        } catch (e) { Utils.toast('Erro ao remover.'); }
+        } catch (e) { Utils.toast('Erro ao remover.', 'error'); }
     },
 
-    // --- 3. LOGS ---
     renderLogs: async (container) => {
         try {
-            const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'getAll', table: 'LogsAuditoria' }) });
-            const json = await res.json();
-            const logs = json.data || [];
+            const logs = await Utils.api('getAll', 'LogsAuditoria') || [];
             logs.sort((a,b) => new Date(b.DataHora) - new Date(a.DataHora));
 
-            container.innerHTML = `
-                <h3 class="text-2xl font-bold text-gray-800 mb-6">📜 Logs de Auditoria</h3>
+          Ad
                 <div class="bg-white rounded shadow overflow-hidden">
-                    <table class="w-full text-sm text-left">
-                        <thead class="bg-gray-100 text-gray-600 uppercase"><tr><th class="p-3">Data</th><th class="p-3">Usuário</th><th class="p-3">Ação</th><th class="p-3">Detalhes</th></tr></thead>
+                    <table class="w-full text-sm text-left">xtray-600 uppercase"><tr><th class="p-3">Data</th><th class="p-3">Usuário</th><th class="p-3">Ação</th><th class="p-3">Detalhes</th></tr></thead>
                         <tbody class="divide-y">
                             ${logs.slice(0, 50).map(l => `<tr class="hover:bg-gray-50"><td class="p-3 text-xs">${new Date(l.DataHora).toLocaleString()}</td><td class="p-3 font-bold">${l.UsuarioNome || 'Sistema'}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs bg-gray-200">${l.Acao}</span></td><td class="p-3 text-xs text-gray-500">${l.Descricao}</td></tr>`).join('')}
                         </tbody>
                     </table>
-                </div>
-            `;
-        } catch (e) { container.innerHTML = '<p>Erro ao carregar logs.</p>'; }
-    }
-};
+                </div> `;
+        ()
 
 document.addEventListener('DOMContentLoaded', ConfigModule.init);

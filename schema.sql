@@ -59,6 +59,7 @@ CREATE TABLE "Ferias" (
     "Observacoes" TEXT,
     "AssinaturaFunc" TEXT,
     "AssinaturaRH" TEXT,
+    "ComprovativoURL" TEXT,
     "Status" VARCHAR(50) DEFAULT 'Solicitado'
 );
 

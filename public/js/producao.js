@@ -7,21 +7,12 @@ const ProducaoModule = {
 
     fetchData: async () => {
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'getAll', table: 'Pratos' })
-            });
-            const json = await res.json();
-            
-            if (json.success) {
-                ProducaoModule.state.pratos = json.data;
-                ProducaoModule.render();
-            } else {
-                throw new Error(json.message);
-            }
+            const data = await Utils.api('getAll', 'Pratos');
+            ProducaoModule.state.pratos = data;
+            ProducaoModule.render();
         } catch (e) {
             console.error(e);
-            Utils.toast("❌ Erro ao carregar pratos.");
+            Utils.toast("Erro ao carregar pratos.", 'error');
         }
     },
 
@@ -84,15 +75,18 @@ const ProducaoModule = {
         if (Number(data.Preco) < 0) return Utils.toast('⚠️ Erro: O preço não pode ser negativo.');
 
         try {
-            const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'save', table: 'Pratos', data }) });
-            const json = await res.json();
-            if (json.success) { Utils.toast('✅ Prato salvo!'); Utils.closeModal(); ProducaoModule.fetchData(); }
-            else { throw new Error(json.message); }
-        } catch (err) { Utils.toast('❌ Erro: ' + err.message); }
+            await Utils.api('save', 'Pratos', data);
+            Utils.toast('Prato salvo!', 'success'); Utils.closeModal(); ProducaoModule.fetchData();
+        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
     delete: async (id) => {
-        if(confirm('Apagar este prato?')) { await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'delete', table: 'Pratos', id }) }); ProducaoModule.fetchData(); }
+        if(confirm('Apagar este prato?')) { 
+            try {
+                await Utils.api('delete', 'Pratos', null, id); 
+                ProducaoModule.fetchData(); 
+            } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
+        }
     }
 };
 

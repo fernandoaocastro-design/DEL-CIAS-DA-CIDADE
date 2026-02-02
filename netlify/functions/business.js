@@ -1,23 +1,13 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-
-let supabase;
-
-// Inicialização segura: Só cria o cliente se as chaves existirem
-if (supabaseUrl && supabaseKey) {
-    supabase = createClient(supabaseUrl, supabaseKey);
-} else {
-    console.error('ERRO CRÍTICO: Variáveis de ambiente SUPABASE_URL ou SUPABASE_KEY/SUPABASE_ANON_KEY estão faltando.');
-}
+const { supabase } = require('./supabase');
+const jwt = require('jsonwebtoken');
+const SECRET = process.env.JWT_SECRET || 'segredo-super-secreto-dev-change-me';
 
 exports.handler = async (event) => {
     // Se o Supabase não foi iniciado, retorna erro amigável em vez de crashar (502)
     if (!supabase) {
         return {
             statusCode: 500,
-            body: JSON.stringify({ success: false, message: 'Erro de Configuração: Verifique se SUPABASE_URL e SUPABASE_KEY (ou SUPABASE_ANON_KEY) estão configuradas no Netlify.' })
+            body: JSON.stringify({ success: false, message: 'Erro de Configuração do Banco de Dados.' })
         };
     }
 
@@ -26,9 +16,29 @@ exports.handler = async (event) => {
     }
 
     try {
+        // Headers para CORS (Permitir acesso do frontend)
+        const headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        };
+
         const { action, table, data, id } = JSON.parse(event.body);
         let result;
         let error;
+        let userSession = null;
+
+        // --- 1. VERIFICAÇÃO DE SEGURANÇA (JWT) ---
+        if (action !== 'login') {
+            const token = event.headers.authorization ? event.headers.authorization.split(' ')[1] : null;
+            if (!token) {
+                return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Acesso Negado: Token não fornecido.' }) };
+            }
+            try {
+                userSession = jwt.verify(token, SECRET);
+            } catch (err) {
+                return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Sessão Expirada. Faça login novamente.' }) };
+            }
+        }
 
         if (action === 'getAll') {
             ({ data: result, error } = await supabase.from(table).select('*'));
@@ -52,16 +62,58 @@ exports.handler = async (event) => {
             if (!user) throw new Error('Usuário não encontrado com este email.');
             if (user.Senha !== password) throw new Error('Senha incorreta.');
             
+            // Segurança: Remover senha do objeto retornado
+            delete user.Senha;
+            
+            // Gerar Token JWT
+            const token = jwt.sign({ id: user.ID, email: user.Email, nome: user.Nome, cargo: user.Cargo }, SECRET, { expiresIn: '12h' });
+            user.token = token; // Envia o token junto com os dados do usuário
             result = user;
         } else if (action === 'save') {
             const payload = { ...data };
             // Remove ID vazio para permitir inserção (Auto-Increment/UUID)
             if (!payload.ID) delete payload.ID;
             
+            // Converte strings vazias para NULL (evita erro em campos de Data/Número)
+            Object.keys(payload).forEach(key => {
+                if (payload[key] === '') payload[key] = null;
+            });
+            
+            // --- CÁLCULO AUTOMÁTICO DE FOLHA ---
+            if (table === 'Folha') {
+                const base = Number(payload.SalarioBase || 0);
+                const bonus = Number(payload.Bonus || 0);
+                const qtdHE = Number(payload.QtdHoraExtra || 0);
+                const valHE = Number(payload.ValorHoraExtra || 0);
+                const outrosV = Number(payload.OutrosVencimentos || 0);
+                
+                payload.TotalVencimentos = base + bonus + (qtdHE * valHE) + outrosV;
+
+                const inss = Number(payload.INSS || 0);
+                const irt = Number(payload.IRT || 0);
+                const faltas = Number(payload.Faltas || 0);
+                const outrosD = Number(payload.OutrosDescontos || 0);
+
+                payload.TotalDescontos = inss + irt + faltas + outrosD;
+                payload.SalarioLiquido = payload.TotalVencimentos - payload.TotalDescontos;
+            }
+
             if (payload.ID) {
                 ({ data: result, error } = await supabase.from(table).update(payload).eq('ID', payload.ID).select());
             } else {
                 ({ data: result, error } = await supabase.from(table).insert(payload).select());
+            }
+
+            // --- LOG DE AUDITORIA ---
+            if (!error && userSession) {
+                await supabase.from('LogsAuditoria').insert({
+                    UsuarioID: userSession.id,
+                    UsuarioNome: userSession.nome,
+                    Modulo: table,
+                    Acao: payload.ID ? 'EDITAR' : 'CRIAR',
+                    Descricao: `Registro ${payload.ID ? 'atualizado' : 'criado'} na tabela ${table}`,
+                    DetalhesJSON: payload
+                });
             }
 
             // --- NOTIFICAÇÃO AUTOMÁTICA (ESTOQUE) ---
@@ -73,6 +125,25 @@ exports.handler = async (event) => {
                     });
                 }
             }
+        } else if (action === 'calculatePayroll') {
+            const { SalarioBase, Bonus, QtdHoraExtra, ValorHoraExtra, OutrosVencimentos, INSS, IRT, Faltas, OutrosDescontos } = data;
+            
+            const base = Number(SalarioBase || 0);
+            const totalVencimentos = base 
+                + Number(Bonus || 0) 
+                + (Number(QtdHoraExtra || 0) * Number(ValorHoraExtra || 0)) 
+                + Number(OutrosVencimentos || 0);
+            
+            const totalDescontos = Number(INSS || 0) 
+                + Number(IRT || 0) 
+                + Number(Faltas || 0) 
+                + Number(OutrosDescontos || 0);
+            
+            result = {
+                TotalVencimentos: totalVencimentos,
+                TotalDescontos: totalDescontos,
+                SalarioLiquido: totalVencimentos - totalDescontos
+            };
         } else if (action === 'registerStockMovement') {
             const { produtoId, tipo, quantidade, custo, responsavel, observacoes, detalhes } = data;
             
@@ -192,10 +263,53 @@ exports.handler = async (event) => {
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());
 
+        } else if (action === 'backupDatabase') {
+            // Lista de todas as tabelas do sistema para backup
+            const tables = [
+                'Usuarios', 'Funcionarios', 'Frequencia', 'Ferias', 'Avaliacoes', 'Treinamentos', 'Licencas', 'Folha',
+                'Financas', 'ContasReceber', 'ContasPagar', 'Estoque', 'Fornecedores', 'MovimentacoesEstoque',
+                'Pratos', 'Notificacoes', 'MLPain_Areas', 'MLPain_Registros', 'Inventario', 'HistoricoInventario',
+                'InstituicaoConfig', 'Departamentos', 'Cargos', 'ParametrosRH', 'ParametrosCozinha',
+                'ParametrosEstoque', 'ParametrosPatrimonio', 'ParametrosFinanceiro', 'LogsAuditoria'
+            ];
+
+            const backupData = {};
+            
+            // Busca dados de todas as tabelas em paralelo
+            await Promise.all(tables.map(async (t) => {
+                const { data: tableData } = await supabase.from(t).select('*');
+                if (tableData) backupData[t] = tableData;
+            }));
+
+            result = { generatedAt: new Date(), version: '1.0', data: backupData };
+
+        } else if (action === 'restoreDatabase') {
+            // ATENÇÃO: Esta ação deve ser usada com cuidado em produção
+            const backupData = data; // O payload é o JSON completo
+            
+            if (!backupData || typeof backupData !== 'object') throw new Error('Arquivo de backup inválido.');
+
+            // Itera sobre as tabelas do backup e insere/atualiza os dados
+            const tables = Object.keys(backupData);
+            
+            for (const t of tables) {
+                const rows = backupData[t];
+                if (Array.isArray(rows) && rows.length > 0) {
+                    // Upsert (Insere ou Atualiza se o ID já existir)
+                    const { error } = await supabase.from(t).upsert(rows);
+                    if (error) console.error(`Erro ao restaurar tabela ${t}:`, error.message);
+                }
+            }
+
+            result = { success: true, message: 'Restauração concluída.' };
+
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];
             const startOfMonth = new Date().toISOString().slice(0, 7) + '-01';
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+            const strSevenDaysAgo = sevenDaysAgo.toISOString().split('T')[0];
 
             // Consultas Paralelas
             const [
@@ -206,7 +320,8 @@ exports.handler = async (event) => {
                 resAniversariantes,
                 resFerias,
                 resEstoque,
-                resEventos
+                resEventos,
+                resRefeicoes
             ] = await Promise.all([
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('Pratos').select('Categoria', { count: 'exact' }),
@@ -215,7 +330,8 @@ exports.handler = async (event) => {
                 supabase.from('Funcionarios').select('Nome, Nascimento'), // Para filtrar aniversariantes
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
-                supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5)
+                supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
+                supabase.from('MLPain_Registros').select('Data, Quantidade').gte('Data', strSevenDaysAgo)
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)
@@ -228,6 +344,7 @@ exports.handler = async (event) => {
             const estoqueBaixo = resEstoque.data || [];
             const pratos = resPratosData.data || [];
             const eventosProximos = resEventos.data || [];
+            const refeicoesData = resRefeicoes.data || [];
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
@@ -289,6 +406,20 @@ exports.handler = async (event) => {
                 catMap[c] = (catMap[c] || 0) + 1;
             });
 
+            // 3. Refeições Servidas (Últimos 7 dias)
+            const refMap = {};
+            // Inicializa os últimos 7 dias com 0
+            for(let i=6; i>=0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const s = d.toISOString().split('T')[0];
+                refMap[s] = 0;
+            }
+            refeicoesData.forEach(r => {
+                const d = r.Data.split('T')[0];
+                if(refMap[d] !== undefined) refMap[d] += Number(r.Quantidade);
+            });
+
             result = {
                 kpis: {
                     receitaMensal, despesaMensal, lucroLiquido: receitaMensal - despesaMensal,
@@ -311,6 +442,10 @@ exports.handler = async (event) => {
                     pratos: {
                         labels: Object.keys(catMap),
                         data: Object.values(catMap)
+                    },
+                    refeicoes: {
+                        labels: Object.keys(refMap).map(d => d.split('-').slice(1).reverse().join('/')), // DD/MM
+                        data: Object.values(refMap)
                     }
                 }
             };
@@ -327,6 +462,17 @@ exports.handler = async (event) => {
                 .eq('ID', data.id));
         } else if (action === 'delete') {
             ({ data: result, error } = await supabase.from(table).delete().eq('ID', id));
+            
+            // --- LOG DE AUDITORIA (DELETE) ---
+            if (!error && userSession) {
+                await supabase.from('LogsAuditoria').insert({
+                    UsuarioID: userSession.id,
+                    UsuarioNome: userSession.nome,
+                    Modulo: table,
+                    Acao: 'EXCLUIR',
+                    Descricao: `Registro ID ${id} excluído da tabela ${table}`
+                });
+            }
         } else {
             return { statusCode: 400, body: JSON.stringify({ success: false, message: 'Ação inválida' }) };
         }
@@ -335,6 +481,7 @@ exports.handler = async (event) => {
 
         return {
             statusCode: 200,
+            headers,
             body: JSON.stringify({ success: true, data: result })
         };
     } catch (err) {

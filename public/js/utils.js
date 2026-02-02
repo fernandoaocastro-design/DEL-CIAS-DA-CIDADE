@@ -24,12 +24,69 @@ modalStyle.innerHTML = `
 `;
 document.head.appendChild(modalStyle);
 
+// Estilo para o Toast
+const toastStyle = document.createElement('style');
+toastStyle.innerHTML = `
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { background: white; border-left: 4px solid; padding: 15px 20px; border-radius: 4px; shadow: 0 4px 6px rgba(0,0,0,0.1); min-width: 300px; transform: translateX(100%); transition: transform 0.3s ease-out; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+    .toast.show { transform: translateX(0); }
+    .toast-success { border-color: #10B981; }
+    .toast-error { border-color: #EF4444; }
+    .toast-info { border-color: #3B82F6; }
+`;
+document.head.appendChild(toastStyle);
+
+// Container de Toasts
+const toastContainer = document.createElement('div');
+toastContainer.className = 'toast-container';
+document.body.appendChild(toastContainer);
+
 const Utils = {
     formatCurrency: (val) => new Intl.NumberFormat('pt-AO', { style: 'currency', currency: 'AOA' }).format(val || 0),
     
     formatDate: (date) => date ? new Date(date).toLocaleDateString('pt-BR') : '-',
     
-    toast: (msg) => alert(msg), // TODO: Implementar toast nativo mais bonito futuramente
+    // Nova API Centralizada com Token
+    api: async (action, table, data = null, id = null) => {
+        const token = localStorage.getItem('token');
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch('/.netlify/functions/business', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({ action, table, data, id })
+        });
+
+        if (res.status === 401) {
+            Utils.toast('⚠️ Sessão expirada. Faça login novamente.');
+            setTimeout(() => window.logout(), 2000);
+            throw new Error('Sessão expirada');
+        }
+
+        const json = await res.json();
+        if (json.success) return json.data;
+        throw new Error(json.message || 'Erro na API');
+    },
+
+    toast: (msg, type = 'info') => {
+        const el = document.createElement('div');
+        const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
+        const colorClass = type === 'success' ? 'toast-success' : (type === 'error' ? 'toast-error' : 'toast-info');
+        
+        el.className = `toast ${colorClass}`;
+        el.innerHTML = `<div><span class="mr-2">${icon}</span> <span class="font-medium text-gray-700 text-sm">${msg}</span></div>`;
+        
+        toastContainer.appendChild(el);
+        // Força reflow
+        void el.offsetWidth;
+        el.classList.add('show');
+        
+        setTimeout(() => {
+            el.classList.remove('show');
+            setTimeout(() => el.remove(), 300);
+        }, 3000);
+    },
     
     closeModal: () => {
         const container = document.getElementById('modal-container');
@@ -150,13 +207,8 @@ const Utils = {
         }
 
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'updateProfile', data })
-            });
-            const json = await res.json();
+            await Utils.api('updateProfile', null, data);
             
-            if(json.success) {
                 // Atualiza local storage
                 const currentUser = JSON.parse(localStorage.getItem('user'));
                 currentUser.Nome = data.nome;
@@ -165,14 +217,11 @@ const Utils = {
                 if(data.novaSenha) currentUser.Senha = data.novaSenha; // Em app real, não salvaria senha no localstorage
                 localStorage.setItem('user', JSON.stringify(currentUser));
                 
-                Utils.toast('✅ Perfil atualizado com sucesso!');
+                Utils.toast('Perfil atualizado com sucesso!', 'success');
                 Utils.closeModal();
                 setTimeout(() => location.reload(), 1000);
-            } else {
-                throw new Error(json.message);
-            }
         } catch (err) {
-            Utils.toast('❌ Erro: ' + err.message);
+            Utils.toast(err.message, 'error');
         }
     },
 
@@ -192,14 +241,8 @@ const Utils = {
 
     fetchNotifications: async () => {
         try {
-            const res = await fetch('/.netlify/functions/business', {
-                method: 'POST',
-                body: JSON.stringify({ action: 'getNotifications' })
-            });
-            const json = await res.json();
-            if (json.success) {
-                Utils.renderNotifications(json.data);
-            }
+            const data = await Utils.api('getNotifications');
+            Utils.renderNotifications(data);
         } catch (e) { console.error('Erro ao buscar notificações', e); }
     },
 
