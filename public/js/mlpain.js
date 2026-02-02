@@ -374,6 +374,55 @@ const MLPainModule = {
             }
         });
 
+        // Função auxiliar para gerar cada tabela matricial
+        const renderMatrixTable = (title, typeKey, headerColorClass, badgeColorClass) => {
+            return `
+            <div class="mb-8 bg-white rounded shadow overflow-x-auto">
+                <h4 class="font-bold text-gray-700 p-4 border-b ${headerColorClass}">${title}</h4>
+                <table class="w-full text-xs text-center border-collapse min-w-max">
+                    <thead>
+                        <tr>
+                            <th class="p-2 border bg-gray-100 text-left sticky left-0 z-10 min-w-[150px]">Área / Dia</th>
+                            ${days.map(d => {
+                                const date = new Date(year, monthNum - 1, d);
+                                const dayIndex = date.getDay();
+                                const wd = weekDays[dayIndex];
+                                const isWeekend = dayIndex === 0 || dayIndex === 6;
+                                const bgClass = isWeekend ? 'bg-orange-100 text-orange-800' : 'bg-gray-50 text-gray-500';
+                                return `<th class="p-1 border ${bgClass} min-w-[35px]">
+                                    <div class="text-[9px] uppercase">${wd}</div>
+                                    <div>${d}</div>
+                                </th>`;
+                            }).join('')}
+                            <th class="p-2 border bg-gray-200 font-bold min-w-[50px]">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${areas.map(a => {
+                            let rowTotal = 0;
+                            const cells = days.map(d => {
+                                const date = new Date(year, monthNum - 1, d);
+                                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                                const bgClass = isWeekend ? 'bg-orange-50' : '';
+                                const val = matrix[a.ID][d][typeKey];
+                                rowTotal += val;
+                                return `<td class="p-1 border align-middle h-8 ${bgClass}">
+                                    ${val > 0 ? `<span class="${badgeColorClass} text-white px-1.5 py-0.5 rounded-sm font-bold">${val}</span>` : ''}
+                                </td>`;
+                            }).join('');
+                            
+                            return `
+                            <tr>
+                                <td class="p-2 border font-bold text-left sticky left-0 bg-white z-10 shadow-sm">${a.Nome}</td>
+                                ${cells}
+                                <td class="p-2 border font-bold bg-gray-100">${rowTotal}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        };
+
         container.innerHTML = `
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-800">Relatório Mensal</h3>
@@ -404,51 +453,10 @@ const MLPainModule = {
                 </div>
             </div>
 
-            <!-- TABELA MATRICIAL (DIAS x ÁREAS) -->
-            <div class="mb-8 bg-white rounded shadow overflow-x-auto">
-                <h4 class="font-bold text-gray-700 p-4 border-b">Mapa de Dietas (Matriz Mensal)</h4>
-                <table class="w-full text-xs text-center border-collapse min-w-max">
-                    <thead>
-                        <tr>
-                            <th class="p-2 border bg-gray-100 text-left sticky left-0 z-10 min-w-[150px]">Área / Dia</th>
-                            ${days.map(d => {
-                                const date = new Date(year, monthNum - 1, d);
-                                const dayIndex = date.getDay();
-                                const wd = weekDays[dayIndex];
-                                const isWeekend = dayIndex === 0 || dayIndex === 6;
-                                const bgClass = isWeekend ? 'bg-orange-100 text-orange-800' : 'bg-gray-50 text-gray-500';
-                                return `<th class="p-1 border ${bgClass} min-w-[35px]">
-                                    <div class="text-[9px] uppercase">${wd}</div>
-                                    <div>${d}</div>
-                                </th>`;
-                            }).join('')}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${areas.map(a => `
-                            <tr>
-                                <td class="p-2 border font-bold text-left sticky left-0 bg-white z-10 shadow-sm">${a.Nome}</td>
-                                ${days.map(d => {
-                                    const date = new Date(year, monthNum - 1, d);
-                                    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-                                    const bgClass = isWeekend ? 'bg-orange-50' : '';
-                                    const data = matrix[a.ID][d];
-                                    let html = '';
-                                    if (data.Solido > 0) html += `<div class="bg-green-500 text-white rounded-sm mb-0.5 text-[9px] leading-tight py-0.5" title="Sólidos: ${data.Solido}">${data.Solido}</div>`;
-                                    if (data.Sopa > 0) html += `<div class="bg-yellow-400 text-white rounded-sm mb-0.5 text-[9px] leading-tight py-0.5" title="Sopa: ${data.Sopa}">${data.Sopa}</div>`;
-                                    if (data.Cha > 0) html += `<div class="bg-red-500 text-white rounded-sm text-[9px] leading-tight py-0.5" title="Chá: ${data.Cha}">${data.Cha}</div>`;
-                                    return `<td class="p-1 border align-top h-10 ${bgClass}">${html}</td>`;
-                                }).join('')}
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-                <div class="p-2 text-xs text-gray-500 flex gap-4 justify-end">
-                    <span class="flex items-center gap-1"><div class="w-3 h-3 bg-green-500 rounded-sm"></div> Sólidos</span>
-                    <span class="flex items-center gap-1"><div class="w-3 h-3 bg-yellow-400 rounded-sm"></div> Sopa</span>
-                    <span class="flex items-center gap-1"><div class="w-3 h-3 bg-red-500 rounded-sm"></div> Chá</span>
-                </div>
-            </div>
+            <!-- TABELAS MATRICIAIS SEPARADAS -->
+            ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500')}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500')}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500')}
 
             <!-- TABELA DETALHADA -->
             <div class="bg-white rounded shadow overflow-hidden">
