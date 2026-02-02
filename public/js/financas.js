@@ -490,6 +490,12 @@ const FinancasModule = {
     save: async (e, table) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+        
+        // Validação de Dados Reais
+        if (!data.Descricao || data.Descricao.trim() === '') return Utils.toast('⚠️ A descrição é obrigatória.');
+        if (Number(data.ValorTotal) <= 0) return Utils.toast('⚠️ O valor deve ser maior que zero.');
+        if (!data.DataVencimento) return Utils.toast('⚠️ A data de vencimento é obrigatória.');
+
         try {
             await fetch('/.netlify/functions/business', {
                 method: 'POST',

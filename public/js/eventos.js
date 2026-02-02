@@ -173,10 +173,15 @@ const EventosModule = {
     save: async (e) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+        
+        // Validação
+        if (!data.Titulo || data.Titulo.trim() === '') return Utils.toast('⚠️ O título do evento é obrigatório.');
+        if (!data.Data) return Utils.toast('⚠️ A data do evento é obrigatória.');
+
         try {
             await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'save', table: 'Eventos', data }) });
-            Utils.toast('✅ Evento salvo!'); Utils.closeModal(); EventosModule.fetchEvents();
-        } catch (err) { Utils.toast('Erro ao salvar (Verifique se a tabela Eventos existe).'); }
+            Utils.toast('✅ Evento salvo!'); Utils.closeModal(); EventosModule.fetchData();
+        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message); }
     }
 };
 
