@@ -219,14 +219,31 @@ const InventarioModule = {
 
     printRelatorio: () => {
         const element = document.getElementById('print-relatorio-estado');
+        
+        // --- CORREÇÃO DE ESTILOS PARA PDF ---
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-relatorio-estado { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-relatorio-estado table { width: 100% !important; border-collapse: collapse !important; }
+            #print-relatorio-estado th, #print-relatorio-estado td { 
+                font-size: 10px !important; 
+                padding: 4px 2px !important; 
+                border: 1px solid #ccc !important;
+            }
+            #print-relatorio-estado .shadow { box-shadow: none !important; }
+        `;
+        document.head.appendChild(style);
+
         const opt = {
-            margin: 10,
+            margin: [10, 10, 10, 10],
             filename: 'relatorio-patrimonio-estado.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
-        html2pdf().set(opt).from(element).save();
+        html2pdf().set(opt).from(element).save().then(() => {
+            document.head.removeChild(style);
+        });
     },
 
     filtrar: () => {

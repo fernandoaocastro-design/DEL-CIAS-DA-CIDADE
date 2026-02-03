@@ -59,6 +59,9 @@ const EventosModule = {
         } else if (view === 'purchase') {
             btnPurch.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
             document.getElementById('purchase-view').classList.remove('hidden');
+        } else if (view === 'history') {
+            if(btnHist) btnHist.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
+            document.getElementById('history-view').classList.remove('hidden');
         }
         EventosModule.render();
     },
@@ -92,10 +95,9 @@ const EventosModule = {
 
     render: () => {
         if (EventosModule.state.view === 'calendar') EventosModule.renderCalendar();
-        else if (EventosModule.state.view === 'list') EventosModule.renderList();
+        // else if (EventosModule.state.view === 'list') EventosModule.renderList(); // Função não implementada
         else if (EventosModule.state.view === 'purchase') EventosModule.renderPurchaseOrders();
-        
-        if (EventosModule.state.view !== 'purchase') EventosModule.renderCharts();
+        else if (EventosModule.state.view === 'history') EventosModule.renderPurchaseHistory();
     },
 
     renderCalendar: () => {
@@ -242,6 +244,12 @@ const EventosModule = {
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+
+            <!-- Área de Impressão Oculta (Injetada para o PDF funcionar) -->
+            <div id="print-area-eventos" class="hidden bg-white p-8">
+                <div id="pdf-header"></div>
+                <div id="pdf-content" class="mt-6"></div>
             </div>
         `;
     },

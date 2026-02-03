@@ -285,6 +285,10 @@ CREATE TABLE "Inventario" (
     "NumeroSerie" VARCHAR(100),
     "EstadoConservacao" VARCHAR(50), -- Novo, Bom, Regular, Ruim, Em Manutenção
     "VidaUtil" INTEGER, -- Anos
+    "Marca" VARCHAR(100),
+    "Modelo" VARCHAR(100),
+    "Localizacao" VARCHAR(100),
+    "FotoURL" TEXT,
     "Observacoes" TEXT,
     "Status" VARCHAR(50) DEFAULT 'Ativo', -- Ativo, Inativo, Baixado
     "CriadoEm" TIMESTAMP DEFAULT NOW()

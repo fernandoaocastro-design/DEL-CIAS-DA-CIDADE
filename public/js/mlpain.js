@@ -763,8 +763,8 @@ const MLPainModule = {
             #print-area-mlpain { width: 100%; background: white; margin: 0; padding: 0; }
             #print-area-mlpain table { width: 100% !important; border-collapse: collapse !important; }
             #print-area-mlpain th, #print-area-mlpain td { 
-                font-size: 8px !important; 
-                padding: 3px 1px !important; 
+                font-size: 10px !important; 
+                padding: 4px 2px !important; 
                 border: 1px solid #ccc !important;
                 white-space: nowrap;
             }
@@ -786,10 +786,10 @@ const MLPainModule = {
         document.head.appendChild(style);
 
         const opt = {
-            margin: [10, 10, 10, 10],
+            margin: [5, 5, 5, 5],
             filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 3000 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 2000 },
             jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' },
             pagebreak: { mode: 'css', avoid: 'tr' }
         };

@@ -453,40 +453,39 @@ const RHModule = {
         `;
     },
 
+    updateSubsidioFerias: () => {
+        const funcId = document.querySelector('select[name="FuncionarioID"]').value;
+        const dias = Number(document.querySelector('input[name="Dias"]').value || 0);
+        const f = RHModule.state.cache.funcionarios.find(x => x.ID === funcId);
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const percentual = Number(inst.SubsidioFeriasPorcentagem || 50) / 100;
+        
+        if(f) {
+            // Preencher dados básicos se chamado pelo select
+            if (window.event && window.event.target.name === 'FuncionarioID') {
+                document.querySelector('input[name="FuncionarioNome"]').value = f.Nome;
+                document.getElementById('f-cargo').value = f.Cargo;
+                document.getElementById('f-dept').value = f.Departamento || '';
+                document.getElementById('f-adm').value = f.Admissao || '';
+            }
+
+            // Cálculo do Subsídio (Baseado na configuração global)
+            const valorDiario = Number(f.Salario || 0) / 30;
+            const subsidio = (valorDiario * dias) * percentual;
+            document.getElementById('f-subsidio').value = Utils.formatCurrency(subsidio);
+        }
+    },
+
     modalFerias: () => {
         const funcs = RHModule.state.cache.funcionarios;
         
-        // Script para preencher dados automaticamente
-        const updateSubsidio = () => {
-            const funcId = document.querySelector('select[name="FuncionarioID"]').value;
-            const dias = Number(document.querySelector('input[name="Dias"]').value || 0);
-            const f = RHModule.state.cache.funcionarios.find(x => x.ID === funcId);
-            const inst = RHModule.state.cache.instituicao[0] || {};
-            const percentual = Number(inst.SubsidioFeriasPorcentagem || 50) / 100;
-            
-            if(f) {
-                // Preencher dados básicos se chamado pelo select
-                if (event && event.target.name === 'FuncionarioID') {
-                    document.querySelector('input[name="FuncionarioNome"]').value = f.Nome;
-                    document.getElementById('f-cargo').value = f.Cargo;
-                    document.getElementById('f-dept').value = f.Departamento || '';
-                    document.getElementById('f-adm').value = f.Admissao || '';
-                }
-
-                // Cálculo do Subsídio (Baseado na configuração global)
-                const valorDiario = Number(f.Salario || 0) / 30;
-                const subsidio = (valorDiario * dias) * percentual;
-                document.getElementById('f-subsidio').value = Utils.formatCurrency(subsidio);
-            }
-        };
-
         Utils.openModal('Solicitar Férias', `
             <form onsubmit="RHModule.save(event, 'Ferias')">
                 <h3 class="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Controle de Férias / Observações (Opcional)</h3>
                 
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1">Nome do Funcionario</label>
-                    <select name="FuncionarioID" class="border p-2 rounded w-full mb-2" onchange="(${updateSubsidio})()" required>
+                    <select name="FuncionarioID" class="border p-2 rounded w-full mb-2" onchange="RHModule.updateSubsidioFerias()" required>
                         <option value="">Selecione...</option>
                         ${funcs.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
                     </select>
@@ -502,7 +501,7 @@ const RHModule = {
                 <div class="grid grid-cols-3 gap-2 mb-3">
                     <div><label class="text-xs font-bold">DATA DE INICIO DAS FERIAS</label><input type="date" name="DataInicio" class="border p-2 rounded w-full" required></div>
                     <div><label class="text-xs font-bold">DATA DE RETORNO</label><input type="date" name="DataFim" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">TOTAL DE DIAS</label><input type="number" name="Dias" class="border p-2 rounded w-full" required oninput="(${updateSubsidio})()"></div>
+                    <div><label class="text-xs font-bold">TOTAL DE DIAS</label><input type="number" name="Dias" class="border p-2 rounded w-full" required oninput="RHModule.updateSubsidioFerias()"></div>
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">2. FRACCIONAMENTO</h4>
