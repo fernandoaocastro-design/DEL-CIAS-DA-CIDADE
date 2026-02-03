@@ -1,19 +1,23 @@
 @echo off
-echo --- INICIANDO ATUALIZACAO DO SISTEMA ---
+echo --- ATUALIZANDO SISTEMA (GIT/NETLIFY) ---
+echo.
 
-:: 1. Garante que esta na pasta correta
-cd /d "C:\Users\USER\OneDrive\EMPRESAS\DELICIA DA CIDADE"
+:: Garante que esta na pasta do projeto
+cd /d "%~dp0"
 
-:: 2. Adiciona todas as mudancas
+:: 1. Adiciona todas as alteracoes
+echo [1/3] Adicionando arquivos...
 git add .
 
-:: 3. Faz o Commit (Salva localmente)
-:: Voce pode mudar a mensagem entre aspas abaixo se quiser um padrao diferente
-git commit -m "Sistema validado para dados reais: Permissoes e correcoes de bugs"
+:: 2. Faz o commit com data e hora
+echo [2/3] Criando commit...
+set "dt=%date% %time%"
+git commit -m "Atualizacao via CMD: %dt%"
 
-:: 4. Envia para o GitHub/Netlify
+:: 3. Envia para o repositorio remoto
+echo [3/3] Enviando para o servidor...
 git push
 
 echo.
-echo --- ATUALIZACAO CONCLUIDA COM SUCESSO! ---
+echo [FIM] Processo concluido.
 pause

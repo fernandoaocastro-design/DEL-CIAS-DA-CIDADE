@@ -23,6 +23,33 @@ const DashboardModule = {
         document.getElementById('kpi-despesa').innerText = Utils.formatCurrency(kpis.despesaMensal);
         document.getElementById('kpi-lucro').innerText = Utils.formatCurrency(kpis.lucroLiquido);
         document.getElementById('kpi-receber').innerText = Utils.formatCurrency(kpis.aReceberHoje);
+
+        // Injeta novos KPIs se não existirem (Funcionários, Fornecedores, Refeições)
+        const kpiContainer = document.getElementById('kpi-receita')?.closest('.grid');
+        if (kpiContainer && !document.getElementById('kpi-funcionarios')) {
+            const newCardsHTML = `
+                <div class="bg-white p-4 rounded shadow border-l-4 border-indigo-500">
+                    <div class="text-gray-500 text-sm">Funcionários Ativos</div>
+                    <div class="text-2xl font-bold text-indigo-600" id="kpi-funcionarios">-</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-orange-500">
+                    <div class="text-gray-500 text-sm">Fornecedores Ativos</div>
+                    <div class="text-2xl font-bold text-orange-600" id="kpi-fornecedores">-</div>
+                </div>
+                <div class="bg-white p-4 rounded shadow border-l-4 border-teal-500">
+                    <div class="text-gray-500 text-sm">Refeições (Mês)</div>
+                    <div class="text-2xl font-bold text-teal-600" id="kpi-refeicoes">-</div>
+                </div>
+            `;
+            kpiContainer.insertAdjacentHTML('beforeend', newCardsHTML);
+            
+            // Ajusta o grid para acomodar mais itens se necessário (opcional, depende do CSS original)
+            kpiContainer.classList.add('md:grid-cols-4', 'lg:grid-cols-4');
+        }
+
+        if(document.getElementById('kpi-funcionarios')) document.getElementById('kpi-funcionarios').innerText = kpis.totalFuncionarios;
+        if(document.getElementById('kpi-fornecedores')) document.getElementById('kpi-fornecedores').innerText = kpis.totalFornecedores;
+        if(document.getElementById('kpi-refeicoes')) document.getElementById('kpi-refeicoes').innerText = kpis.totalRefeicoes;
     },
 
     renderDRE: (dre) => {

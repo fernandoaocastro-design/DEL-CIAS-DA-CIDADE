@@ -417,17 +417,40 @@ const FinancasModule = {
         footer.innerHTML = `<p class="text-xs text-gray-400">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
         footer.classList.remove('hidden');
         
+        // --- CORREÇÃO DE ESTILOS PARA PDF ---
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-area-financas { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-area-financas table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-financas th, #print-area-financas td { 
+                font-size: 9px !important; 
+                padding: 4px 2px !important; 
+                border: 1px solid #ccc !important;
+            }
+            /* Forçar layout de grid para impressão (evita empilhamento) */
+            #print-area-financas .grid { display: grid !important; }
+            #print-area-financas .md\\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            
+            /* Limpeza visual */
+            #print-area-financas .shadow { box-shadow: none !important; }
+            #print-area-financas .bg-gray-50 { background-color: #f9fafb !important; }
+            #print-area-financas .overflow-x-auto { overflow: visible !important; }
+        `;
+        document.head.appendChild(style);
+
         const opt = {
-            margin: 10,
+            margin: [10, 10, 10, 10],
             filename: 'relatorio-financeiro.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            pagebreak: { mode: 'css', avoid: 'tr' }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden');
             footer.classList.add('hidden');
+            document.head.removeChild(style);
         });
     },
 

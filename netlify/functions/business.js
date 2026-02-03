@@ -413,6 +413,27 @@ exports.handler = async (event) => {
             if (error) throw error;
             result = itens;
 
+        } else if (action === 'getDietStats') {
+            const date = (data && data.date) ? data.date : new Date().toISOString().split('T')[0];
+            
+            const { data: recs, error: err } = await supabase
+                .from('MLPain_Registros')
+                .select('Tipo, Subtipo, Quantidade')
+                .eq('Data', date);
+
+            if (err) throw err;
+
+            let solidos = 0, sopa = 0, cha = 0;
+
+            (recs || []).forEach(r => {
+                const qtd = Number(r.Quantidade || 0);
+                if (r.Tipo === 'Sólido') solidos += qtd;
+                else if (r.Subtipo === 'Sopa') sopa += qtd;
+                else if (r.Subtipo === 'Chá') cha += qtd;
+            });
+
+            result = { solidos, sopa, cha, total: solidos + sopa + cha };
+
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];
@@ -432,28 +453,34 @@ exports.handler = async (event) => {
                 resClientes,
                 resPratosData,
                 resFuncionarios,
+                resFornecedores,
                 resFinancas,
                 resAniversariantes,
                 resFerias,
                 resEstoque,
                 resEventos,
-                resRefeicoes
+                resRefeicoes,
+                resRefeicoesMes
             ] = await Promise.all([
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('FichasTecnicas').select('Categoria', { count: 'exact' }),
-                supabase.from('Funcionarios').select('*', { count: 'exact', head: true }),
+                supabase.from('Funcionarios').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
+                supabase.from('Fornecedores').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
                 supabase.from('Financas').select('*').gte('Data', startOfFinanceData),
                 supabase.from('Funcionarios').select('Nome, Nascimento, Admissao'), // Para filtrar aniversariantes e jubileu
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
-                supabase.from('MLPain_Registros').select('Data, Quantidade').gte('Data', strSevenDaysAgo)
+                supabase.from('MLPain_Registros').select('Data, Quantidade').gte('Data', strSevenDaysAgo),
+                supabase.from('MLPain_Registros').select('Quantidade').gte('Data', startOfMonth)
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)
             const totalClientes = resClientes.count || 0;
             const totalProdutos = resPratosData.count || 0;
             const totalFuncionarios = resFuncionarios.count || 0;
+            const totalFornecedores = resFornecedores.count || 0;
+            const totalRefeicoes = (resRefeicoesMes.data || []).reduce((acc, r) => acc + Number(r.Quantidade), 0);
             const financas = resFinancas.data || [];
             const aniversariantes = resAniversariantes.data || [];
             const ferias = resFerias.data || [];
@@ -548,7 +575,7 @@ exports.handler = async (event) => {
                 kpis: {
                     receitaMensal, despesaMensal, lucroLiquido: receitaMensal - despesaMensal,
                     aReceberHoje, aPagarHoje,
-                    totalProdutos, totalClientes, totalFuncionarios
+                    totalProdutos, totalClientes, totalFuncionarios, totalFornecedores, totalRefeicoes
                 },
                 dre: {
                     receitaBruta, impostos, receitaLiquida: receitaBruta - impostos,

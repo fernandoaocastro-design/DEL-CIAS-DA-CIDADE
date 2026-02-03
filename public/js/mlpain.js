@@ -83,14 +83,10 @@ const MLPainModule = {
     },
 
     // --- 1. VISÃO GERAL ---
-    renderVisaoGeral: (container) => {
+    renderVisaoGeral: async (container) => {
         const date = MLPainModule.state.filterDate || MLPainModule.getLocalDate();
         const recs = MLPainModule.state.registros.filter(r => r.Data === date);
         
-        const totalSolidos = recs.filter(r => r.Tipo === 'Sólido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
-        const totalSopa = recs.filter(r => r.Subtipo === 'Sopa').reduce((acc, r) => acc + Number(r.Quantidade), 0);
-        const totalCha = recs.filter(r => r.Subtipo === 'Chá').reduce((acc, r) => acc + Number(r.Quantidade), 0);
-
         const canCreate = Utils.checkPermission('MLPain', 'criar');
         // Dados para o Gráfico de Metas
         const areasAtivas = MLPainModule.state.areas.filter(a => a.Ativo);
@@ -135,19 +131,19 @@ const MLPainModule = {
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
                     <div class="text-gray-500 text-sm">Refeições (${Utils.formatDate(date)})</div>
-                    <div class="text-2xl font-bold">${totalSolidos + totalSopa + totalCha}</div>
+                    <div class="text-2xl font-bold" id="card-total"><i class="fas fa-spinner fa-spin"></i></div>
                 </div>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
                     <div class="text-gray-500 text-sm">Sólidos (Geral)</div>
-                    <div class="text-2xl font-bold text-green-600">${totalSolidos}</div>
+                    <div class="text-2xl font-bold text-green-600" id="card-solidos"><i class="fas fa-spinner fa-spin"></i></div>
                 </div>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-yellow-500">
                     <div class="text-gray-500 text-sm">Sopas</div>
-                    <div class="text-2xl font-bold text-yellow-600">${totalSopa}</div>
+                    <div class="text-2xl font-bold text-yellow-600" id="card-sopa"><i class="fas fa-spinner fa-spin"></i></div>
                 </div>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-orange-500">
                     <div class="text-gray-500 text-sm">Chás</div>
-                    <div class="text-2xl font-bold text-orange-600">${totalCha}</div>
+                    <div class="text-2xl font-bold text-orange-600" id="card-cha"><i class="fas fa-spinner fa-spin"></i></div>
                 </div>
             </div>
             
@@ -199,6 +195,19 @@ const MLPainModule = {
             },
             options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
         });
+
+        // Buscar dados atualizados do servidor para os cards
+        try {
+            const stats = await Utils.api('getDietStats', null, { date });
+            if (document.getElementById('card-total')) {
+                document.getElementById('card-total').innerText = stats.total;
+                document.getElementById('card-solidos').innerText = stats.solidos;
+                document.getElementById('card-sopa').innerText = stats.sopa;
+                document.getElementById('card-cha').innerText = stats.cha;
+            }
+        } catch (e) {
+            console.error("Erro ao carregar estatísticas de dieta:", e);
+        }
     },
 
     // --- 2. LANÇAMENTO (FORMULÁRIO DINÂMICO) ---
@@ -439,13 +448,15 @@ const MLPainModule = {
         const areaStats = {};
         recs.forEach(r => {
             const area = r.AreaNome || 'Outros';
-            if (!areaStats[area]) areaStats[area] = { Solido: 0, Liquido: 0 };
+            if (!areaStats[area]) areaStats[area] = { Solido: 0, Sopa: 0, Cha: 0 };
             if (r.Tipo === 'Sólido') areaStats[area].Solido += Number(r.Quantidade);
-            else areaStats[area].Liquido += Number(r.Quantidade);
+            else if (r.Subtipo === 'Sopa') areaStats[area].Sopa += Number(r.Quantidade);
+            else if (r.Subtipo === 'Chá') areaStats[area].Cha += Number(r.Quantidade);
         });
         const areaLabels = Object.keys(areaStats);
         const dataSolido = areaLabels.map(a => areaStats[a].Solido);
-        const dataLiquido = areaLabels.map(a => areaStats[a].Liquido);
+        const dataSopa = areaLabels.map(a => areaStats[a].Sopa);
+        const dataCha = areaLabels.map(a => areaStats[a].Cha);
 
         // --- PREPARAÇÃO DA MATRIZ (DIAS x ÁREAS) ---
         const [year, monthNum] = month.split('-');
@@ -606,7 +617,8 @@ const MLPainModule = {
                 labels: areaLabels,
                 datasets: [
                     { label: 'Sólidos', data: dataSolido, backgroundColor: '#10B981' },
-                    { label: 'Líquidos', data: dataLiquido, backgroundColor: '#F97316' }
+                    { label: 'Sopa', data: dataSopa, backgroundColor: '#F59E0B' },
+                    { label: 'Chá', data: dataCha, backgroundColor: '#F97316' }
                 ]
             },
             options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true } } }
@@ -615,6 +627,7 @@ const MLPainModule = {
 
     // --- 3.1 DETALHAMENTO DOS LANÇAMENTOS ---
     renderDetalhamento: (container) => {
+        if (!container) container = document.getElementById('mlpain-content');
         const month = MLPainModule.state.filterMonth;
         const turno = MLPainModule.state.filterTurno;
         
@@ -622,6 +635,13 @@ const MLPainModule = {
         if (turno) {
             recs = recs.filter(r => r.Turno === turno);
         }
+
+        // Paginação
+        const { page, limit } = MLPainModule.state.pagination;
+        const total = recs.length;
+        const start = (page - 1) * limit;
+        const end = start + limit;
+        const paginatedRecs = recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).slice(start, end);
 
         container.innerHTML = `
             <div class="flex justify-between items-center mb-6">
@@ -646,7 +666,7 @@ const MLPainModule = {
                         <tr><th>Data</th><th>Turno</th><th>Área</th><th>Tipo</th><th>Detalhe</th><th class="text-right">Qtd</th><th>Resp.</th></tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${recs.sort((a,b) => new Date(b.Data) - new Date(a.Data)).map(r => `
+                        ${paginatedRecs.map(r => `
                             <tr class="hover:bg-gray-50">
                                 <td class="p-3">${Utils.formatDate(r.Data)}</td>
                                 <td class="p-3">${r.Turno || '-'}</td>
@@ -668,7 +688,7 @@ const MLPainModule = {
 
             <!-- Paginação -->
             <div class="flex justify-between items-center mt-4 text-sm text-gray-600">
-                <span>Mostrando ${start + 1}-${Math.min(end, total)} de ${total}</span>
+                <span>Mostrando ${Math.min(start + 1, total)}-${Math.min(end, total)} de ${total}</span>
                 <div class="flex gap-2">
                     <button onclick="MLPainModule.changePage(-1)" class="px-3 py-1 border rounded hover:bg-gray-100" ${page === 1 ? 'disabled' : ''}>Anterior</button>
                     <span class="px-3 py-1">Página ${page}</span>
@@ -724,8 +744,8 @@ const MLPainModule = {
             <div class="border-b pb-2 mb-4 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
                 ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
-                    <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
-                    <p class="text-xs text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
+                    <p class="text-base text-gray-600 font-medium">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
                 </div>
             </div>
         `;
@@ -736,30 +756,47 @@ const MLPainModule = {
         footer.innerHTML = `<p class="text-[10px] text-gray-400 text-right mt-4 border-t pt-2">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
         footer.classList.remove('hidden');
         
-        // --- CORREÇÃO PARA TABELAS LARGAS ---
-        // Remove temporariamente a rolagem para que o html2canvas capture tudo
-        const scrollables = element.querySelectorAll('.overflow-x-auto');
-        scrollables.forEach(el => {
-            el.classList.remove('overflow-x-auto');
-            el.style.overflow = 'visible';
-        });
+        // --- CORREÇÃO DE ESTILOS PARA PDF ---
+        // Injeta CSS temporário para garantir que a tabela caiba e fique bonita
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-area-mlpain { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-area-mlpain table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-mlpain th, #print-area-mlpain td { 
+                font-size: 8px !important; 
+                padding: 3px 1px !important; 
+                border: 1px solid #ccc !important;
+                white-space: nowrap;
+            }
+            /* Ajuste da coluna de nomes */
+            #print-area-mlpain th:first-child, #print-area-mlpain td:first-child {
+                white-space: normal !important;
+                min-width: 120px !important;
+                width: 120px !important;
+            }
+            /* Remove larguras forçadas das colunas de dias */
+            #print-area-mlpain .min-w-\\[35px\\] { min-width: auto !important; }
+            
+            /* Limpeza visual */
+            #print-area-mlpain .sticky { position: static !important; }
+            #print-area-mlpain .shadow { box-shadow: none !important; }
+            #print-area-mlpain .overflow-x-auto { overflow: visible !important; }
+            #print-area-mlpain .bg-gray-100 { background-color: #f3f4f6 !important; }
+        `;
+        document.head.appendChild(style);
 
         const opt = {
-            margin: [5, 5, 5, 5],
+            margin: [10, 10, 10, 10],
             filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, windowWidth: 3000 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 3000 },
             jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' },
-            pagebreak: { mode: 'avoid-all' }
+            pagebreak: { mode: 'css', avoid: 'tr' }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden'); title.classList.add('hidden'); footer.classList.add('hidden');
-            // Restaura a rolagem
-            scrollables.forEach(el => {
-                el.classList.add('overflow-x-auto');
-                el.style.overflow = '';
-            });
+            document.head.removeChild(style);
         });
     },
 

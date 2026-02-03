@@ -247,7 +247,8 @@ const ConfigModule = {
     },
 
     modalUsuario: async (id = null) => {
-        let user = {
+        let user = {};
+        if (id) {
             const users = await Utils.api('getAll', 'Usuarios');
             user = users.find(u => u.ID === id) || {};
         }

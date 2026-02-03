@@ -30,6 +30,7 @@ CREATE TABLE "Funcionarios" (
     "Iban" VARCHAR(100),
     "Status" VARCHAR(50) DEFAULT 'Ativo',
     "FotoURL" TEXT,
+    "SaldoFerias" DECIMAL(10,2),
     "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
 

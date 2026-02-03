@@ -153,7 +153,13 @@ const RHModule = {
                                     .reduce((acc, r) => acc + (Number(r.Dias) || 0), 0);
                                     
                                 const valSaldo = direito - taken;
-                                saldo = valSaldo + ' dias';
+                                
+                                // Se houver saldo manual cadastrado, usa ele. Senão, usa o calculado.
+                                if (f.SaldoFerias !== null && f.SaldoFerias !== undefined && f.SaldoFerias !== '') {
+                                    saldo = f.SaldoFerias + ' dias (Manual)';
+                                } else {
+                                    saldo = valSaldo + ' dias';
+                                }
                                 
                                 if (valSaldo > 30) saldoClass = 'text-red-600 font-bold'; // Vencidas
                                 else if (valSaldo > 0) saldoClass = 'text-green-600 font-bold';
@@ -309,6 +315,7 @@ const RHModule = {
                             : '<option>CLT</option><option>Temporário</option><option>Estagiário</option>'}
                     </select>
                     <div><label class="text-xs">Admissão</label><input type="date" name="Admissao" value="${f.Admissao || ''}" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold text-blue-600">Saldo Férias (Manual)</label><input type="number" name="SaldoFerias" value="${f.SaldoFerias || ''}" placeholder="Opcional" class="border p-2 rounded w-full"></div>
                     <input name="Iban" value="${f.Iban || 'AO06 '}" placeholder="IBAN (AO06...)" class="border p-2 rounded w-full col-span-2">
                     <select name="Status" class="border p-2 rounded w-full col-span-2">
                         <option ${f.Status==='Ativo'?'selected':''}>Ativo</option>

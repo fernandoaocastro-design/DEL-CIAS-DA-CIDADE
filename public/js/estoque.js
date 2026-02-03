@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
+    state: { items: [], movimentacoes: [], fornecedores: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
     // Classificação Inteligente
     taxonomy: {
         'Alimentos': {
@@ -20,12 +20,14 @@ const EstoqueModule = {
 
     fetchData: async () => {
         try {
-            const [data, inst] = await Promise.all([
+            const [data, inst, fornecedores] = await Promise.all([
                 Utils.api('getAll', 'Estoque'),
-                Utils.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'InstituicaoConfig'),
+                Utils.api('getAll', 'Fornecedores')
             ]);
-            EstoqueModule.state.items = data;
+            EstoqueModule.state.items = data || [];
             EstoqueModule.state.instituicao = inst || [];
+            EstoqueModule.state.fornecedores = fornecedores || [];
             
             // Se estiver na aba de movimentações, busca o histórico também
             if(EstoqueModule.state.activeTab === 'movimentacoes' || EstoqueModule.state.activeTab === 'dashboard') await EstoqueModule.fetchMovimentacoes();
@@ -72,13 +74,21 @@ const EstoqueModule = {
             EstoqueModule.renderMovimentacoes();
             return;
         }
+        else if (EstoqueModule.state.activeTab === 'fornecedores') {
+            EstoqueModule.renderFornecedores();
+            return;
+        }
         // --- RENDERIZAÇÃO DA ABA PRODUTOS (Padrão) ---
 
         let data = EstoqueModule.state.items || [];        
 
         if (EstoqueModule.state.filterTerm) {
             const term = EstoqueModule.state.filterTerm.toLowerCase();
-            data = data.filter(i => (i.Nome && i.Nome.toLowerCase().includes(term)) || (i.Codigo && i.Codigo.toLowerCase().includes(term)));
+            data = data.filter(i => {
+                const nome = i.Nome || i.Item || '';
+                const codigo = i.Codigo || '';
+                return nome.toLowerCase().includes(term) || codigo.toLowerCase().includes(term);
+            });
         }
 
         const totalValue = data.reduce((acc, item) => acc + (Number(item.Quantidade) * Number(item.CustoUnitario)), 0);
@@ -138,7 +148,7 @@ const EstoqueModule = {
                             const custo = Number(i.CustoUnitario);
                             const isLow = qtd <= min;
                             const total = qtd * custo;
-                            const nome = i.Nome || i.Item; // Compatibilidade com dados antigos
+                            const nome = i.Nome || i.Item || 'Produto sem nome'; // Compatibilidade com dados antigos
                             return `
                             <tr class="border-t hover:bg-gray-50 ${isLow ? 'bg-red-50' : ''}">
                                 <td class="p-3 font-bold">
@@ -199,6 +209,13 @@ const EstoqueModule = {
             }
         });
 
+        // Distribuição por Tipo
+        const typeMap = {};
+        items.forEach(i => {
+            const t = i.Tipo || 'Outros';
+            typeMap[t] = (typeMap[t] || 0) + 1;
+        });
+
         const container = document.getElementById('estoque-content');
         container.innerHTML = `
             <!-- KPIs -->
@@ -221,7 +238,7 @@ const EstoqueModule = {
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 items-start">
                 <!-- Ações Rápidas -->
                 <div class="bg-white p-6 rounded shadow">
                     <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Ações Rápidas</h4>
@@ -229,11 +246,20 @@ const EstoqueModule = {
                         <button onclick="EstoqueModule.setTab('produtos')" class="bg-gray-50 text-gray-700 p-3 rounded hover:bg-gray-100 text-sm font-bold flex flex-col items-center gap-2">
                             <i class="fas fa-boxes text-xl"></i> Ver Produtos
                         </button>
+                        <button onclick="EstoqueModule.setTab('fornecedores')" class="bg-gray-50 text-gray-700 p-3 rounded hover:bg-gray-100 text-sm font-bold flex flex-col items-center gap-2">
+                            <i class="fas fa-industry text-xl"></i> Fornecedores
+                        </button>
                     </div>
                 </div>
 
+                <!-- Gráfico de Distribuição -->
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Distribuição por Tipo</h4>
+                    <div class="h-48"><canvas id="chartDistribuicao"></canvas></div>
+                </div>
+
                 <!-- Gráfico de Consumo -->
-                <div class="bg-white p-6 rounded shadow lg:col-span-2">
+                <div class="bg-white p-6 rounded shadow">
                     <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Consumo por Categoria</h4>
                     <div class="h-48"><canvas id="chartConsumo"></canvas></div>
                 </div>
@@ -294,6 +320,16 @@ const EstoqueModule = {
         `;
 
         // Render Chart
+        if (EstoqueModule.state.charts.distribuicao) EstoqueModule.state.charts.distribuicao.destroy();
+        EstoqueModule.state.charts.distribuicao = new Chart(document.getElementById('chartDistribuicao'), {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(typeMap),
+                datasets: [{ data: Object.values(typeMap), backgroundColor: ['#3B82F6', '#F59E0B', '#10B981', '#6366F1'] }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+
         new Chart(document.getElementById('chartConsumo'), {
             type: 'bar',
             data: {
@@ -671,17 +707,33 @@ const EstoqueModule = {
         footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
         footer.classList.remove('hidden');
 
+        // --- CORREÇÃO DE ESTILOS PARA PDF ---
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-area-estoque { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-area-estoque table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-estoque th, #print-area-estoque td { 
+                font-size: 8px !important; 
+                padding: 4px 2px !important; 
+                border: 1px solid #ccc !important;
+            }
+            #print-area-estoque .shadow { box-shadow: none !important; }
+            #print-area-estoque .overflow-x-auto { overflow: visible !important; }
+        `;
+        document.head.appendChild(style);
+
         const opt = {
-            margin: 10,
+            margin: [10, 10, 10, 10],
             filename: 'relatorio-estoque.pdf',
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden');
             footer.classList.add('hidden');
+            document.head.removeChild(style);
         });
     },
 
@@ -715,18 +767,119 @@ const EstoqueModule = {
         footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
         footer.classList.remove('hidden');
 
+        // --- CORREÇÃO DE ESTILOS PARA PDF ---
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-area-movimentacoes { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-area-movimentacoes table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-movimentacoes th, #print-area-movimentacoes td { 
+                font-size: 8px !important; 
+                padding: 4px 2px !important; 
+                border: 1px solid #ccc !important;
+            }
+            #print-area-movimentacoes .shadow { box-shadow: none !important; }
+            #print-area-movimentacoes .overflow-x-auto { overflow: visible !important; }
+        `;
+        document.head.appendChild(style);
+
         const opt = {
-            margin: 10,
+            margin: [10, 10, 10, 10],
             filename: `movimentacoes-${subtipo.toLowerCase().replace(/\s+/g, '-')}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         };
 
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden');
             footer.classList.add('hidden');
+            document.head.removeChild(style);
         });
+    },
+
+    // --- GESTÃO DE FORNECEDORES ---
+    renderFornecedores: () => {
+        const fornecedores = EstoqueModule.state.fornecedores || [];
+        const canCreate = Utils.checkPermission('Estoque', 'criar');
+        const canEdit = Utils.checkPermission('Estoque', 'editar');
+        const canDelete = Utils.checkPermission('Estoque', 'excluir');
+
+        document.getElementById('estoque-content').innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Gestão de Fornecedores</h3>
+                ${canCreate ? `<button onclick="EstoqueModule.modalFornecedor()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition">
+                    <i class="fas fa-plus mr-2"></i> Novo Fornecedor
+                </button>` : ''}
+            </div>
+
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">Nome</th>
+                            <th class="p-3">Contato</th>
+                            <th class="p-3">Endereço</th>
+                            <th class="p-3">Produtos</th>
+                            <th class="p-3 text-center">Status</th>
+                            <th class="p-3 text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${fornecedores.map(f => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 font-bold">${f.Nome}</td>
+                                <td class="p-3">${f.Contato || '-'}</td>
+                                <td class="p-3 text-xs">${f.Endereco || '-'}</td>
+                                <td class="p-3 text-xs">${f.ProdutosFornecidos || '-'}</td>
+                                <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs ${f.Status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${f.Status}</span></td>
+                                <td class="p-3 text-center">
+                                    ${canEdit ? `<button onclick="EstoqueModule.modalFornecedor('${f.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>` : ''}
+                                    ${canDelete ? `<button onclick="EstoqueModule.deleteFornecedor('${f.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${fornecedores.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-gray-500">Nenhum fornecedor cadastrado.</td></tr>' : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    modalFornecedor: (id = null) => {
+        const f = id ? EstoqueModule.state.fornecedores.find(x => x.ID === id) : {};
+        Utils.openModal(id ? 'Editar Fornecedor' : 'Novo Fornecedor', `
+            <form onsubmit="EstoqueModule.saveFornecedor(event)">
+                <input type="hidden" name="ID" value="${f.ID || ''}">
+                <div class="mb-3"><label class="text-xs font-bold">Nome da Empresa</label><input name="Nome" value="${f.Nome || ''}" class="border p-2 rounded w-full" required></div>
+                <div class="mb-3"><label class="text-xs font-bold">Contato (Tel/Email)</label><input name="Contato" value="${f.Contato || ''}" class="border p-2 rounded w-full"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Endereço</label><input name="Endereco" value="${f.Endereco || ''}" class="border p-2 rounded w-full"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Principais Produtos</label><textarea name="ProdutosFornecidos" class="border p-2 rounded w-full">${f.ProdutosFornecidos || ''}</textarea></div>
+                <div class="mb-3"><label class="text-xs font-bold">Status</label>
+                    <select name="Status" class="border p-2 rounded w-full">
+                        <option ${f.Status === 'Ativo' ? 'selected' : ''}>Ativo</option>
+                        <option ${f.Status === 'Inativo' ? 'selected' : ''}>Inativo</option>
+                    </select>
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar</button>
+            </form>
+        `);
+    },
+
+    saveFornecedor: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try {
+            await Utils.api('save', 'Fornecedores', data);
+            Utils.toast('Fornecedor salvo!', 'success'); Utils.closeModal(); EstoqueModule.fetchData();
+        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message, 'error'); }
+    },
+
+    deleteFornecedor: async (id) => {
+        if(!confirm('Remover este fornecedor?')) return;
+        try {
+            await Utils.api('delete', 'Fornecedores', null, id);
+            EstoqueModule.fetchData();
+        } catch (e) { Utils.toast('Erro ao remover.', 'error'); }
     }
 };
 

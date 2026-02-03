@@ -189,7 +189,11 @@ const EventosModule = {
         const canCreate = Utils.checkPermission('Eventos', 'criar');
         
         // Ordenar itens por nome
-        items.sort((a, b) => a.Nome.localeCompare(b.Nome));
+        items.sort((a, b) => {
+            const nomeA = a.Nome || a.Item || '';
+            const nomeB = b.Nome || b.Item || '';
+            return nomeA.localeCompare(nomeB);
+        });
 
         container.innerHTML = `
             <div class="flex justify-between items-center mb-6">
@@ -214,10 +218,12 @@ const EventosModule = {
                         </tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${items.map(item => `
+                        ${items.map(item => {
+                            const nome = item.Nome || item.Item || 'Produto sem nome';
+                            return `
                             <tr class="hover:bg-gray-50">
-                                <td class="p-3 font-medium">${item.Nome} <span class="text-xs text-gray-400">(${item.Unidade})</span></td>
-                                <td class="p-3 text-right" data-price="${item.CustoUnitario}">${Utils.formatCurrency(item.CustoUnitario)}</td>
+                                <td class="p-3 font-medium">${nome} <span class="text-xs text-gray-400">(${item.Unidade || '-'})</span></td>
+                                <td class="p-3 text-right" data-price="${item.CustoUnitario || 0}">${Utils.formatCurrency(item.CustoUnitario)}</td>
                                 <td class="p-3 text-center">
                                     <input type="number" min="0" step="0.01" class="border p-1 rounded w-24 text-center purchase-qty" 
                                         data-id="${item.ID}" oninput="EventosModule.calcPurchaseTotal(this)">
@@ -227,7 +233,7 @@ const EventosModule = {
                                 </td>
                                 <td class="p-3 text-right font-bold text-gray-700 purchase-subtotal">0,00</td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     </tbody>
                     <tfoot>
                         <tr class="bg-gray-100 font-bold text-lg">
