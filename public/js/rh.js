@@ -133,7 +133,7 @@ const RHModule = {
                         <input type="checkbox" ${RHModule.state.filterVencidas ? 'checked' : ''} onchange="RHModule.toggleVencidas(this.checked)">
                         <span class="text-red-600 font-bold">Férias Vencidas</span>
                     </label>
-                    <button onclick="RHModule.exportCSV()" class="bg-green-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista filtrada para CSV"><i class="fas fa-file-csv"></i> Exportar</button>
+                    <button onclick="RHModule.printTabPDF('funcionarios')" class="bg-red-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista para PDF"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
                     <button onclick="RHModule.printEscalaGeral()" class="bg-purple-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Imprimir Escala de Trabalho"><i class="fas fa-calendar-week"></i> Escala</button>
                     <button onclick="RHModule.shareEscalaGeral()" class="bg-green-500 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Enviar Escala por WhatsApp"><i class="fab fa-whatsapp"></i> WhatsApp</button>
                     ${canCreate ? `<button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>` : ''}
@@ -183,6 +183,7 @@ const RHModule = {
                                 <td class="p-3 ${saldoClass}">${saldo}</td>
                                 <td class="p-3">${Utils.formatDate(f.Admissao)}</td>
                                 <td class="p-3">
+                                    <button onclick="RHModule.printFuncionarioProfile('${f.ID}')" class="text-gray-600 mr-2" title="Imprimir Ficha de Perfil"><i class="fas fa-id-card"></i></button>
                                     <button onclick="RHModule.modalEscala('${f.ID}')" class="text-purple-600 mr-2" title="Configurar Escala"><i class="fas fa-calendar-alt"></i></button>
                                     ${canEdit ? `<button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                     ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
@@ -446,7 +447,7 @@ const RHModule = {
         const printDiv = document.createElement('div');
         printDiv.id = 'print-escala-geral';
         // Ajuste de posicionamento para evitar PDF em branco (renderização fora da tela)
-        printDiv.style.position = 'fixed';
+        printDiv.style.position = 'absolute';
         printDiv.style.top = '0';
         printDiv.style.left = '0';
         printDiv.style.zIndex = '-9999';
@@ -567,6 +568,129 @@ const RHModule = {
         `);
     },
 
+    printFuncionarioProfile: async (id) => {
+        const f = RHModule.state.cache.funcionarios.find(x => x.ID === id);
+        if (!f) return Utils.toast('Funcionário não encontrado.', 'error');
+
+        // Carrega histórico financeiro se necessário
+        if (!RHModule.state.cache.folha) {
+             try {
+                RHModule.state.cache.folha = await Utils.api('getAll', 'Folha');
+            } catch (e) { RHModule.state.cache.folha = []; }
+        }
+        const historico = (RHModule.state.cache.folha || []).filter(r => r.FuncionarioID === id).sort((a,b) => a.Periodo.localeCompare(b.Periodo)).slice(-12);
+
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        // Elemento temporário
+        const printDiv = document.createElement('div');
+        printDiv.id = 'print-profile';
+        printDiv.className = 'bg-white p-8';
+        printDiv.style.position = 'absolute';
+        printDiv.style.left = '0';
+        printDiv.style.top = '0';
+        printDiv.style.zIndex = '-9999';
+        printDiv.style.width = '210mm';
+
+        printDiv.innerHTML = `
+            <div class="font-sans text-gray-900">
+                <!-- Cabeçalho -->
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
+                            <p class="text-sm text-gray-600">${inst.Telefone || ''} | ${inst.Email || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold text-gray-800">FICHA DE FUNCIONÁRIO</h2>
+                        <p class="text-sm text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-6 mb-8">
+                    <div class="w-32 h-32 bg-gray-200 border border-gray-300 flex items-center justify-center rounded overflow-hidden">
+                        ${f.FotoURL ? `<img src="${f.FotoURL}" class="w-full h-full object-cover">` : `<i class="fas fa-user text-4xl text-gray-400"></i>`}
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="text-2xl font-bold text-gray-800 mb-1">${f.Nome}</h3>
+                        <p class="text-lg text-gray-600 mb-4">${f.Cargo} - ${f.Departamento || 'Geral'}</p>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div><span class="font-bold text-gray-700">ID:</span> ${f.ID}</div>
+                            <div><span class="font-bold text-gray-700">Status:</span> <span class="px-2 py-0.5 rounded ${f.Status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-xs font-bold">${f.Status}</span></div>
+                            <div><span class="font-bold text-gray-700">Admissão:</span> ${Utils.formatDate(f.Admissao)}</div>
+                            <div><span class="font-bold text-gray-700">Turno:</span> ${f.Turno || '-'}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h4 class="font-bold text-gray-800 border-b border-gray-300 mb-3 pb-1 uppercase text-sm">Informações Pessoais</h4>
+                    <div class="grid grid-cols-3 gap-4 text-sm">
+                        <div><span class="font-bold block text-gray-500 text-xs">Data de Nascimento</span>${Utils.formatDate(f.Nascimento)}</div>
+                        <div><span class="font-bold block text-gray-500 text-xs">BI / Identidade</span>${f.BI || '-'}</div>
+                        <div><span class="font-bold block text-gray-500 text-xs">Telefone</span>${f.Telefone || '-'}</div>
+                        <div class="col-span-2"><span class="font-bold block text-gray-500 text-xs">Email</span>${f.Email || '-'}</div>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h4 class="font-bold text-gray-800 border-b border-gray-300 mb-3 pb-1 uppercase text-sm">Evolução Salarial (Últimos 12 Meses)</h4>
+                    <div class="h-48 w-full border border-gray-200 rounded p-2">
+                        <canvas id="chart-profile-evolution"></canvas>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h4 class="font-bold text-gray-800 border-b border-gray-300 mb-3 pb-1 uppercase text-sm">Dados Contratuais & Financeiros</h4>
+                    <div class="grid grid-cols-3 gap-4 text-sm">
+                        <div><span class="font-bold block text-gray-500 text-xs">Tipo de Contrato</span>${f.TipoContrato || '-'}</div>
+                        <div><span class="font-bold block text-gray-500 text-xs">Salário Base</span>${Utils.formatCurrency(f.Salario)}</div>
+                        <div><span class="font-bold block text-gray-500 text-xs">IBAN</span>${f.Iban || '-'}</div>
+                        <div><span class="font-bold block text-gray-500 text-xs">Saldo de Férias</span>${f.SaldoFerias ? f.SaldoFerias + ' dias' : '-'}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(printDiv);
+
+        // Renderizar Gráfico (Sem animação para sair no PDF)
+        if (historico.length > 0 && typeof Chart !== 'undefined') {
+            new Chart(document.getElementById('chart-profile-evolution'), {
+                type: 'line',
+                data: {
+                    labels: historico.map(h => h.Periodo),
+                    datasets: [{
+                        label: 'Salário Líquido (Kz)',
+                        data: historico.map(h => h.SalarioLiquido),
+                        borderColor: '#10B981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: { animation: false, responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+
+        const opt = {
+            margin: 10,
+            filename: `perfil-${f.Nome.replace(/\s+/g, '-').toLowerCase()}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(printDiv).save().then(() => {
+            document.body.removeChild(printDiv);
+        });
+    },
+
     // --- 2. ABA FREQUÊNCIA ---
     renderFrequencia: async () => {
         RHModule.highlightTab('tab-frequencia');
@@ -584,13 +708,15 @@ const RHModule = {
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         // Função auxiliar para calcular horas
-        const calcHours = (start, end) => {
+        const calcHours = (start, end, is24h) => {
             if(!start || !end) return 0;
             const [h1, m1] = start.split(':').map(Number);
             const [h2, m2] = end.split(':').map(Number);
             let diff = (h2*60+m2) - (h1*60+m1);
             // Ajuste para virada de dia (Se sair no dia seguinte ou mesmo horário = 24h)
             if (diff <= 0) diff += 24 * 60; 
+            // Lógica Inteligente para 24h: Se a diferença for positiva mas pequena (< 4h), assume dia seguinte
+            else if (is24h && diff < 240) diff += 24 * 60;
             return diff / 60;
         };
 
@@ -619,7 +745,7 @@ const RHModule = {
                 </div>
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Data</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status (Ref: 8h)</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Data</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
                     ${data.map(r => {
                         // Busca funcionário para saber o turno
@@ -627,10 +753,22 @@ const RHModule = {
                         const is24h = func && func.Turno === 'Regime de Turno';
                         const refHours = is24h ? 24 : 8;
 
-                        const total = calcHours(r.Entrada, r.Saida);
+                        const total = calcHours(r.Entrada, r.Saida, is24h);
                         const diff = total - refHours;
-                        const statusClass = diff < 0 ? 'text-red-500' : (diff > 0 ? 'text-green-500' : 'text-gray-500');
-                        const statusText = diff < 0 ? `Falta: ${Math.abs(diff).toFixed(1)}h` : (diff > 0 ? `Extra: ${diff.toFixed(1)}h` : 'Normal');
+                        
+                        let statusClass = 'text-gray-500';
+                        let statusText = 'Normal';
+
+                        if (total === 0) {
+                            statusClass = 'text-red-600 font-bold';
+                            statusText = '1 Falta';
+                        } else if (diff < 0) {
+                            statusClass = 'text-orange-500 font-bold';
+                            statusText = `Meia Falta (${diff.toFixed(1)}h)`;
+                        } else if (diff > 0) {
+                            statusClass = 'text-green-500 font-bold';
+                            statusText = `Extra: +${diff.toFixed(1)}h`;
+                        }
                         
                         return `
                         <tr class="border-t">
@@ -1825,7 +1963,28 @@ const RHModule = {
             </table>
         `;
 
-        if (type === 'frequencia') {
+        if (type === 'funcionarios') {
+            title = 'Lista de Funcionários';
+            filename = 'funcionarios.pdf';
+            orientation = 'landscape';
+            let data = RHModule.state.cache.funcionarios || [];
+            
+            // Aplicar filtros atuais
+            if (RHModule.state.filterTerm) {
+                const term = RHModule.state.filterTerm.toLowerCase();
+                data = data.filter(f => 
+                    (f.Nome && f.Nome.toLowerCase().includes(term)) || 
+                    (f.BI && f.BI.toLowerCase().includes(term)) ||
+                    (f.Departamento && f.Departamento.toLowerCase().includes(term))
+                );
+            }
+            data.sort((a, b) => a.Nome.localeCompare(b.Nome));
+
+            const headers = ['ID', 'Nome', 'Cargo', 'Departamento', 'Turno', 'Telefone', 'Admissão', 'Status'];
+            const rows = data.map(f => [f.ID, f.Nome, f.Cargo, f.Departamento || '-', f.Turno || '-', f.Telefone || '-', Utils.formatDate(f.Admissao), f.Status]);
+            content = buildTable(headers, rows);
+        }
+        else if (type === 'frequencia') {
             title = 'Relatório de Frequência';
             filename = 'frequencia.pdf';
             let data = RHModule.state.cache.frequencia || [];
@@ -1847,18 +2006,23 @@ const RHModule = {
                 const is24h = func && func.Turno === 'Regime de Turno';
                 const refHours = is24h ? 24 : 8;
                 
-                const calcHours = (start, end) => {
+                const calcHours = (start, end, is24h) => {
                     if(!start || !end) return 0;
                     const [h1, m1] = start.split(':').map(Number);
                     const [h2, m2] = end.split(':').map(Number);
                     let diff = (h2*60+m2) - (h1*60+m1);
                     if (diff <= 0) diff += 24 * 60; 
+                    else if (is24h && diff < 240) diff += 24 * 60;
                     return diff / 60;
                 };
                 
-                const total = calcHours(r.Entrada, r.Saida);
+                const total = calcHours(r.Entrada, r.Saida, is24h);
                 const diff = total - refHours;
-                const statusText = diff < 0 ? `Falta: ${Math.abs(diff).toFixed(1)}h` : (diff > 0 ? `Extra: ${diff.toFixed(1)}h` : 'Normal');
+                
+                let statusText = 'Normal';
+                if (total === 0) statusText = '1 Falta';
+                else if (diff < 0) statusText = `Meia Falta (${diff.toFixed(1)}h)`;
+                else if (diff > 0) statusText = `Extra: +${diff.toFixed(1)}h`;
                 
                 return [r.ID, r.FuncionarioNome, Utils.formatDate(r.Data), r.Entrada, r.Saida, total.toFixed(2)+'h', statusText];
             });
@@ -1909,7 +2073,7 @@ const RHModule = {
 
         const printDiv = document.createElement('div');
         printDiv.id = 'print-tab-generic';
-        printDiv.style.position = 'fixed'; printDiv.style.top = '0'; printDiv.style.left = '0'; printDiv.style.zIndex = '-9999';
+        printDiv.style.position = 'absolute'; printDiv.style.top = '0'; printDiv.style.left = '0'; printDiv.style.zIndex = '-9999';
         printDiv.style.width = orientation === 'landscape' ? '297mm' : '210mm';
         printDiv.style.background = 'white';
         
@@ -1935,11 +2099,18 @@ const RHModule = {
                 const last = parts.length > 1 ? parts[parts.length - 1][0].toUpperCase() : first;
                 const prefix = first + last;
                 
-                // A sequência é baseada no total de funcionários para garantir um número único e crescente,
-                // representando a ordem de cadastro.
-                const nextNumber = (RHModule.state.cache.funcionarios.length || 0) + 1;
+                // Lógica Corrigida: Busca o MAIOR número sequencial já existente em qualquer ID
+                // Isso garante a ordem histórica (ex: se existe o 05, o próximo será 06, independente de quantos ativos existem)
+                let maxSeq = 0;
+                RHModule.state.cache.funcionarios.forEach(f => {
+                    if (f.ID && f.ID.includes('-')) {
+                        const partsId = f.ID.split('-');
+                        const seq = parseInt(partsId[partsId.length - 1]); // Pega o número final
+                        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+                    }
+                });
                 
-                data.ID = `${prefix}-${String(nextNumber).padStart(2, '0')}`;
+                data.ID = `${prefix}-${String(maxSeq + 1).padStart(2, '0')}`;
             }
         }
 

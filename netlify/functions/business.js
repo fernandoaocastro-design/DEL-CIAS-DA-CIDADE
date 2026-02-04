@@ -1,5 +1,6 @@
 const { supabase } = require('./supabase');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const SECRET = process.env.JWT_SECRET || 'segredo-super-secreto-dev-change-me';
 
 exports.handler = async (event) => {
@@ -257,8 +258,10 @@ exports.handler = async (event) => {
                 // Gerar Código Automático se não vier (Simples: Timestamp ou Serial no banco seria melhor, aqui via JS)
                 if(!payload.Codigo) payload.Codigo = `INV-${Date.now().toString().slice(-6)}`;
                 
-                // Remove ID vazio para evitar erro de chave duplicada ou inválida (Deixa o banco gerar o UUID)
-                if (!payload.ID) delete payload.ID;
+                // CORREÇÃO DEFINITIVA: Gerar UUID manualmente se não vier, garantindo que nunca seja NULL
+                if (!payload.ID) {
+                    payload.ID = crypto.randomUUID();
+                }
 
                 const { data: newBem, error: errIns } = await supabase.from('Inventario').insert(payload).select().single();
                 if (errIns) throw errIns;

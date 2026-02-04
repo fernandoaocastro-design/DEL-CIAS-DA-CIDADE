@@ -447,8 +447,10 @@ const MLPainModule = {
             recs = MLPainModule.state.registros.filter(r => r.Data >= start && r.Data <= end);
             reportTitle = `Relatório Personalizado: ${Utils.formatDate(start)} a ${Utils.formatDate(end)}`;
             
-            let curr = new Date(start);
-            const last = new Date(end);
+            const [sY, sM, sD] = start.split('-').map(Number);
+            const [eY, eM, eD] = end.split('-').map(Number);
+            let curr = new Date(sY, sM - 1, sD);
+            const last = new Date(eY, eM - 1, eD);
             while (curr <= last) {
                 daysToRender.push(new Date(curr));
                 curr.setDate(curr.getDate() + 1);
@@ -493,7 +495,13 @@ const MLPainModule = {
 
         // Inicializa Matriz
         const matrix = {};
-        const dateKeys = daysToRender.map(d => d.toISOString().split('T')[0]);
+        // CORREÇÃO: Gerar chaves de data usando componentes locais para evitar erro de fuso horário (Dia 1 sumindo)
+        const dateKeys = daysToRender.map(d => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        });
 
         areas.forEach(a => {
             matrix[a.ID] = {};
@@ -840,11 +848,13 @@ const MLPainModule = {
             
             /* Page Break */
             .html2pdf__page-break { page-break-before: always; height: 0; display: block; }
+            /* Tentar manter tabelas juntas */
+            #print-area-mlpain .mb-8 { margin-bottom: 10px !important; page-break-inside: avoid; }
         `;
         document.head.appendChild(style);
 
         const opt = {
-            margin: [5, 5, 5, 5], // Margens pequenas
+            margin: [5, 0, 5, 0], // Ajuste: Margens laterais 0mm para aproveitar papel
             filename: `relatorio-mlpain-${filenameSuffix}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 1400 },

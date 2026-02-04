@@ -75,6 +75,9 @@ SELECT * FROM "Estoque";
 -- Erro: Could not find the 'SaldoFerias' column of 'Funcionarios'
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "SaldoFerias" DECIMAL(10,2);
 
+-- Erro: null value in column "ID" of relation "Inventario" (Correção de Default)
+ALTER TABLE "Inventario" ALTER COLUMN "ID" SET DEFAULT gen_random_uuid();
+
 -- Verificação de outras colunas essenciais (Sincronização com schema.sql)
 -- Tabela Usuarios
 ALTER TABLE "Usuarios" ADD COLUMN IF NOT EXISTS "Assinatura" TEXT;
@@ -131,3 +134,23 @@ ALTER TABLE "Escala" ENABLE ROW LEVEL SECURITY;
 -- Política de acesso para a API
 DROP POLICY IF EXISTS "Acesso API Escala" ON "Escala";
 CREATE POLICY "Acesso API Escala" ON "Escala" FOR ALL USING (true);
+
+-- ==============================================================================
+-- PARTE 7: TABELA DE EVENTOS (CORREÇÃO DE ERRO)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS "Eventos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Titulo" VARCHAR(255) NOT NULL,
+    "Data" DATE NOT NULL,
+    "Hora" TIME,
+    "Cliente" VARCHAR(255),
+    "Descricao" TEXT,
+    "Categoria" VARCHAR(100),
+    "Status" VARCHAR(50) DEFAULT 'Agendado',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "Eventos" ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Acesso API Eventos" ON "Eventos";
+CREATE POLICY "Acesso API Eventos" ON "Eventos" FOR ALL USING (true);

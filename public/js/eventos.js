@@ -16,16 +16,24 @@ const EventosModule = {
 
     fetchData: async () => {
         try {
-            const [events, inst, stock, orders] = await Promise.all([
+            // Usando allSettled para que falha em Eventos não impeça carregamento do Estoque
+            const results = await Promise.allSettled([
                 Utils.api('getAll', 'Eventos'),
                 Utils.api('getAll', 'InstituicaoConfig'),
                 Utils.api('getAll', 'Estoque'),
                 Utils.api('getAll', 'PedidosCompra')
             ]);
-            EventosModule.state.events = events || [];
-            EventosModule.state.instituicao = inst || [];
-            EventosModule.state.stockItems = stock || [];
-            EventosModule.state.purchaseOrders = orders || [];
+            
+            const [resEvents, resInst, resStock, resOrders] = results;
+
+            EventosModule.state.events = resEvents.status === 'fulfilled' ? resEvents.value : [];
+            EventosModule.state.instituicao = resInst.status === 'fulfilled' ? resInst.value : [];
+            EventosModule.state.stockItems = resStock.status === 'fulfilled' ? resStock.value : [];
+            EventosModule.state.purchaseOrders = resOrders.status === 'fulfilled' ? resOrders.value : [];
+
+            if (resEvents.status === 'rejected') console.warn('Erro ao carregar Eventos (Tabela inexistente?):', resEvents.reason);
+            if (resStock.status === 'rejected') Utils.toast('Erro ao carregar Estoque.', 'error');
+
         } catch (e) {
             console.log("Erro ao carregar dados.");
             Utils.toast("Erro ao carregar dados de eventos e estoque.", "error");

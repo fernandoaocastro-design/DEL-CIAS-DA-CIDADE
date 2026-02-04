@@ -246,6 +246,54 @@ const InventarioModule = {
         });
     },
 
+    exportPDF: () => {
+        const data = InventarioModule.state.filteredBens || InventarioModule.state.bens || [];
+        const inst = Utils.getUser().Instituicao || {}; // Assumindo que Utils.getUser() pode ter dados da instituição ou buscar de cache global se disponível
+        // Como InventarioModule não carrega InstituicaoConfig explicitamente no fetchData, vamos usar um fallback ou buscar se necessário.
+        // Para simplificar e manter consistência com outros módulos que usam cache global ou buscam na hora:
+        const user = Utils.getUser();
+        
+        // Elemento temporário
+        const printDiv = document.createElement('div');
+        printDiv.id = 'print-inventario-list';
+        printDiv.style.position = 'absolute'; printDiv.style.top = '0'; printDiv.style.left = '0'; printDiv.style.zIndex = '-9999';
+        printDiv.style.width = '297mm'; // Landscape
+        printDiv.style.background = 'white';
+
+        const totalValor = data.reduce((acc, b) => acc + Number(b.ValorAquisicao || 0), 0);
+
+        printDiv.innerHTML = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold uppercase">Relatório de Inventário</h1>
+                        <p class="text-sm text-gray-500">Total de Itens: ${data.length} | Valor Total: ${Utils.formatCurrency(totalValor)}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p>
+                        <p class="text-xs text-gray-500">Por: ${user.Nome}</p>
+                    </div>
+                </div>
+                <table class="w-full text-sm border-collapse border border-gray-300">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="border p-2 text-left">Código</th><th class="border p-2 text-left">Nome</th><th class="border p-2 text-left">Categoria</th>
+                            <th class="border p-2 text-left">Local</th><th class="border p-2 text-center">Estado</th><th class="border p-2 text-right">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.map(b => `<tr><td class="border p-2 font-mono text-xs">${b.Codigo}</td><td class="border p-2">${b.Nome}</td><td class="border p-2">${b.Categoria}</td><td class="border p-2">${b.Departamento}</td><td class="border p-2 text-center">${b.EstadoConservacao}</td><td class="border p-2 text-right">${Utils.formatCurrency(b.ValorAquisicao)}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+                <div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div>
+            </div>
+        `;
+
+        document.body.appendChild(printDiv);
+        const opt = { margin: 10, filename: 'inventario_geral.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } };
+        html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
+    },
+
     filtrar: () => {
         const term = document.getElementById('search-bem').value.toLowerCase();
         const dept = document.getElementById('filter-dept').value;
