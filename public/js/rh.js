@@ -1,6 +1,6 @@
 const RHModule = {
-    state: { 
-        cache: { funcionarios: [], ferias: [], frequencia: [], avaliacoes: [], treinamentos: [], licencas: [], folha: [], parametros: [], cargos: [], departamentos: [], instituicao: [] }, 
+    state: {
+        cache: { funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
         filterTerm: '',
         filterVencidas: false,
         pagination: {
@@ -16,22 +16,25 @@ const RHModule = {
 
     fetchData: async () => {
         try {
-            const [funcs, ferias, freq, aval, trein, lic, folha, params, cargos, deptos, inst] = await Promise.all([
+            // Carregamento Otimizado: Apenas dados essenciais para a aba inicial
+            const [funcs, ferias, params, cargos, deptos, inst] = await Promise.all([
                 Utils.api('getAll', 'Funcionarios'),
                 Utils.api('getAll', 'Ferias'),
-                Utils.api('getAll', 'Frequencia'),
-                Utils.api('getAll', 'Avaliacoes'),
-                Utils.api('getAll', 'Treinamentos'),
-                Utils.api('getAll', 'Licencas'),
-                Utils.api('getAll', 'Folha'),
                 Utils.api('getAll', 'ParametrosRH'),
                 Utils.api('getAll', 'Cargos'),
                 Utils.api('getAll', 'Departamentos'),
                 Utils.api('getAll', 'InstituicaoConfig')
             ]);
-            RHModule.state.cache = { 
-                funcionarios: funcs, ferias, frequencia: freq, avaliacoes: aval, treinamentos: trein, licencas: lic, folha: folha, 
-                parametros: params || [], cargos: cargos || [], departamentos: deptos || [], instituicao: inst || [] 
+            
+            RHModule.state.cache = {
+                funcionarios: funcs || [],
+                ferias: ferias || [],
+                parametros: params || [],
+                cargos: cargos || [],
+                departamentos: deptos || [],
+                instituicao: inst || [],
+                // Dados sob demanda (Lazy Loading) - Inicializam como null
+                frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null
             };
             RHModule.renderFuncionarios();
         } catch (e) { 
@@ -330,8 +333,16 @@ const RHModule = {
     },
 
     // --- 2. ABA FREQUÊNCIA ---
-    renderFrequencia: () => {
+    renderFrequencia: async () => {
         RHModule.highlightTab('tab-frequencia');
+        
+        if (!RHModule.state.cache.frequencia) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando frequência...</p></div>';
+            try {
+                RHModule.state.cache.frequencia = await Utils.api('getAll', 'Frequencia');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
+
         const data = RHModule.state.cache.frequencia || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -342,7 +353,8 @@ const RHModule = {
             const [h1, m1] = start.split(':').map(Number);
             const [h2, m2] = end.split(':').map(Number);
             let diff = (h2*60+m2) - (h1*60+m1);
-            if (diff < 0) diff += 24 * 60; // Ajuste para virada de dia (24h)
+            // Ajuste para virada de dia (Se sair no dia seguinte ou mesmo horário = 24h)
+            if (diff <= 0) diff += 24 * 60; 
             return diff / 60;
         };
 
@@ -714,8 +726,16 @@ const RHModule = {
     },
 
     // --- 4. ABA AVALIAÇÃO ---
-    renderAvaliacoes: () => {
+    renderAvaliacoes: async () => {
         RHModule.highlightTab('tab-avaliacoes');
+
+        if (!RHModule.state.cache.avaliacoes) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando avaliações...</p></div>';
+            try {
+                RHModule.state.cache.avaliacoes = await Utils.api('getAll', 'Avaliacoes');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
+
         const data = RHModule.state.cache.avaliacoes || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -821,8 +841,16 @@ const RHModule = {
     },
 
     // --- 5. ABA TREINAMENTO ---
-    renderTreinamento: () => {
+    renderTreinamento: async () => {
         RHModule.highlightTab('tab-treinamento');
+
+        if (!RHModule.state.cache.treinamentos) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando treinamentos...</p></div>';
+            try {
+                RHModule.state.cache.treinamentos = await Utils.api('getAll', 'Treinamentos');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
+
         const data = RHModule.state.cache.treinamentos || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -887,8 +915,16 @@ const RHModule = {
     },
 
     // --- 6. ABA FOLHA DE PAGAMENTO ---
-    renderFolha: () => {
+    renderFolha: async () => {
         RHModule.highlightTab('tab-folha');
+
+        if (!RHModule.state.cache.folha) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando folha de pagamento...</p></div>';
+            try {
+                RHModule.state.cache.folha = await Utils.api('getAll', 'Folha');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
+
         const data = RHModule.state.cache.folha || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -1002,8 +1038,16 @@ const RHModule = {
     },
 
     // --- 7. ABA LICENÇAS E AUSÊNCIAS ---
-    renderLicencas: () => {
+    renderLicencas: async () => {
         RHModule.highlightTab('tab-licencas');
+
+        if (!RHModule.state.cache.licencas) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando licenças...</p></div>';
+            try {
+                RHModule.state.cache.licencas = await Utils.api('getAll', 'Licencas');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
+
         const data = RHModule.state.cache.licencas || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -1121,8 +1165,16 @@ const RHModule = {
     },
 
     // --- 8. ABA RELATÓRIOS ---
-    renderRelatorios: () => {
+    renderRelatorios: async () => {
         RHModule.highlightTab('tab-relatorios');
+        
+        // Relatórios dependem de Frequência (para atrasos). Carregar se necessário.
+        if (!RHModule.state.cache.frequencia) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando dados para relatórios...</p></div>';
+            try {
+                RHModule.state.cache.frequencia = await Utils.api('getAll', 'Frequencia');
+            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+        }
         
         document.getElementById('tab-content').innerHTML = `
             <div class="flex justify-between items-center mb-4">
@@ -1510,7 +1562,8 @@ const RHModule = {
         if (table === 'Frequencia') {
             if (!data.FuncionarioID) return Utils.toast('⚠️ Erro: Selecione um funcionário.');
             if (!data.Data) return Utils.toast('⚠️ Erro: A data é obrigatória.');
-            if (data.Saida && data.Entrada && data.Saida <= data.Entrada) return Utils.toast('⚠️ Erro: A hora de saída deve ser posterior à entrada.');
+            // Validação removida para permitir turnos de 24h ou noturnos (que viram o dia)
+            // if (data.Saida && data.Entrada && data.Saida <= data.Entrada) return Utils.toast('⚠️ Erro: A hora de saída deve ser posterior à entrada.');
         }
         if (table === 'Ferias') {
             if (!data.FuncionarioID) return Utils.toast('⚠️ Erro: Selecione um funcionário.');

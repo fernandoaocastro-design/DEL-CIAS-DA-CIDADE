@@ -482,3 +482,5 @@ CREATE TABLE "ItensPedidoCompra" (
 -- 5. SEGURANÇA E DADOS INICIAIS
 INSERT INTO "Usuarios" ("Nome", "Email", "Senha", "Cargo")
 VALUES ('Admin Sistema', 'admin@deliciadacidade.com', '123456', 'Administrador');
+INSERT INTO "Usuarios" ("Nome", "Email", "Senha", "Cargo")
+VALUES ('Fernando', 'fernando.ao.castro@gmail.com', 'Admin123', 'Administrador');
