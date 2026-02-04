@@ -810,7 +810,7 @@ const MLPainModule = {
             </div>
         `;
         header.classList.remove('hidden');
-        title.classList.remove('hidden');
+        // title.classList.remove('hidden'); // Título removido da impressão
 
         // Configura Rodapé
         footer.innerHTML = `<p class="text-[10px] text-gray-400 text-right mt-4 border-t pt-2">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
@@ -827,7 +827,7 @@ const MLPainModule = {
                 table-layout: fixed !important; 
             }
             #print-area-mlpain th, #print-area-mlpain td { 
-                font-size: 7px !important; 
+                font-size: 6px !important; 
                 padding: 1px !important; 
                 border: 1px solid #ccc !important;
                 white-space: nowrap;
@@ -837,8 +837,8 @@ const MLPainModule = {
             /* Ajuste da coluna de nomes */
             #print-area-mlpain th:first-child, #print-area-mlpain td:first-child {
                 white-space: normal !important;
-                min-width: 120px !important;
-                width: 120px !important;
+                min-width: 100px !important;
+                width: 100px !important;
                 text-align: left !important;
                 padding-left: 2px !important;
             }
@@ -864,13 +864,13 @@ const MLPainModule = {
             margin: [0, 0, 0, 0], // Ajuste: Margens 0mm totais para aproveitar papel ao máximo
             filename: `relatorio-mlpain-${filenameSuffix}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 1400 },
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 3000 }, // Aumentado para garantir que os 31 dias caibam
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
             pagebreak: { mode: ['css', 'legacy'] }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden'); title.classList.add('hidden'); footer.classList.add('hidden');
+            header.classList.add('hidden'); /* title.classList.add('hidden'); */ footer.classList.add('hidden');
             document.head.removeChild(style);
         });
     },
