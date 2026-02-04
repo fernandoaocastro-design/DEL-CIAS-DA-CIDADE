@@ -75,7 +75,7 @@ const MLPainModule = {
             MLPainModule.renderVisaoGeral(container);
         } else if (tab === 'lancamento') {
             MLPainModule.renderLancamento(container);
-        } else if (tab === 'tabela') {
+        } else if (tab === 'tabela' || tab === 'relatorio') { // Restaura acesso caso o botão chame 'relatorio'
             MLPainModule.renderTabela(container);
         } else if (tab === 'detalhamento') {
             MLPainModule.renderDetalhamento(container);
@@ -559,7 +559,14 @@ const MLPainModule = {
                             const cells = daysToRender.map(date => {
                                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                                 const bgClass = isWeekend ? 'bg-orange-50' : '';
-                                const val = matrix[a.ID][date.toISOString().split('T')[0]][typeKey];
+                                
+                                // CORREÇÃO CRÍTICA: Usar formatação local para encontrar a chave correta na matriz
+                                const y = date.getFullYear();
+                                const m = String(date.getMonth() + 1).padStart(2, '0');
+                                const d = String(date.getDate()).padStart(2, '0');
+                                const dateKey = `${y}-${m}-${d}`;
+                                
+                                const val = matrix[a.ID][dateKey] ? matrix[a.ID][dateKey][typeKey] : 0;
                                 rowTotal += val;
                                 return `<td class="p-1 border align-middle h-8 ${bgClass}">
                                     ${val > 0 ? `<span class="${badgeColorClass} text-white px-1.5 py-0.5 rounded-sm font-bold">${val}</span>` : ''}
