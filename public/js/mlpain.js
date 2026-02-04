@@ -788,6 +788,8 @@ const MLPainModule = {
         const showLogo = inst.ExibirLogoRelatorios;
         const user = Utils.getUser();
         
+        console.log('Gerando PDF M.L. Pain:', { areas, registros });
+
         let recs = [];
         let daysToRender = [];
         let reportTitle = '';
@@ -969,10 +971,12 @@ const MLPainModule = {
 
         container.innerHTML = styles + headerHtml + tablesHtml;
 
-        // Renderização Oculta
-        container.style.position = 'fixed'; 
-        container.style.left = '-10000px';
+        // Renderização Oculta (Correção para evitar PDF em branco)
+        container.style.position = 'absolute'; 
         container.style.top = '0';
+        container.style.left = '0';
+        container.style.opacity = '0'; // Invisível mas renderizável
+        container.style.zIndex = '-1'; // Atrás de tudo
         document.body.appendChild(container);
 
         const opt = { 
@@ -983,9 +987,12 @@ const MLPainModule = {
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } 
         };
         
-        html2pdf().set(opt).from(container).save().then(() => {
-            document.body.removeChild(container);
-        });
+        // Pequeno delay para garantir renderização do DOM
+        setTimeout(() => {
+            html2pdf().set(opt).from(container).save().then(() => {
+                document.body.removeChild(container);
+            });
+        }, 100);
     },
 
     shareReportWhatsApp: () => {
