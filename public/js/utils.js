@@ -350,4 +350,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Aplica permissões na sidebar
     Utils.applySidebarPermissions();
+
+    // --- BYPASS DE VALIDAÇÃO (LOGIN) ---
+    // Desativa a validação HTML5 (required) na tela de login para permitir entrar vazio
+    if (window.location.href.includes('index.html') || window.location.pathname === '/' || window.location.pathname.endsWith('/')) {
+        document.querySelectorAll('form').forEach(f => f.setAttribute('novalidate', 'true'));
+    }
 });

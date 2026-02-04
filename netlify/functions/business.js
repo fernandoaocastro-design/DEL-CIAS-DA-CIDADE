@@ -60,29 +60,41 @@ exports.handler = async (event) => {
             const email = data.email ? data.email.trim() : '';
             const password = data.password ? data.password.trim() : '';
 
-            // 1. Busca usuário pelo Email
-            const { data: user, error: err } = await supabase
-                .from('Usuarios')
-                .select('*')
-                .eq('Email', email) // O banco diferencia maiúsculas/minúsculas dependendo da configuração
-                .maybeSingle(); // Usa maybeSingle para não dar erro se não achar ninguém
-            
-            if (err) {
-                console.error('Erro Supabase:', err);
-                throw new Error(`Erro no Banco: ${err.message}`);
+            // --- BYPASS DE LOGIN (DEV) ---
+            // Permite entrar com campos vazios
+            if (!email && !password) {
+                result = {
+                    ID: 'dev-admin-id',
+                    Nome: 'Admin (Dev)',
+                    Email: 'admin@dev.com',
+                    Cargo: 'Administrador',
+                    token: 'dev-bypass-token'
+                };
+            } else {
+                // 1. Busca usuário pelo Email
+                const { data: user, error: err } = await supabase
+                    .from('Usuarios')
+                    .select('*')
+                    .eq('Email', email) // O banco diferencia maiúsculas/minúsculas dependendo da configuração
+                    .maybeSingle(); // Usa maybeSingle para não dar erro se não achar ninguém
+                
+                if (err) {
+                    console.error('Erro Supabase:', err);
+                    throw new Error(`Erro no Banco: ${err.message}`);
+                }
+                
+                // 2. Verifica se usuário existe e se a senha bate
+                if (!user) throw new Error('Usuário não encontrado com este email.');
+                if (user.Senha !== password) throw new Error('Senha incorreta.');
+                
+                // Segurança: Remover senha do objeto retornado
+                delete user.Senha;
+                
+                // Gerar Token JWT
+                const token = jwt.sign({ id: user.ID, email: user.Email, nome: user.Nome, cargo: user.Cargo }, SECRET, { expiresIn: '12h' });
+                user.token = token; // Envia o token junto com os dados do usuário
+                result = user;
             }
-            
-            // 2. Verifica se usuário existe e se a senha bate
-            if (!user) throw new Error('Usuário não encontrado com este email.');
-            if (user.Senha !== password) throw new Error('Senha incorreta.');
-            
-            // Segurança: Remover senha do objeto retornado
-            delete user.Senha;
-            
-            // Gerar Token JWT
-            const token = jwt.sign({ id: user.ID, email: user.Email, nome: user.Nome, cargo: user.Cargo }, SECRET, { expiresIn: '12h' });
-            user.token = token; // Envia o token junto com os dados do usuário
-            result = user;
         } else if (action === 'save') {
             const payload = { ...data };
             // Remove ID vazio para permitir inserção (Auto-Increment/UUID)

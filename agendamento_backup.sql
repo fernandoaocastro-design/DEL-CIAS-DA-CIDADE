@@ -41,43 +41,58 @@ SELECT cron.schedule('backup_diario_delicia', '0 3 * * *', 'SELECT backup_rotina
 -- Função que verifica quem faltou ontem e insere na tabela de Licenças/Ausências
 CREATE OR REPLACE FUNCTION rotina_marcar_faltas() RETURNS void AS $$
 DECLARE
-    func record;
+    funcionario record;
     ultima_freq record;
+    escala_dia record;
     data_ontem date := current_date - 1; -- Verifica sempre o dia anterior
     dias_desde_ultimo int;
     dia_semana int;
 BEGIN
     -- Percorre todos os funcionários ativos
-    FOR func IN SELECT * FROM "Funcionarios" WHERE "Status" = 'Ativo' LOOP
+    FOR funcionario IN SELECT * FROM "Funcionarios" WHERE "Status" = 'Ativo' LOOP
         
         -- 1. Verifica se trabalhou ontem (Se tem registro em Frequencia)
-        PERFORM 1 FROM "Frequencia" WHERE "FuncionarioID" = func."ID" AND "Data" = data_ontem;
+        PERFORM 1 FROM "Frequencia" WHERE "FuncionarioID" = funcionario."ID" AND "Data" = data_ontem;
         
         -- Se NÃO achou registro de trabalho E NÃO tem licença/atestado cadastrado para a data
         IF NOT FOUND THEN
-            PERFORM 1 FROM "Licencas" WHERE "FuncionarioID" = func."ID" AND ("DataFalta" = data_ontem OR (data_ontem BETWEEN "Inicio" AND "Retorno"));
+            PERFORM 1 FROM "Licencas" WHERE "FuncionarioID" = funcionario."ID" AND ("DataFalta" = data_ontem OR (data_ontem BETWEEN "Inicio" AND "Retorno"));
             
             IF NOT FOUND THEN
-                -- LÓGICA PARA DIARISTAS (Padrão Comercial Seg-Sex)
-                IF func."Turno" = 'Diarista' THEN
-                    dia_semana := extract(isodow from data_ontem); -- 1=Seg, 6=Sab, 7=Dom
-                    -- Se for dia de semana (1 a 5), marca falta. (Ajustar se trabalharem sábado)
-                    IF dia_semana BETWEEN 1 AND 5 THEN
-                        INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
-                        VALUES (func."ID", func."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Sistema)');
-                    END IF;
+                dia_semana := extract(isodow from data_ontem); -- 1=Seg, 6=Sab, 7=Dom
                 
-                -- LÓGICA PARA TURNO 24H (Trabalha 1, Folga 2) -> Ciclo de 3 dias
-                ELSIF func."Turno" = 'Regime de Turno' THEN
-                    -- Busca a última data que ele trabalhou
-                    SELECT "Data" INTO ultima_freq FROM "Frequencia" WHERE "FuncionarioID" = func."ID" ORDER BY "Data" DESC LIMIT 1;
+                -- 3. Verifica Tabela de Escala (Prioridade Máxima)
+                SELECT * INTO escala_dia FROM "Escala" WHERE "FuncionarioID" = funcionario."ID" AND "DiaSemana" = dia_semana;
+                
+                IF escala_dia."Tipo" IS NOT NULL THEN
+                    -- Se tem escala definida explicitamente, segue a regra
+                    IF escala_dia."Tipo" = 'Trabalho' THEN
+                        INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
+                        VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Escala Definida)');
+                    END IF;
+                    -- Se for 'Folga', não faz nada.
+                
+                ELSE
+                    -- 4. Fallback para Regras Padrão (Se não tiver escala definida)
                     
-                    IF ultima_freq."Data" IS NOT NULL THEN
-                        dias_desde_ultimo := data_ontem - ultima_freq."Data";
-                        -- Se a diferença for 3 dias (ex: Trab dia 1, Folga 2, Folga 3, Deveria Trab dia 4), marca falta
-                        IF dias_desde_ultimo >= 3 THEN
-                             INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
-                             VALUES (func."ID", func."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Ciclo 24/48)');
+                    -- LÓGICA PARA DIARISTAS (Padrão Comercial Seg-Sex)
+                    IF funcionario."Turno" = 'Diarista' THEN
+                        -- Se for dia de semana (1 a 5), marca falta.
+                        IF dia_semana BETWEEN 1 AND 5 THEN
+                            INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
+                            VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Padrão Diarista)');
+                        END IF;
+                    
+                    -- LÓGICA PARA TURNO 24H (Trabalha 1, Folga 2) -> Ciclo de 3 dias
+                    ELSIF funcionario."Turno" = 'Regime de Turno' THEN
+                        SELECT "Data" INTO ultima_freq FROM "Frequencia" WHERE "FuncionarioID" = funcionario."ID" ORDER BY "Data" DESC LIMIT 1;
+                        
+                        IF ultima_freq."Data" IS NOT NULL THEN
+                            dias_desde_ultimo := data_ontem - ultima_freq."Data";
+                            IF dias_desde_ultimo >= 3 THEN
+                                 INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
+                                 VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Ciclo 24/48)');
+                            END IF;
                         END IF;
                     END IF;
                 END IF;

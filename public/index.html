@@ -19,14 +19,14 @@
                 <label class="block text-sm font-bold mb-2 text-gray-700">Email</label>
                 <div class="relative">
                     <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-envelope"></i></span>
-                    <input type="email" id="email" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="admin@deliciadacidade.com" required>
+                    <input type="email" id="email" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="admin@deliciadacidade.com">
                 </div>
             </div>
             <div class="mb-6">
                 <label class="block text-sm font-bold mb-2 text-gray-700">Senha</label>
                 <div class="relative">
                     <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-lock"></i></span>
-                    <input type="password" id="password" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="******" required>
+                    <input type="password" id="password" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="******">
                 </div>
             </div>
             <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded transition shadow-lg">
@@ -94,7 +94,8 @@
             const btn = e.target.querySelector('button');
             const errorMsg = document.getElementById('error-msg');
 
-            if (!validateEmail(email)) {
+            // Validação apenas se houver texto (permite login vazio para DEV)
+            if (email && !validateEmail(email)) {
                 errorMsg.innerText = 'Por favor, insira um email válido.';
                 errorMsg.classList.remove('hidden');
                 return;
@@ -123,5 +124,6 @@
             finally { btn.disabled = false; btn.innerText = 'Entrar no Sistema'; }
         }
     </script>
+    <script src="js/utils.js"></script>
 </body>
 </html>

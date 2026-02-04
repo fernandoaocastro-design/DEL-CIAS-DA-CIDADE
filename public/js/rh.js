@@ -1,6 +1,6 @@
 const RHModule = {
     state: {
-        cache: { funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
+        cache: { funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
         filterTerm: '',
         filterVencidas: false,
         pagination: {
@@ -34,7 +34,7 @@ const RHModule = {
                 departamentos: deptos || [],
                 instituicao: inst || [],
                 // Dados sob demanda (Lazy Loading) - Inicializam como null
-                frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null
+                frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null
             };
             RHModule.renderFuncionarios();
         } catch (e) { 
@@ -132,6 +132,8 @@ const RHModule = {
                         <span class="text-red-600 font-bold">Férias Vencidas</span>
                     </label>
                     <button onclick="RHModule.exportCSV()" class="bg-green-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista filtrada para CSV"><i class="fas fa-file-csv"></i> Exportar</button>
+                    <button onclick="RHModule.printEscalaGeral()" class="bg-purple-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Imprimir Escala de Trabalho"><i class="fas fa-calendar-week"></i> Escala</button>
+                    <button onclick="RHModule.shareEscalaGeral()" class="bg-green-500 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Enviar Escala por WhatsApp"><i class="fab fa-whatsapp"></i> WhatsApp</button>
                     ${canCreate ? `<button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>` : ''}
                 </div>
             </div>
@@ -179,6 +181,7 @@ const RHModule = {
                                 <td class="p-3 ${saldoClass}">${saldo}</td>
                                 <td class="p-3">${Utils.formatDate(f.Admissao)}</td>
                                 <td class="p-3">
+                                    <button onclick="RHModule.modalEscala('${f.ID}')" class="text-purple-600 mr-2" title="Configurar Escala"><i class="fas fa-calendar-alt"></i></button>
                                     ${canEdit ? `<button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                     ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
@@ -329,6 +332,225 @@ const RHModule = {
 
                 <button class="w-full bg-blue-600 text-white py-2 rounded">Salvar</button>
             </form>
+        `);
+    },
+
+    modalEscala: async (id) => {
+        const f = RHModule.state.cache.funcionarios.find(x => x.ID === id);
+        if(!f) return;
+
+        // Carrega escalas sob demanda se ainda não carregou
+        if (!RHModule.state.cache.escala) {
+             try {
+                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+            } catch (e) { RHModule.state.cache.escala = []; }
+        }
+        
+        const userEscala = RHModule.state.cache.escala.filter(e => e.FuncionarioID === id);
+        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+        
+        let html = `
+            <div class="mb-4 text-sm text-gray-600">Defina os dias fixos de trabalho para <b>${f.Nome}</b>.</div>
+            <form onsubmit="RHModule.saveEscala(event)">
+                <input type="hidden" name="FuncionarioID" value="${id}">
+                <div class="grid grid-cols-1 gap-2 bg-gray-50 p-4 rounded border">
+        `;
+        
+        days.forEach((d, index) => {
+            const diaNum = index + 1; // 1=Seg
+            const config = userEscala.find(e => e.DiaSemana === diaNum);
+            // Se não tiver config, assume padrão Diarista (Seg-Sex) para visualização inicial
+            const isTrabalho = config ? config.Tipo === 'Trabalho' : (f.Turno === 'Diarista' && diaNum <= 5);
+            
+            html += `
+                <div class="flex justify-between items-center border-b pb-2 last:border-0">
+                    <span class="font-bold text-gray-700">${d}</span>
+                    <label class="flex items-center cursor-pointer">
+                        <div class="relative">
+                            <input type="checkbox" name="dia_${diaNum}" class="sr-only" ${isTrabalho ? 'checked' : ''}>
+                            <div class="w-10 h-4 bg-gray-300 rounded-full shadow-inner"></div>
+                            <div class="dot absolute w-6 h-6 bg-white rounded-full shadow -left-1 -top-1 transition"></div>
+                        </div>
+                        <div class="ml-3 text-gray-700 text-xs font-bold label-text w-16 text-center">${isTrabalho ? 'Trabalho' : 'Folga'}</div>
+                    </label>
+                    <input type="hidden" name="id_${diaNum}" value="${config ? config.ID : ''}">
+                </div>
+            `;
+        });
+        
+        html += `
+                </div>
+                <button class="w-full bg-purple-600 text-white py-2 rounded mt-4 font-bold">Salvar Escala</button>
+            </form>
+            <style>
+                input:checked ~ .dot { transform: translateX(100%); background-color: #4F46E5; }
+                input:checked ~ .bg-gray-300 { background-color: #C7D2FE; }
+            </style>
+            <script>
+                document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', (e) => {
+                        e.target.parentElement.nextElementSibling.innerText = e.target.checked ? 'Trabalho' : 'Folga';
+                    });
+                });
+            </script>
+        `;
+
+        Utils.openModal('Configurar Escala', html);
+    },
+
+    saveEscala: async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const funcId = formData.get('FuncionarioID');
+        const promises = [];
+
+        for(let i=1; i<=7; i++) {
+            const isTrabalho = formData.get(`dia_${i}`) === 'on';
+            const id = formData.get(`id_${i}`);
+            const tipo = isTrabalho ? 'Trabalho' : 'Folga';
+            
+            const payload = { FuncionarioID: funcId, DiaSemana: i, Tipo: tipo };
+            if(id) payload.ID = id;
+
+            promises.push(Utils.api('save', 'Escala', payload));
+        }
+
+        try {
+            await Promise.all(promises);
+            Utils.toast('Escala atualizada com sucesso!');
+            Utils.closeModal();
+            // Atualiza cache
+            RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+        } catch(err) {
+            Utils.toast('Erro ao salvar escala: ' + err.message, 'error');
+        }
+    },
+
+    printEscalaGeral: async () => {
+        // Carrega escalas sob demanda se ainda não carregou
+        if (!RHModule.state.cache.escala) {
+             try {
+                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+            } catch (e) { RHModule.state.cache.escala = []; }
+        }
+
+        const funcs = RHModule.state.cache.funcionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
+        const escala = RHModule.state.cache.escala || [];
+        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        // Elemento temporário para impressão
+        const printDiv = document.createElement('div');
+        printDiv.id = 'print-escala-geral';
+        printDiv.className = 'bg-white p-4';
+        printDiv.style.position = 'absolute';
+        printDiv.style.left = '-9999px';
+        printDiv.style.width = '297mm'; // A4 Landscape
+        
+        let html = `
+            <div class="p-8 font-sans text-gray-900">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">ESCALA DE TRABALHO</h2>
+                        <p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <table class="w-full text-sm border-collapse border border-gray-300">
+                    <thead>
+                        <tr class="bg-gray-100">
+                            <th class="border p-2 text-left">Funcionário</th>
+                            <th class="border p-2 text-left">Cargo</th>
+                            ${days.map(d => `<th class="border p-2 text-center w-24">${d}</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        funcs.forEach(f => {
+            html += `<tr><td class="border p-2 font-bold">${f.Nome}</td><td class="border p-2 text-xs text-gray-600">${f.Cargo}</td>`;
+            for(let i=1; i<=7; i++) {
+                const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === i);
+                // Lógica de visualização: Se tem config usa ela, senão usa padrão do turno
+                let type = config ? config.Tipo : (f.Turno === 'Diarista' ? (i <= 5 ? 'Trabalho' : 'Folga') : (f.Turno === 'Regime de Turno' ? 'Turno' : 'Folga'));
+                
+                let label = type === 'Trabalho' ? '08:00 - 17:00' : (type === 'Turno' ? 'Escala' : 'Folga');
+                let bg = type === 'Trabalho' ? 'bg-white' : (type === 'Turno' ? 'bg-blue-50 font-bold text-blue-800' : 'bg-gray-100 text-gray-400');
+                html += `<td class="border p-2 text-center text-xs ${bg}">${label}</td>`;
+            }
+            html += `</tr>`;
+        });
+
+        html += `</tbody></table><div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
+        printDiv.innerHTML = html;
+        document.body.appendChild(printDiv);
+
+        const opt = { margin: 5, filename: `escala-trabalho-${new Date().toISOString().split('T')[0]}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } };
+        html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
+    },
+
+    shareEscalaGeral: async () => {
+        // Carrega escalas sob demanda se ainda não carregou
+        if (!RHModule.state.cache.escala) {
+             try {
+                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+            } catch (e) { RHModule.state.cache.escala = []; }
+        }
+
+        const funcs = RHModule.state.cache.funcionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
+        const escala = RHModule.state.cache.escala || [];
+        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+        
+        let msg = `*📅 ESCALA DE TRABALHO SEMANAL*\n_Delícia da Cidade_\n\n`;
+        
+        days.forEach((d, index) => {
+            const diaNum = index + 1;
+            msg += `*${d.toUpperCase()}*\n`;
+            
+            const working = [];
+            
+            funcs.forEach(f => {
+                const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === diaNum);
+                // Lógica de visualização
+                let type = config ? config.Tipo : (f.Turno === 'Diarista' ? (diaNum <= 5 ? 'Trabalho' : 'Folga') : (f.Turno === 'Regime de Turno' ? 'Turno' : 'Folga'));
+                
+                if (type === 'Trabalho' || type === 'Turno') {
+                    working.push(f.Nome);
+                }
+            });
+            
+            if(working.length > 0) msg += `✅ ${working.join(', ')}\n`;
+            else msg += `🚫 Ninguém escalado\n`;
+            
+            msg += `\n`;
+        });
+        
+        msg += `_Gerado em ${new Date().toLocaleDateString()}_`;
+        const encodedMsg = encodeURIComponent(msg);
+
+        Utils.openModal('Compartilhar Escala', `
+            <div class="text-center">
+                <i class="fab fa-whatsapp text-4xl text-green-500 mb-4"></i>
+                <p class="text-gray-600 mb-6">A escala foi convertida para texto. Envie para o grupo da empresa.</p>
+                
+                <a href="https://wa.me/?text=${encodedMsg}" target="_blank" class="block w-full bg-green-500 text-white py-3 rounded font-bold hover:bg-green-600 flex items-center justify-center gap-2 transition mb-3 shadow">
+                    Enviar para WhatsApp
+                </a>
+                
+                <button onclick="navigator.clipboard.writeText(document.getElementById('msg-preview').innerText).then(() => Utils.toast('Texto copiado!'))" class="block w-full bg-gray-100 text-gray-700 py-3 rounded font-bold hover:bg-gray-200 flex items-center justify-center gap-2 transition">
+                    <i class="fas fa-copy"></i> Copiar Texto
+                </button>
+                
+                <div class="mt-4 text-left bg-gray-50 p-3 rounded border text-xs max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-gray-600" id="msg-preview">${msg}</div>
+            </div>
         `);
     },
 
