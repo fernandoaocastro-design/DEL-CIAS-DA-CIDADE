@@ -907,12 +907,30 @@ const MLPainModule = {
         // CSS Profissional para A4 Paisagem
         const styles = `
             <style>
+                /* Ajustes para Impressão e PDF */
+                @media print {
+                    * {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                    }
+                    body, html {
+                        height: auto !important;
+                        overflow: visible !important;
+                    }
+                    /* Ocultar elementos de UI na impressão nativa */
+                    nav, header, .sidebar, button, .no-print {
+                        display: none !important;
+                    }
+                }
+
                 #print-mlpain-pdf {
                     width: 285mm; /* Largura segura para A4 Paisagem */
-                    background: white;
+                    background-color: white;
                     padding: 5mm;
                     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                     color: #1f2937;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
                 .pdf-header {
                     display: flex; justify-content: space-between; align-items: center;
@@ -935,6 +953,8 @@ const MLPainModule = {
                     border: 1px solid #d1d5db; padding: 2px 1px;
                     text-align: center; vertical-align: middle;
                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
                 }
                 th { background-color: #f3f4f6; font-weight: bold; color: #111827; font-size: 7px; }
                 
