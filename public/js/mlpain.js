@@ -783,95 +783,208 @@ const MLPainModule = {
     },
 
     exportPDF: () => {
-        const element = document.getElementById('print-area-mlpain');
-        const header = document.getElementById('pdf-header');
-        const footer = document.getElementById('pdf-footer');
-        const title = document.getElementById('pdf-title');
-        const inst = MLPainModule.state.instituicao[0] || {};
-        const user = Utils.getUser();
+        const { areas, registros, filterMonth, customFilterStart, customFilterEnd, instituicao } = MLPainModule.state;
+        const inst = instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
-
-        const start = MLPainModule.state.customFilterStart;
-        const end = MLPainModule.state.customFilterEnd;
-        let filenameSuffix = MLPainModule.state.filterMonth;
-
-        if (start && end) {
-            filenameSuffix = `${start}_to_${end}`;
-        }
+        const user = Utils.getUser();
         
-        // Configura Cabeçalho
-        header.innerHTML = `
-            <div class="border-b pb-2 mb-4 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório M.L. Pain'}</h1>
-                    <p class="text-base text-gray-600 font-medium">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
+        let recs = [];
+        let daysToRender = [];
+        let reportTitle = '';
+        let periodStr = '';
+
+        // Determinar Período e Dados
+        if (customFilterStart && customFilterEnd) {
+            recs = registros.filter(r => r.Data >= customFilterStart && r.Data <= customFilterEnd);
+            reportTitle = `Relatório Personalizado`;
+            periodStr = `${Utils.formatDate(customFilterStart)} a ${Utils.formatDate(customFilterEnd)}`;
+            
+            const [sY, sM, sD] = customFilterStart.split('-').map(Number);
+            const [eY, eM, eD] = customFilterEnd.split('-').map(Number);
+            let curr = new Date(sY, sM - 1, sD);
+            const last = new Date(eY, eM - 1, eD);
+            while (curr <= last) {
+                daysToRender.push(new Date(curr));
+                curr.setDate(curr.getDate() + 1);
+            }
+        } else {
+            recs = registros.filter(r => r.Data.startsWith(filterMonth));
+            reportTitle = `Relatório Mensal`;
+            const [year, monthNum] = filterMonth.split('-');
+            periodStr = new Date(year, monthNum - 1).toLocaleString('pt-AO', { month: 'long', year: 'numeric' }).toUpperCase();
+            const daysInMonth = new Date(year, monthNum, 0).getDate();
+            for(let i=1; i<=daysInMonth; i++) {
+                daysToRender.push(new Date(year, monthNum - 1, i));
+            }
+        }
+
+        // Filtrar Áreas
+        const activeAreas = areas.filter(a => a.Ativo);
+        const solidAreas = activeAreas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
+        const liquidAreas = activeAreas.filter(a => a.Tipo === 'Líquido');
+
+        // Calcular Matriz de Dados
+        const matrix = {};
+        const dateKeys = daysToRender.map(d => {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        });
+
+        activeAreas.forEach(a => {
+            matrix[a.ID] = {};
+            dateKeys.forEach(k => {
+                matrix[a.ID][k] = { Solido: 0, Sopa: 0, Cha: 0 };
+            });
+        });
+
+        recs.forEach(r => {
+            if (matrix[r.AreaID] && matrix[r.AreaID][r.Data]) {
+                const qtd = Number(r.Quantidade);
+                if (r.Tipo === 'Sólido') matrix[r.AreaID][r.Data].Solido += qtd;
+                else if (r.Subtipo === 'Sopa') matrix[r.AreaID][r.Data].Sopa += qtd;
+                else if (r.Subtipo === 'Chá') matrix[r.AreaID][r.Data].Cha += qtd;
+            }
+        });
+
+        // Função para Gerar HTML de Tabela
+        const generateTableHtml = (title, typeKey, areasList) => {
+            if (areasList.length === 0) return '';
+            
+            let headerRow = `<tr><th class="col-area">ÁREA / DIA</th>`;
+            daysToRender.forEach(d => {
+                headerRow += `<th class="col-day">${d.getDate()}</th>`;
+            });
+            headerRow += `<th class="col-total">TOTAL</th></tr>`;
+
+            let bodyRows = '';
+            let grandTotal = 0;
+            const colTotals = new Array(daysToRender.length).fill(0);
+
+            areasList.forEach(a => {
+                let rowHtml = `<tr><td class="col-area text-left">${a.Nome}</td>`;
+                let rowTotal = 0;
+                
+                daysToRender.forEach((d, idx) => {
+                    const y = d.getFullYear();
+                    const m = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const k = `${y}-${m}-${day}`;
+                    
+                    const val = matrix[a.ID][k] ? matrix[a.ID][k][typeKey] : 0;
+                    rowTotal += val;
+                    colTotals[idx] += val;
+                    rowHtml += `<td>${val > 0 ? val : ''}</td>`;
+                });
+                grandTotal += rowTotal;
+                rowHtml += `<td class="col-total">${rowTotal}</td></tr>`;
+                bodyRows += rowHtml;
+            });
+
+            // Linha de Totais
+            let footerRow = `<tr class="total-row"><td class="col-area text-right">TOTAL</td>`;
+            colTotals.forEach(t => footerRow += `<td>${t > 0 ? t : ''}</td>`);
+            footerRow += `<td class="col-total">${grandTotal}</td></tr>`;
+
+            return `
+                <div class="table-section">
+                    <h3 class="table-title">${title}</h3>
+                    <table>
+                        <thead>${headerRow}</thead>
+                        <tbody>${bodyRows}${footerRow}</tbody>
+                    </table>
+                </div>
+            `;
+        };
+
+        // Criar Container Temporário
+        const container = document.createElement('div');
+        container.id = 'print-mlpain-pdf';
+        
+        // CSS Profissional para A4 Paisagem
+        const styles = `
+            <style>
+                #print-mlpain-pdf {
+                    width: 285mm; /* Largura segura para A4 Paisagem */
+                    background: white;
+                    padding: 5mm;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    color: #1f2937;
+                }
+                .pdf-header {
+                    display: flex; justify-content: space-between; align-items: center;
+                    border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 10px;
+                }
+                .pdf-logo-text h1 { font-size: 18px; font-weight: bold; text-transform: uppercase; margin: 0; }
+                .pdf-logo-text p { font-size: 10px; color: #6b7280; margin: 0; }
+                .pdf-info { text-align: right; }
+                .pdf-info h2 { font-size: 14px; font-weight: bold; margin: 0; color: #374151; }
+                .pdf-info p { font-size: 10px; margin: 0; }
+                
+                .table-section { margin-bottom: 15px; page-break-inside: avoid; }
+                .table-title { font-size: 10px; font-weight: bold; margin-bottom: 4px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 2px; }
+                
+                table {
+                    width: 100%; border-collapse: collapse; font-size: 8px;
+                    table-layout: fixed; /* Garante colunas iguais */
+                }
+                th, td {
+                    border: 1px solid #d1d5db; padding: 2px 1px;
+                    text-align: center; vertical-align: middle;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                th { background-color: #f3f4f6; font-weight: bold; color: #111827; font-size: 7px; }
+                
+                .col-area { width: 12%; text-align: left; padding-left: 4px; font-weight: bold; white-space: normal; }
+                .col-day { width: auto; }
+                .col-total { width: 5%; font-weight: bold; background-color: #f9fafb; }
+                
+                tr:nth-child(even) { background-color: #f9fafb; }
+                .total-row { background-color: #e5e7eb; font-weight: bold; }
+                .text-left { text-align: left; }
+                .text-right { text-align: right; }
+            </style>
+        `;
+
+        const headerHtml = `
+            <div class="pdf-header">
+                <div class="pdf-logo-text">
+                    ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 30px; margin-bottom: 5px;">` : ''}
+                    <h1>${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                    <p>Relatório de Controle - M.L. Pain</p>
+                </div>
+                <div class="pdf-info">
+                    <h2>${reportTitle.toUpperCase()}</h2>
+                    <p>${periodStr}</p>
+                    <p>Gerado por: ${user.Nome || 'Sistema'}</p>
                 </div>
             </div>
         `;
-        header.classList.remove('hidden');
-        // title.classList.remove('hidden'); // Título removido da impressão
 
-        // Configura Rodapé
-        footer.innerHTML = `<p class="text-[10px] text-gray-400 text-right mt-4 border-t pt-2">Gerado por ${user.Nome} em ${new Date().toLocaleString()}</p>`;
-        footer.classList.remove('hidden');
-        
-        // --- CORREÇÃO DE ESTILOS PARA PDF ---
-        // Injeta CSS temporário para garantir que a tabela caiba e fique bonita
-        const style = document.createElement('style');
-        style.innerHTML = `
-            #print-area-mlpain { width: 100%; background: white; margin: 0; padding: 0; }
-            #print-area-mlpain table { 
-                width: 100% !important; 
-                border-collapse: collapse !important; 
-                table-layout: fixed !important; 
-            }
-            #print-area-mlpain th, #print-area-mlpain td { 
-                font-size: 6px !important; 
-                padding: 1px !important; 
-                border: 1px solid #ccc !important;
-                white-space: nowrap;
-                overflow: hidden;
-                text-align: center;
-            }
-            /* Ajuste da coluna de nomes */
-            #print-area-mlpain th:first-child, #print-area-mlpain td:first-child {
-                white-space: normal !important;
-                min-width: 100px !important;
-                width: 100px !important;
-                text-align: left !important;
-                padding-left: 2px !important;
-            }
-            /* Remove larguras forçadas das colunas de dias */
-            #print-area-mlpain .min-w-\\[35px\\] { min-width: auto !important; }
-            #print-area-mlpain .min-w-\\[150px\\] { min-width: auto !important; }
-            #print-area-mlpain .min-w-\\[50px\\] { min-width: auto !important; }
-            
-            /* Limpeza visual */
-            #print-area-mlpain .sticky { position: static !important; }
-            #print-area-mlpain .shadow { box-shadow: none !important; }
-            #print-area-mlpain .overflow-x-auto { overflow: visible !important; }
-            #print-area-mlpain .bg-gray-100 { background-color: #f3f4f6 !important; }
-            
-            /* Page Break */
-            .html2pdf__page-break { page-break-before: always; height: 0; display: block; }
-            /* Tentar manter tabelas juntas */
-            #print-area-mlpain .mb-8 { margin-bottom: 10px !important; page-break-inside: avoid; }
-        `;
-        document.head.appendChild(style);
+        const tablesHtml = 
+            generateTableHtml('MAPA DE DIETAS SÓLIDAS', 'Solido', solidAreas) +
+            generateTableHtml('MAPA DE DIETAS LÍQUIDAS - SOPA', 'Sopa', liquidAreas) +
+            generateTableHtml('MAPA DE DIETAS LÍQUIDAS - CHÁ', 'Cha', liquidAreas);
 
-        const opt = {
-            margin: [0, 0, 0, 0], // Ajuste: Margens 0mm totais para aproveitar papel ao máximo
-            filename: `relatorio-mlpain-${filenameSuffix}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 3000 }, // Aumentado para garantir que os 31 dias caibam
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-            pagebreak: { mode: ['css', 'legacy'] }
+        container.innerHTML = styles + headerHtml + tablesHtml;
+
+        // Renderização Oculta
+        container.style.position = 'fixed'; 
+        container.style.left = '-10000px';
+        container.style.top = '0';
+        document.body.appendChild(container);
+
+        const opt = { 
+            margin: 5, 
+            filename: `mlpain-relatorio-${filterMonth}.pdf`, 
+            image: { type: 'jpeg', quality: 0.98 }, 
+            html2canvas: { scale: 2, useCORS: true }, 
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } 
         };
         
-        html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden'); /* title.classList.add('hidden'); */ footer.classList.add('hidden');
-            document.head.removeChild(style);
+        html2pdf().set(opt).from(container).save().then(() => {
+            document.body.removeChild(container);
         });
     },
 
