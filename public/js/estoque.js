@@ -78,6 +78,10 @@ const EstoqueModule = {
             EstoqueModule.renderFornecedores();
             return;
         }
+        else if (EstoqueModule.state.activeTab === 'relatorios') {
+            EstoqueModule.renderRelatorios();
+            return;
+        }
         // --- RENDERIZAÇÃO DA ABA PRODUTOS (Padrão) ---
 
         let data = EstoqueModule.state.items || [];        
@@ -493,6 +497,7 @@ const EstoqueModule = {
 
     modalItem: (id = null) => {
         const item = id ? EstoqueModule.state.items.find(i => i.ID === id) : {};
+        const fornecedores = EstoqueModule.state.fornecedores || [];
         
         // Função para atualizar subtipos dinamicamente
         window.updateSubtypes = (select) => {
@@ -569,7 +574,13 @@ const EstoqueModule = {
                 <h4 class="font-bold text-gray-700 mb-2 border-b mt-4">3. Custos & Fornecedor</h4>
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <div><label class="text-xs font-bold">Custo Unitário (Kz)</label><input type="number" step="0.01" name="CustoUnitario" value="${item.CustoUnitario || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Fornecedor</label><input name="Fornecedor" value="${item.Fornecedor || ''}" class="border p-2 rounded w-full"></div>
+                    <div>
+                        <label class="text-xs font-bold">Fornecedor Preferencial</label>
+                        <select name="Fornecedor" class="border p-2 rounded w-full">
+                            <option value="">Selecione...</option>
+                            ${fornecedores.map(f => `<option value="${f.Nome}" ${item.Fornecedor === f.Nome ? 'selected' : ''}>${f.Nome}</option>`).join('')}
+                        </select>
+                    </div>
                 </div>
                 
                 <button class="w-full bg-yellow-500 text-white py-3 rounded font-bold mt-2">Salvar Produto</button>
@@ -787,7 +798,7 @@ const EstoqueModule = {
             filename: `movimentacoes-${subtipo.toLowerCase().replace(/\s+/g, '-')}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
         };
 
         html2pdf().set(opt).from(element).save().then(() => {
@@ -880,6 +891,144 @@ const EstoqueModule = {
             await Utils.api('delete', 'Fornecedores', null, id);
             EstoqueModule.fetchData();
         } catch (e) { Utils.toast('Erro ao remover.', 'error'); }
+    }
+    ,
+
+    // --- RELATÓRIOS ---
+    renderRelatorios: () => {
+        const fornecedores = EstoqueModule.state.fornecedores || [];
+        const container = document.getElementById('estoque-content');
+
+        container.innerHTML = `
+            <h3 class="text-xl font-bold text-gray-800 mb-6">Relatórios de Estoque</h3>
+            
+            <div class="bg-white p-6 rounded shadow">
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Produtos por Fornecedor</h4>
+                <div class="flex items-end gap-4">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Selecione o Fornecedor</label>
+                        <select id="relatorio-fornecedor-select" class="border p-2 rounded w-full">
+                            <option value="">Selecione um fornecedor...</option>
+                            ${fornecedores.map(f => `<option value="${f.Nome}">${f.Nome}</option>`).join('')}
+                        </select>
+                    </div>
+                    <button onclick="EstoqueModule.gerarRelatorioFornecedor()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">
+                        <i class="fas fa-search"></i> Gerar
+                    </button>
+                </div>
+                <div id="relatorio-fornecedor-resultado" class="mt-6"></div>
+            </div>
+        `;
+    },
+
+    gerarRelatorioFornecedor: () => {
+        const select = document.getElementById('relatorio-fornecedor-select');
+        const fornecedorNome = select.value;
+        const resultadoDiv = document.getElementById('relatorio-fornecedor-resultado');
+
+        if (!fornecedorNome) {
+            resultadoDiv.innerHTML = '<p class="text-center text-gray-500 p-4">Selecione um fornecedor para gerar o relatório.</p>';
+            return;
+        }
+
+        const produtos = EstoqueModule.state.items.filter(i => i.Fornecedor === fornecedorNome);
+
+        if (produtos.length === 0) {
+            resultadoDiv.innerHTML = '<p class="text-center text-gray-500 p-4">Nenhum produto encontrado para este fornecedor.</p>';
+            return;
+        }
+        
+        const totalValor = produtos.reduce((acc, item) => acc + (Number(item.Quantidade) * Number(item.CustoUnitario)), 0);
+
+        resultadoDiv.innerHTML = `
+            <div id="print-area-fornecedor">
+                <div id="pdf-header-fornecedor" class="hidden p-6 border-b"></div>
+                <h5 class="text-lg font-bold mb-2">Relatório de Produtos - Fornecedor: ${fornecedorNome}</h5>
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-3 text-left">Produto</th>
+                            <th class="p-3 text-center">Qtd</th>
+                            <th class="p-3 text-right">Custo Unit.</th>
+                            <th class="p-3 text-right">Valor Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${produtos.map(p => `
+                            <tr class="border-t">
+                                <td class="p-2 font-medium">${p.Nome}</td>
+                                <td class="p-2 text-center">${p.Quantidade} ${p.Unidade}</td>
+                                <td class="p-2 text-right">${Utils.formatCurrency(p.CustoUnitario)}</td>
+                                <td class="p-2 text-right font-bold">${Utils.formatCurrency(p.Quantidade * p.CustoUnitario)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                    <tfoot>
+                        <tr class="bg-gray-100 font-bold">
+                            <td colspan="3" class="p-3 text-right">Total em Estoque deste Fornecedor:</td>
+                            <td class="p-3 text-right">${Utils.formatCurrency(totalValor)}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+                <div id="pdf-footer-fornecedor" class="hidden p-4 border-t text-center text-xs text-gray-400"></div>
+            </div>
+            <div class="text-right mt-4">
+                <button onclick="EstoqueModule.printRelatorioFornecedor()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700">
+                    <i class="fas fa-file-pdf"></i> Imprimir PDF
+                </button>
+            </div>
+        `;
+    },
+
+    printRelatorioFornecedor: () => {
+        const element = document.getElementById('print-area-fornecedor');
+        const header = document.getElementById('pdf-header-fornecedor');
+        const footer = document.getElementById('pdf-footer-fornecedor');
+        const inst = EstoqueModule.state.instituicao[0] || {};
+        const user = Utils.getUser();
+        const showLogo = inst.ExibirLogoRelatorios;
+        const fornecedorNome = document.getElementById('relatorio-fornecedor-select').value;
+
+        header.innerHTML = `
+            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
+                    <p class="text-sm text-gray-500">Produtos do Fornecedor: <strong>${fornecedorNome}</strong></p>
+                </div>
+            </div>
+            <div class="mt-4 text-right text-xs text-gray-500">Data: ${new Date().toLocaleDateString()}</div>
+        `;
+        header.classList.remove('hidden');
+        
+        footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
+        footer.classList.remove('hidden');
+
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #print-area-fornecedor { width: 100%; background: white; margin: 0; padding: 0; }
+            #print-area-fornecedor table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-fornecedor th, #print-area-fornecedor td { 
+                font-size: 9px !important; 
+                padding: 4px !important; 
+                border: 1px solid #ccc !important;
+            }
+        `;
+        document.head.appendChild(style);
+
+        const opt = {
+            margin: [10, 10, 10, 10],
+            filename: `relatorio-produtos-fornecedor-${fornecedorNome}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(element).save().then(() => {
+            header.classList.add('hidden');
+            footer.classList.add('hidden');
+            document.head.removeChild(style);
+        });
     }
 };
 

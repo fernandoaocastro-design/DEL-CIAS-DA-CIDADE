@@ -6,6 +6,8 @@ const MLPainModule = {
         pratos: [],
         funcionarios: [],
         filterMonth: new Date().toISOString().slice(0, 7),
+        customFilterStart: '',
+        customFilterEnd: '',
         filterDate: new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0],
         filterTurno: '', // Filtro de turno para detalhamento
         instituicao: [],
@@ -434,8 +436,33 @@ const MLPainModule = {
     // --- 3. TABELA E GRÁFICOS ---
     renderTabela: (container) => {
         const month = MLPainModule.state.filterMonth;
-        const recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+        const start = MLPainModule.state.customFilterStart;
+        const end = MLPainModule.state.customFilterEnd;
         
+        let recs = [];
+        let daysToRender = [];
+        let reportTitle = '';
+
+        if (start && end) {
+            recs = MLPainModule.state.registros.filter(r => r.Data >= start && r.Data <= end);
+            reportTitle = `Relatório Personalizado: ${Utils.formatDate(start)} a ${Utils.formatDate(end)}`;
+            
+            let curr = new Date(start);
+            const last = new Date(end);
+            while (curr <= last) {
+                daysToRender.push(new Date(curr));
+                curr.setDate(curr.getDate() + 1);
+            }
+        } else {
+            recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+            reportTitle = `Relatório de Refeições - ${month}`;
+            const [year, monthNum] = month.split('-');
+            const daysInMonth = new Date(year, monthNum, 0).getDate();
+            for(let i=1; i<=daysInMonth; i++) {
+                daysToRender.push(new Date(year, monthNum - 1, i));
+            }
+        }
+
         // Agrupamento para Gráficos
         const totals = { Solido: 0, Sopa: 0, Cha: 0 };
         recs.forEach(r => {
@@ -459,9 +486,6 @@ const MLPainModule = {
         const dataCha = areaLabels.map(a => areaStats[a].Cha);
 
         // --- PREPARAÇÃO DA MATRIZ (DIAS x ÁREAS) ---
-        const [year, monthNum] = month.split('-');
-        const daysInMonth = new Date(year, monthNum, 0).getDate();
-        const days = Array.from({length: daysInMonth}, (_, i) => i + 1);
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
         const solidAreas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
         const liquidAreas = areas.filter(a => a.Tipo === 'Líquido');
@@ -469,21 +493,22 @@ const MLPainModule = {
 
         // Inicializa Matriz
         const matrix = {};
+        const dateKeys = daysToRender.map(d => d.toISOString().split('T')[0]);
+
         areas.forEach(a => {
             matrix[a.ID] = {};
-            days.forEach(d => {
-                matrix[a.ID][d] = { Solido: 0, Sopa: 0, Cha: 0 };
+            dateKeys.forEach(k => {
+                matrix[a.ID][k] = { Solido: 0, Sopa: 0, Cha: 0 };
             });
         });
 
         // Preenche Matriz
         recs.forEach(r => {
-            const d = new Date(r.Data).getDate();
-            if (matrix[r.AreaID] && matrix[r.AreaID][d]) {
+            if (matrix[r.AreaID] && matrix[r.AreaID][r.Data]) {
                 const qtd = Number(r.Quantidade);
-                if (r.Tipo === 'Sólido') matrix[r.AreaID][d].Solido += qtd;
-                else if (r.Subtipo === 'Sopa') matrix[r.AreaID][d].Sopa += qtd;
-                else if (r.Subtipo === 'Chá') matrix[r.AreaID][d].Cha += qtd;
+                if (r.Tipo === 'Sólido') matrix[r.AreaID][r.Data].Solido += qtd;
+                else if (r.Subtipo === 'Sopa') matrix[r.AreaID][r.Data].Sopa += qtd;
+                else if (r.Subtipo === 'Chá') matrix[r.AreaID][r.Data].Cha += qtd;
             }
         });
 
@@ -492,12 +517,12 @@ const MLPainModule = {
             // Calcular totais por coluna (dia)
             const colTotals = {};
             let grandTotal = 0;
-            days.forEach(d => {
-                colTotals[d] = 0;
+            dateKeys.forEach(k => {
+                colTotals[k] = 0;
                 areasToRender.forEach(a => {
-                    colTotals[d] += matrix[a.ID][d][typeKey] || 0;
+                    colTotals[k] += matrix[a.ID][k][typeKey] || 0;
                 });
-                grandTotal += colTotals[d];
+                grandTotal += colTotals[k];
             });
 
             return `
@@ -507,15 +532,14 @@ const MLPainModule = {
                     <thead>
                         <tr>
                             <th class="p-2 border bg-gray-100 text-left sticky left-0 z-10 min-w-[150px]">Área / Dia</th>
-                            ${days.map(d => {
-                                const date = new Date(year, monthNum - 1, d);
+                            ${daysToRender.map(date => {
                                 const dayIndex = date.getDay();
                                 const wd = weekDays[dayIndex];
                                 const isWeekend = dayIndex === 0 || dayIndex === 6;
                                 const bgClass = isWeekend ? 'bg-orange-100 text-orange-800' : 'bg-gray-50 text-gray-500';
                                 return `<th class="p-1 border ${bgClass} min-w-[35px]">
                                     <div class="text-[9px] uppercase">${wd}</div>
-                                    <div>${d}</div>
+                                    <div>${date.getDate()}</div>
                                 </th>`;
                             }).join('')}
                             <th class="p-2 border bg-gray-200 font-bold min-w-[50px]">Total</th>
@@ -524,11 +548,10 @@ const MLPainModule = {
                     <tbody>
                         ${areasToRender.map(a => {
                             let rowTotal = 0;
-                            const cells = days.map(d => {
-                                const date = new Date(year, monthNum - 1, d);
+                            const cells = daysToRender.map(date => {
                                 const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                                 const bgClass = isWeekend ? 'bg-orange-50' : '';
-                                const val = matrix[a.ID][d][typeKey];
+                                const val = matrix[a.ID][date.toISOString().split('T')[0]][typeKey];
                                 rowTotal += val;
                                 return `<td class="p-1 border align-middle h-8 ${bgClass}">
                                     ${val > 0 ? `<span class="${badgeColorClass} text-white px-1.5 py-0.5 rounded-sm font-bold">${val}</span>` : ''}
@@ -546,8 +569,8 @@ const MLPainModule = {
                     <tfoot>
                         <tr class="bg-gray-100 font-bold border-t-2 border-gray-300">
                             <td class="p-2 border text-left sticky left-0 bg-gray-100 z-10">TOTAL</td>
-                            ${days.map(d => {
-                                const val = colTotals[d];
+                            ${dateKeys.map(k => {
+                                const val = colTotals[k];
                                 return `<td class="p-1 border text-gray-800">${val > 0 ? val : ''}</td>`;
                             }).join('')}
                             <td class="p-2 border bg-gray-200 text-gray-900">${grandTotal}</td>
@@ -560,20 +583,39 @@ const MLPainModule = {
         container.innerHTML = `
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-800">Relatório Mensal</h3>
-                <div class="flex gap-2">
-                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.state.filterMonth = this.value; MLPainModule.renderTabela(document.getElementById('mlpain-content'))">
+                <div class="flex gap-2 items-center">
+                    <div class="flex items-center gap-1 bg-gray-50 p-1 rounded border mr-2">
+                        <span class="text-xs font-bold text-gray-500 pl-1">Período:</span>
+                        <input type="date" class="text-xs border rounded p-1" value="${MLPainModule.state.customFilterStart}" onchange="MLPainModule.state.customFilterStart=this.value">
+                        <span class="text-xs">-</span>
+                        <input type="date" class="text-xs border rounded p-1" value="${MLPainModule.state.customFilterEnd}" onchange="MLPainModule.state.customFilterEnd=this.value">
+                        <button onclick="MLPainModule.renderTabela()" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700"><i class="fas fa-filter"></i></button>
+                        <button onclick="MLPainModule.state.customFilterStart='';MLPainModule.state.customFilterEnd='';MLPainModule.renderTabela()" class="text-gray-500 px-2 text-xs hover:text-red-500" title="Limpar Filtro"><i class="fas fa-times"></i></button>
+                    </div>
+                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.state.filterMonth = this.value; MLPainModule.state.customFilterStart=''; MLPainModule.state.customFilterEnd=''; MLPainModule.renderTabela(document.getElementById('mlpain-content'))">
                     <button onclick="MLPainModule.exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
                         <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
+                    </button>
+                    <button onclick="MLPainModule.shareReportWhatsApp()" class="bg-green-500 text-white px-4 py-2 rounded shadow hover:bg-green-600 transition flex items-center gap-2">
+                        <i class="fab fa-whatsapp"></i> WhatsApp
                     </button>
                 </div>
             </div>
 
             <div id="print-area-mlpain" class="p-2 bg-white">
                 <div id="pdf-header" class="hidden mb-6 border-b pb-4"></div>
-                <h4 class="text-center font-bold text-gray-500 mb-4 hidden" id="pdf-title">Relatório de Refeições - ${month}</h4>
+                <h4 class="text-center font-bold text-gray-500 mb-4 hidden" id="pdf-title">${reportTitle}</h4>
+
+            <!-- TABELAS MATRICIAIS SEPARADAS -->
+            ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500', solidAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidAreas)}
+
+            <!-- QUEBRA DE PÁGINA -->
+            <div class="html2pdf__page-break"></div>
 
             <!-- GRÁFICOS (Dentro da área de impressão) -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-8">
                 <div class="bg-white p-4 rounded shadow text-center">
                     <h4 class="font-bold text-gray-600 mb-2">Distribuição Geral</h4>
                     <div class="h-48"><canvas id="chartGeral"></canvas></div>
@@ -586,11 +628,6 @@ const MLPainModule = {
                     <div class="h-48"><canvas id="chartComparativo"></canvas></div>
                 </div>
             </div>
-
-            <!-- TABELAS MATRICIAIS SEPARADAS -->
-            ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500', solidAreas)}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidAreas)}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidAreas)}
 
             <div id="pdf-footer" class="hidden mt-10 pt-4 border-t text-center"></div>
             </div>
@@ -738,6 +775,14 @@ const MLPainModule = {
         const inst = MLPainModule.state.instituicao[0] || {};
         const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
+
+        const start = MLPainModule.state.customFilterStart;
+        const end = MLPainModule.state.customFilterEnd;
+        let filenameSuffix = MLPainModule.state.filterMonth;
+
+        if (start && end) {
+            filenameSuffix = `${start}_to_${end}`;
+        }
         
         // Configura Cabeçalho
         header.innerHTML = `
@@ -761,43 +806,130 @@ const MLPainModule = {
         const style = document.createElement('style');
         style.innerHTML = `
             #print-area-mlpain { width: 100%; background: white; margin: 0; padding: 0; }
-            #print-area-mlpain table { width: 100% !important; border-collapse: collapse !important; }
+            #print-area-mlpain table { 
+                width: 100% !important; 
+                border-collapse: collapse !important; 
+                table-layout: fixed !important; 
+            }
             #print-area-mlpain th, #print-area-mlpain td { 
-                font-size: 10px !important; 
-                padding: 4px 2px !important; 
+                font-size: 7px !important; 
+                padding: 1px !important; 
                 border: 1px solid #ccc !important;
                 white-space: nowrap;
+                overflow: hidden;
+                text-align: center;
             }
             /* Ajuste da coluna de nomes */
             #print-area-mlpain th:first-child, #print-area-mlpain td:first-child {
                 white-space: normal !important;
                 min-width: 120px !important;
                 width: 120px !important;
+                text-align: left !important;
+                padding-left: 2px !important;
             }
             /* Remove larguras forçadas das colunas de dias */
             #print-area-mlpain .min-w-\\[35px\\] { min-width: auto !important; }
+            #print-area-mlpain .min-w-\\[150px\\] { min-width: auto !important; }
+            #print-area-mlpain .min-w-\\[50px\\] { min-width: auto !important; }
             
             /* Limpeza visual */
             #print-area-mlpain .sticky { position: static !important; }
             #print-area-mlpain .shadow { box-shadow: none !important; }
             #print-area-mlpain .overflow-x-auto { overflow: visible !important; }
             #print-area-mlpain .bg-gray-100 { background-color: #f3f4f6 !important; }
+            
+            /* Page Break */
+            .html2pdf__page-break { page-break-before: always; height: 0; display: block; }
         `;
         document.head.appendChild(style);
 
         const opt = {
-            margin: [1, 3, 3, 1], // Ajuste: Topo 1mm, Esq 1mm para aproveitar papel
-            filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
+            margin: [5, 5, 5, 5], // Margens pequenas
+            filename: `relatorio-mlpain-${filenameSuffix}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 2000 },
-            jsPDF: { unit: 'mm', format: 'a3', orientation: 'landscape' },
-            pagebreak: { mode: 'css', avoid: 'tr' }
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 1400 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+            pagebreak: { mode: ['css', 'legacy'] }
         };
         
         html2pdf().set(opt).from(element).save().then(() => {
             header.classList.add('hidden'); title.classList.add('hidden'); footer.classList.add('hidden');
             document.head.removeChild(style);
         });
+    },
+
+    shareReportWhatsApp: () => {
+        const start = MLPainModule.state.customFilterStart;
+        const end = MLPainModule.state.customFilterEnd;
+        let recs = [];
+        let periodText = `🗓️ Mês: ${MLPainModule.state.filterMonth}`;
+
+        if (start && end) {
+            recs = MLPainModule.state.registros.filter(r => r.Data >= start && r.Data <= end);
+            periodText = `🗓️ Período: ${Utils.formatDate(start)} a ${Utils.formatDate(end)}`;
+        } else {
+            recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(MLPainModule.state.filterMonth));
+        }
+        
+        if (recs.length === 0) return Utils.toast('Sem dados para compartilhar.', 'info');
+
+        // Totais
+        const totals = { Solido: 0, Sopa: 0, Cha: 0 };
+        recs.forEach(r => {
+            if (r.Tipo === 'Sólido') totals.Solido += Number(r.Quantidade);
+            else if (r.Subtipo === 'Sopa') totals.Sopa += Number(r.Quantidade);
+            else if (r.Subtipo === 'Chá') totals.Cha += Number(r.Quantidade);
+        });
+        const totalGeral = totals.Solido + totals.Sopa + totals.Cha;
+
+        // Por Área
+        const areaStats = {};
+        recs.forEach(r => {
+            const area = r.AreaNome || 'Outros';
+            if (!areaStats[area]) areaStats[area] = { Solido: 0, Sopa: 0, Cha: 0 };
+            if (r.Tipo === 'Sólido') areaStats[area].Solido += Number(r.Quantidade);
+            else if (r.Subtipo === 'Sopa') areaStats[area].Sopa += Number(r.Quantidade);
+            else if (r.Subtipo === 'Chá') areaStats[area].Cha += Number(r.Quantidade);
+        });
+
+        let msg = `*📊 RELATÓRIO MENSAL - M.L. PAIN*\n`;
+        msg += `${periodText}\n\n`;
+        
+        msg += `*RESUMO GERAL*\n`;
+        msg += `🍽️ Sólidos: ${totals.Solido}\n`;
+        msg += `🥣 Sopa: ${totals.Sopa}\n`;
+        msg += `☕ Chá: ${totals.Cha}\n`;
+        msg += `*TOTAL: ${totalGeral}*\n\n`;
+        
+        msg += `*DETALHE POR ÁREA*\n`;
+        Object.keys(areaStats).sort().forEach(area => {
+            const s = areaStats[area];
+            const t = s.Solido + s.Sopa + s.Cha;
+            if (t > 0) {
+                msg += `🏥 *${area}*: ${t} (Sól:${s.Solido} Liq:${s.Sopa + s.Cha})\n`;
+            }
+        });
+
+        msg += `\n_Gerado em ${new Date().toLocaleDateString()}_`;
+        
+        const encodedMsg = encodeURIComponent(msg);
+        
+        Utils.openModal('Compartilhar Relatório', `
+            <div class="text-center">
+                <i class="fab fa-whatsapp text-4xl text-green-500 mb-4"></i>
+                <p class="text-gray-600 mb-6">O resumo do relatório foi gerado. Envie para a administração.</p>
+                
+                <a href="https://wa.me/?text=${encodedMsg}" target="_blank" class="block w-full bg-green-500 text-white py-3 rounded font-bold hover:bg-green-600 flex items-center justify-center gap-2 transition mb-3 shadow">
+                    Enviar para WhatsApp
+                </a>
+                
+                <button onclick="navigator.clipboard.writeText(document.getElementById('msg-preview-mlpain').innerText).then(() => Utils.toast('Texto copiado!'))" class="block w-full bg-gray-100 text-gray-700 py-3 rounded font-bold hover:bg-gray-200 flex items-center justify-center gap-2 transition">
+                    <i class="fas fa-copy"></i> Copiar Texto
+                </button>
+                
+                <div class="mt-4 text-left bg-gray-50 p-3 rounded border text-xs max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-gray-600" id="msg-preview-mlpain">${msg}</div>
+            </div>
+        `);
     },
 
     // --- 4. GESTÃO DE ÁREAS ---

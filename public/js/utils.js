@@ -1,7 +1,7 @@
 // Verifica Autenticação Globalmente
-// if (!localStorage.getItem('user') && !window.location.href.includes('index.html')) {
-//     window.location.href = 'index.html';
-// }
+if (!localStorage.getItem('user') && !window.location.href.includes('index.html')) {
+    window.location.href = 'index.html';
+}
 
 // Função de Logout Global
 window.logout = () => {
@@ -48,9 +48,9 @@ const Utils = {
     
     getUser: () => {
         try {
-            return JSON.parse(localStorage.getItem('user')) || { Nome: 'Admin (Dev)', Cargo: 'Administrador' };
+            return JSON.parse(localStorage.getItem('user')) || {};
         } catch (e) {
-            return { Nome: 'Admin (Dev)', Cargo: 'Administrador' };
+            return {};
         }
     },
 
@@ -350,10 +350,4 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Aplica permissões na sidebar
     Utils.applySidebarPermissions();
-
-    // --- BYPASS DE VALIDAÇÃO (LOGIN) ---
-    // Desativa a validação HTML5 (required) na tela de login para permitir entrar vazio
-    if (window.location.href.includes('index.html') || window.location.pathname === '/' || window.location.pathname.endsWith('/')) {
-        document.querySelectorAll('form').forEach(f => f.setAttribute('novalidate', 'true'));
-    }
 });

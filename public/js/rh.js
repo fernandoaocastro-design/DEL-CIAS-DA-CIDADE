@@ -3,6 +3,8 @@ const RHModule = {
         cache: { funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
         filterTerm: '',
         filterVencidas: false,
+        filterFrequenciaStart: '',
+        filterFrequenciaEnd: '',
         pagination: {
             currentPage: 1,
             rowsPerPage: 15
@@ -443,16 +445,19 @@ const RHModule = {
         // Elemento temporário para impressão
         const printDiv = document.createElement('div');
         printDiv.id = 'print-escala-geral';
-        printDiv.className = 'bg-white p-4';
-        printDiv.style.position = 'absolute';
-        printDiv.style.left = '-9999px';
+        // Ajuste de posicionamento para evitar PDF em branco (renderização fora da tela)
+        printDiv.style.position = 'fixed';
+        printDiv.style.top = '0';
+        printDiv.style.left = '0';
+        printDiv.style.zIndex = '-9999';
         printDiv.style.width = '297mm'; // A4 Landscape
+        printDiv.style.background = 'white';
         
         let html = `
-            <div class="p-8 font-sans text-gray-900">
+            <div class="p-8 font-sans text-gray-900 bg-white">
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
                     <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
                         <div>
                             <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
                             <p class="text-sm">${inst.Endereco || ''}</p>
@@ -483,8 +488,9 @@ const RHModule = {
                 let type = config ? config.Tipo : (f.Turno === 'Diarista' ? (i <= 5 ? 'Trabalho' : 'Folga') : (f.Turno === 'Regime de Turno' ? 'Turno' : 'Folga'));
                 
                 let label = type === 'Trabalho' ? '08:00 - 17:00' : (type === 'Turno' ? 'Escala' : 'Folga');
-                let bg = type === 'Trabalho' ? 'bg-white' : (type === 'Turno' ? 'bg-blue-50 font-bold text-blue-800' : 'bg-gray-100 text-gray-400');
-                html += `<td class="border p-2 text-center text-xs ${bg}">${label}</td>`;
+                // Estilos inline para garantir cor no PDF
+                let style = type === 'Trabalho' ? 'background-color: #ffffff;' : (type === 'Turno' ? 'background-color: #eff6ff; color: #1e40af; font-weight: bold;' : 'background-color: #f3f4f6; color: #9ca3af;');
+                html += `<td class="border p-2 text-center text-xs" style="${style}">${label}</td>`;
             }
             html += `</tr>`;
         });
@@ -497,12 +503,19 @@ const RHModule = {
         html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
     },
 
-    shareEscalaGeral: async () => {
+    printEscalaGeral: async (isWhatsapp = false) => {
         // Carrega escalas sob demanda se ainda não carregou
         if (!RHModule.state.cache.escala) {
              try {
                 RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
             } catch (e) { RHModule.state.cache.escala = []; }
+        }
+        
+        // Garante que funcionários estejam carregados
+        if (!RHModule.state.cache.funcionarios || RHModule.state.cache.funcionarios.length === 0) {
+             try {
+                RHModule.state.cache.funcionarios = await Utils.api('getAll', 'Funcionarios');
+            } catch (e) { RHModule.state.cache.funcionarios = []; }
         }
 
         const funcs = RHModule.state.cache.funcionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
@@ -567,6 +580,7 @@ const RHModule = {
 
         const data = RHModule.state.cache.frequencia || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
+        const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         // Função auxiliar para calcular horas
@@ -580,10 +594,32 @@ const RHModule = {
             return diff / 60;
         };
 
+        // Aplicar filtro de data
+        const { filterFrequenciaStart, filterFrequenciaEnd } = RHModule.state;
+        if (filterFrequenciaStart) {
+            data = data.filter(r => r.Data >= filterFrequenciaStart);
+        }
+        if (filterFrequenciaEnd) {
+            data = data.filter(r => r.Data <= filterFrequenciaEnd);
+        }
+
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFrequencia()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Registrar Ponto</button>` : ''}</div>
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex gap-2 items-center bg-gray-50 p-2 rounded border">
+                    <label class="text-sm font-bold text-gray-600">Filtrar por Data:</label>
+                    <input type="date" id="freq-start-date" class="border p-1 rounded text-sm" value="${filterFrequenciaStart || ''}">
+                    <span class="text-gray-500">até</span>
+                    <input type="date" id="freq-end-date" class="border p-1 rounded text-sm" value="${filterFrequenciaEnd || ''}">
+                    <button onclick="RHModule.applyFrequenciaFilter()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700" title="Aplicar Filtro"><i class="fas fa-filter"></i></button>
+                    <button onclick="RHModule.clearFrequenciaFilter()" class="text-gray-500 px-2 text-sm hover:text-red-500" title="Limpar Filtro"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="RHModule.printTabPDF('frequencia')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                    ${canCreate ? `<button onclick="RHModule.modalFrequencia()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Registrar Ponto</button>` : ''}
+                </div>
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status (Ref: 8h)</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Data</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status (Ref: 8h)</th><th>Ações</th></tr></thead>
                 <tbody>
                     ${data.map(r => {
                         // Busca funcionário para saber o turno
@@ -600,11 +636,15 @@ const RHModule = {
                         <tr class="border-t">
                             <td class="p-3">${r.ID}</td>
                             <td class="p-3">${r.FuncionarioNome}</td>
+                            <td class="p-3 text-center">${Utils.formatDate(r.Data)}</td>
                             <td class="p-3 text-center">${r.Entrada}</td>
                             <td class="p-3 text-center">${r.Saida}</td>
                             <td class="p-3 text-center font-bold">${total.toFixed(2)}h</td>
                             <td class="p-3 text-center font-bold ${statusClass}">${statusText}</td>
-                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Frequencia', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
+                            <td class="p-3 text-center">
+                                ${canEdit ? `<button onclick="RHModule.modalFrequencia('${r.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
+                                ${canDelete ? `<button onclick="RHModule.delete('Frequencia', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
+                            </td>
                         </tr>`;
                     }).join('')}
                 </tbody>
@@ -612,35 +652,40 @@ const RHModule = {
         `;
     },
 
-    modalFrequencia: () => {
+    modalFrequencia: (id = null) => {
         const funcs = RHModule.state.cache.funcionarios;
         const today = new Date().toISOString().split('T')[0];
-        Utils.openModal('Registro de Frequência', `
+        
+        const record = id ? RHModule.state.cache.frequencia.find(r => r.ID === id) : {};
+        const title = id ? 'Editar Frequência' : 'Registrar Ponto';
+
+        Utils.openModal(title, `
             <form onsubmit="RHModule.save(event, 'Frequencia')">
+                <input type="hidden" name="ID" value="${record.ID || ''}">
                 <div class="mb-4">
                     <label class="block text-sm font-bold">Funcionário</label>
                     <select name="FuncionarioID" class="border p-2 rounded w-full" onchange="this.form.FuncionarioNome.value = this.options[this.selectedIndex].text" required>
                         <option value="">Selecione...</option>
-                        ${funcs.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
+                        ${funcs.map(f => `<option value="${f.ID}" ${record.FuncionarioID === f.ID ? 'selected' : ''}>${f.Nome}</option>`).join('')}
                     </select>
-                    <input type="hidden" name="FuncionarioNome">
+                    <input type="hidden" name="FuncionarioNome" value="${record.FuncionarioNome || ''}">
                 </div>
-                <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" value="${today}" class="border p-2 rounded w-full" required></div>
+                <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" value="${record.Data || today}" class="border p-2 rounded w-full" required></div>
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="text-xs">Entrada</label>
-                        <div class="flex gap-1"><input type="time" name="Entrada" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
                     </div>
                     <div>
                         <label class="text-xs">Saída</label>
-                        <div class="flex gap-1"><input type="time" name="Saida" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <div class="flex gap-1"><input type="time" name="Saida" value="${record.Saida || ''}" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
                     </div>
                 </div>
                 <div class="mb-4">
-                    <input name="Assinatura" placeholder="Assinatura Digital (Texto)" class="border p-2 rounded w-full bg-gray-50">
+                    <input name="Assinatura" value="${record.Assinatura || ''}" placeholder="Assinatura Digital (Texto)" class="border p-2 rounded w-full bg-gray-50">
                 </div>
                 <div class="mb-4">
-                    <textarea name="Observacoes" placeholder="Observações (Atrasos, Justificativas...)" class="border p-2 rounded w-full h-20"></textarea>
+                    <textarea name="Observacoes" placeholder="Observações (Atrasos, Justificativas...)" class="border p-2 rounded w-full h-20">${record.Observacoes || ''}</textarea>
                 </div>
                 <button class="w-full bg-blue-600 text-white py-2 rounded">Registrar</button>
             </form>
@@ -654,6 +699,20 @@ const RHModule = {
         if(input) input.value = time;
     },
 
+    applyFrequenciaFilter: () => {
+        RHModule.state.filterFrequenciaStart = document.getElementById('freq-start-date').value;
+        RHModule.state.filterFrequenciaEnd = document.getElementById('freq-end-date').value;
+        RHModule.renderFrequencia();
+    },
+
+    clearFrequenciaFilter: () => {
+        RHModule.state.filterFrequenciaStart = '';
+        RHModule.state.filterFrequenciaEnd = '';
+        // Não precisa limpar os inputs manualmente, o re-render já fará isso
+        // ao ler o estado vazio.
+        RHModule.renderFrequencia();
+    },
+
     // --- 3. ABA FÉRIAS ---
     renderFerias: () => {
         RHModule.highlightTab('tab-ferias');
@@ -661,7 +720,10 @@ const RHModule = {
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button>` : ''}</div>
+            <div class="flex justify-end gap-2 mb-4">
+                <button onclick="RHModule.printTabPDF('ferias')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                ${canCreate ? `<button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button>` : ''}
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Início</th><th>Retorno</th><th>Dias</th><th>Subsídio de Férias</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -962,7 +1024,10 @@ const RHModule = {
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button>` : ''}</div>
+            <div class="flex justify-end gap-2 mb-4">
+                <button onclick="RHModule.printTabPDF('avaliacoes')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                ${canCreate ? `<button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button>` : ''}
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Data</th><th>Média (0-10)</th><th>Conclusão</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -1077,7 +1142,10 @@ const RHModule = {
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Treinamento</button>` : ''}</div>
+            <div class="flex justify-end gap-2 mb-4">
+                <button onclick="RHModule.printTabPDF('treinamento')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                ${canCreate ? `<button onclick="RHModule.modalTreinamento()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo Treinamento</button>` : ''}
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Título</th><th>Tipo</th><th>Início</th><th>Término</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -1152,7 +1220,10 @@ const RHModule = {
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button>` : ''}</div>
+            <div class="flex justify-end gap-2 mb-4">
+                <button onclick="RHModule.printTabPDF('folha')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                ${canCreate ? `<button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button>` : ''}
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th class="text-right">Salário Base</th><th class="text-right">Vencimentos</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th>Banco/IBAN</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -1274,7 +1345,10 @@ const RHModule = {
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
-            <div class="text-right mb-4">${canCreate ? `<button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button>` : ''}</div>
+            <div class="flex justify-end gap-2 mb-4">
+                <button onclick="RHModule.printTabPDF('licencas')" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700"><i class="fas fa-file-pdf"></i> PDF</button>
+                ${canCreate ? `<button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button>` : ''}
+            </div>
             <table class="w-full bg-white rounded shadow text-sm">
                 <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Tipo</th><th>Início</th><th>Retorno</th><th>Ações</th></tr></thead>
                 <tbody>
@@ -1730,35 +1804,142 @@ const RHModule = {
         });
     },
 
+    printTabPDF: (type) => {
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+        const user = Utils.getUser();
+        let title = '';
+        let filename = '';
+        let content = '';
+        let orientation = 'portrait';
+
+        // Helper para construir tabela
+        const buildTable = (headers, rows) => `
+            <table class="w-full text-sm border-collapse border border-gray-300">
+                <thead class="bg-gray-100">
+                    <tr>${headers.map(h => `<th class="border p-2 text-left">${h}</th>`).join('')}</tr>
+                </thead>
+                <tbody>
+                    ${rows.map(row => `<tr>${row.map(cell => `<td class="border p-2">${cell || '-'}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+            </table>
+        `;
+
+        if (type === 'frequencia') {
+            title = 'Relatório de Frequência';
+            filename = 'frequencia.pdf';
+            let data = RHModule.state.cache.frequencia || [];
+
+            // Aplicar filtro de data também no PDF
+            const { filterFrequenciaStart, filterFrequenciaEnd } = RHModule.state;
+            if (filterFrequenciaStart) {
+                data = data.filter(r => r.Data >= filterFrequenciaStart);
+            }
+            if (filterFrequenciaEnd) {
+                data = data.filter(r => r.Data <= filterFrequenciaEnd);
+            }
+
+            data.sort((a,b) => new Date(b.Data) - new Date(a.Data));
+            
+            const headers = ['ID', 'Nome', 'Data', 'Entrada', 'Saída', 'Total', 'Status'];
+            const rows = data.map(r => {
+                const func = RHModule.state.cache.funcionarios.find(f => f.ID === r.FuncionarioID);
+                const is24h = func && func.Turno === 'Regime de Turno';
+                const refHours = is24h ? 24 : 8;
+                
+                const calcHours = (start, end) => {
+                    if(!start || !end) return 0;
+                    const [h1, m1] = start.split(':').map(Number);
+                    const [h2, m2] = end.split(':').map(Number);
+                    let diff = (h2*60+m2) - (h1*60+m1);
+                    if (diff <= 0) diff += 24 * 60; 
+                    return diff / 60;
+                };
+                
+                const total = calcHours(r.Entrada, r.Saida);
+                const diff = total - refHours;
+                const statusText = diff < 0 ? `Falta: ${Math.abs(diff).toFixed(1)}h` : (diff > 0 ? `Extra: ${diff.toFixed(1)}h` : 'Normal');
+                
+                return [r.ID, r.FuncionarioNome, Utils.formatDate(r.Data), r.Entrada, r.Saida, total.toFixed(2)+'h', statusText];
+            });
+            content = buildTable(headers, rows);
+        } 
+        else if (type === 'ferias') {
+            title = 'Relatório de Férias';
+            filename = 'ferias.pdf';
+            const data = RHModule.state.cache.ferias || [];
+            const headers = ['ID', 'Nome', 'Início', 'Retorno', 'Dias', 'Status'];
+            const rows = data.map(r => [r.ID, r.FuncionarioNome, Utils.formatDate(r.DataInicio), Utils.formatDate(r.DataFim), r.Dias, r.Status]);
+            content = buildTable(headers, rows);
+        }
+        else if (type === 'avaliacoes') {
+            title = 'Relatório de Avaliações';
+            filename = 'avaliacoes.pdf';
+            const data = RHModule.state.cache.avaliacoes || [];
+            const headers = ['ID', 'Funcionário', 'Data', 'Média', 'Conclusão'];
+            const rows = data.map(r => [r.ID, r.FuncionarioNome, Utils.formatDate(r.DataAvaliacao), r.MediaFinal, r.Conclusao]);
+            content = buildTable(headers, rows);
+        }
+        else if (type === 'treinamento') {
+            title = 'Relatório de Treinamentos';
+            filename = 'treinamentos.pdf';
+            orientation = 'landscape';
+            const data = RHModule.state.cache.treinamentos || [];
+            const headers = ['ID', 'Nome', 'Título', 'Tipo', 'Início', 'Término', 'Status'];
+            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Titulo, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Termino), r.Status]);
+            content = buildTable(headers, rows);
+        }
+        else if (type === 'folha') {
+            title = 'Folha de Pagamento';
+            filename = 'folha.pdf';
+            orientation = 'landscape';
+            const data = RHModule.state.cache.folha || [];
+            const headers = ['ID', 'Nome', 'Período', 'Base', 'Vencimentos', 'Descontos', 'Líquido', 'Banco'];
+            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Periodo, Utils.formatCurrency(r.SalarioBase), Utils.formatCurrency(r.TotalVencimentos), Utils.formatCurrency(r.TotalDescontos), Utils.formatCurrency(r.SalarioLiquido), r.Banco]);
+            content = buildTable(headers, rows);
+        }
+        else if (type === 'licencas') {
+            title = 'Relatório de Licenças';
+            filename = 'licencas.pdf';
+            const data = RHModule.state.cache.licencas || [];
+            const headers = ['ID', 'Funcionário', 'Tipo', 'Início', 'Retorno'];
+            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Retorno)]);
+            content = buildTable(headers, rows);
+        }
+
+        const printDiv = document.createElement('div');
+        printDiv.id = 'print-tab-generic';
+        printDiv.style.position = 'fixed'; printDiv.style.top = '0'; printDiv.style.left = '0'; printDiv.style.zIndex = '-9999';
+        printDiv.style.width = orientation === 'landscape' ? '297mm' : '210mm';
+        printDiv.style.background = 'white';
+        
+        printDiv.innerHTML = `<div class="p-8 font-sans text-gray-900 bg-white"><div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6"><div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}<div><h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p class="text-sm">${inst.Endereco || ''}</p></div></div><div class="text-right"><h2 class="text-xl font-bold">${title.toUpperCase()}</h2><p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p><p class="text-xs text-gray-500">Por: ${user.Nome}</p></div></div>${content}<div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
+
+        document.body.appendChild(printDiv);
+        const opt = { margin: 10, filename: filename, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: orientation } };
+        html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
+    },
+
     // --- GENÉRICOS ---
     save: async (e, table) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
 
-        // Geração Automática de ID para Funcionários (Iniciais + Sequencial)
+        // Geração Automática de ID para Funcionários (Iniciais + Sequencial Global)
         if (table === 'Funcionarios' && !data.ID) {
             const nome = data.Nome.trim();
             if (nome) {
                 const parts = nome.split(' ');
                 const first = parts[0][0].toUpperCase();
-                const last = parts[parts.length - 1][0].toUpperCase();
+                // Lida com nomes de uma só palavra (ex: "Maria" -> "MM")
+                const last = parts.length > 1 ? parts[parts.length - 1][0].toUpperCase() : first;
                 const prefix = first + last;
                 
-                // Encontrar o próximo número para este prefixo
-                const existingIds = RHModule.state.cache.funcionarios
-                    .map(f => f.ID)
-                    .filter(id => id && id.startsWith(prefix + '-'));
+                // A sequência é baseada no total de funcionários para garantir um número único e crescente,
+                // representando a ordem de cadastro.
+                const nextNumber = (RHModule.state.cache.funcionarios.length || 0) + 1;
                 
-                let maxSeq = 0;
-                existingIds.forEach(id => {
-                    const partsId = id.split('-');
-                    if (partsId.length === 2) {
-                        const seq = parseInt(partsId[1]);
-                        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-                    }
-                });
-                
-                data.ID = `${prefix}-${String(maxSeq + 1).padStart(2, '0')}`;
+                data.ID = `${prefix}-${String(nextNumber).padStart(2, '0')}`;
             }
         }
 

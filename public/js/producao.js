@@ -199,7 +199,8 @@ const ProducaoModule = {
         // Função para adicionar linha de ingrediente
         window.addIngrediente = () => {
             const container = document.getElementById('lista-ingredientes');
-            const index = container.children.length;
+            // Usa timestamp para garantir ID único e evitar conflito ao excluir/adicionar linhas
+            const index = Date.now() + Math.floor(Math.random() * 1000);
             const div = document.createElement('div');
             div.className = 'grid grid-cols-12 gap-2 mb-2 items-center ingrediente-row';
             div.innerHTML = `
@@ -509,6 +510,8 @@ const ProducaoModule = {
     renderDesperdicio: (container) => {
         const data = ProducaoModule.state.desperdicio;
         const canCreate = Utils.checkPermission('Producao', 'criar');
+        const canEdit = Utils.checkPermission('Producao', 'editar');
+        const canDelete = Utils.checkPermission('Producao', 'excluir');
         container.innerHTML = `
             <div class="flex justify-between mb-4">
                 <h3 class="text-xl font-bold text-gray-800">Controle de Desperdício</h3>
@@ -519,7 +522,7 @@ const ProducaoModule = {
             <div class="bg-white rounded shadow overflow-x-auto">
                 <table class="w-full text-sm text-left">
                     <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Refeição</th><th>Sobra Limpa (kg)</th><th>Sobra Suja (kg)</th><th>Motivo</th><th>Resp.</th></tr>
+                        <tr><th>Data</th><th>Refeição</th><th>Sobra Limpa (kg)</th><th>Sobra Suja (kg)</th><th>Motivo</th><th>Resp.</th><th>Ações</th></tr>
                     </thead>
                     <tbody class="divide-y">
                         ${data.map(d => `
@@ -530,6 +533,10 @@ const ProducaoModule = {
                                 <td class="p-3 text-red-600 font-bold">${d.SobraSuja || 0}</td>
                                 <td class="p-3">${d.Motivo}</td>
                                 <td class="p-3">${d.Responsavel}</td>
+                                <td class="p-3 flex gap-2">
+                                    ${canEdit ? `<button onclick="ProducaoModule.modalDesperdicio('${d.ID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>` : ''}
+                                    ${canDelete ? `<button onclick="ProducaoModule.deleteDesperdicio('${d.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
+                                </td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -538,34 +545,121 @@ const ProducaoModule = {
         `;
     },
 
-    modalDesperdicio: () => {
-        Utils.openModal('Registrar Desperdício', `
+    modalDesperdicio: (id = null) => {
+        const item = id ? ProducaoModule.state.desperdicio.find(d => d.ID === id) : {};
+        
+        Utils.openModal(id ? 'Editar Desperdício' : 'Registrar Desperdício', `
             <form onsubmit="ProducaoModule.save(event, 'ControleDesperdicio')">
+                <input type="hidden" name="ID" value="${item.ID || ''}">
                 <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Tipo Refeição</label><select name="TipoRefeicao" class="border p-2 rounded w-full"><option>Almoço</option><option>Jantar</option></select></div>
+                    <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" value="${item.Data || ''}" class="border p-2 rounded w-full" required></div>
+                    <div><label class="text-xs font-bold">Tipo Refeição</label>
+                        <select name="TipoRefeicao" class="border p-2 rounded w-full">
+                            <option ${item.TipoRefeicao === 'Almoço' ? 'selected' : ''}>Almoço</option>
+                            <option ${item.TipoRefeicao === 'Jantar' ? 'selected' : ''}>Jantar</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Sobra Limpa (kg)</label><input type="number" step="0.01" name="SobraLimpa" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Sobra Suja (kg)</label><input type="number" step="0.01" name="SobraSuja" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold">Sobra Limpa (kg)</label><input type="number" step="0.01" name="SobraLimpa" value="${item.SobraLimpa || ''}" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold">Sobra Suja (kg)</label><input type="number" step="0.01" name="SobraSuja" value="${item.SobraSuja || ''}" class="border p-2 rounded w-full"></div>
                 </div>
-                <div class="mb-3"><label class="text-xs font-bold">Motivo</label><input name="Motivo" class="border p-2 rounded w-full" placeholder="Ex: Excesso de produção"></div>
-                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="Responsavel" class="border p-2 rounded w-full"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Motivo</label><input name="Motivo" value="${item.Motivo || ''}" class="border p-2 rounded w-full" placeholder="Ex: Excesso de produção"></div>
+                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="Responsavel" value="${item.Responsavel || ''}" class="border p-2 rounded w-full"></div>
                 <button class="w-full bg-red-600 text-white py-2 rounded font-bold">Salvar Registro</button>
             </form>
         `);
     },
 
-    // 🧂 4️⃣ Ingredientes (Placeholder visual)
+    // 🧂 4️⃣ Ingredientes (Controle e Baixa Manual)
     renderIngredientes: (container) => {
+        const consumo = ProducaoModule.state.consumo || [];
+        const ordens = ProducaoModule.state.ordens || [];
+        const canCreate = Utils.checkPermission('Producao', 'criar');
+
+        // Ordenar por data decrescente
+        consumo.sort((a, b) => new Date(b.DataRetirada) - new Date(a.DataRetirada));
+
         container.innerHTML = `
-            <div class="text-center py-10 bg-white rounded shadow">
-                <i class="fas fa-carrot text-4xl text-green-500 mb-4"></i>
-                <h3 class="text-xl font-bold text-gray-800">Controle de Ingredientes</h3>
-                <p class="text-gray-500 mb-4">Vincule insumos do estoque às ordens de produção.</p>
-                <button class="bg-green-600 text-white px-4 py-2 rounded" onclick="Utils.toast('Funcionalidade em desenvolvimento')">Baixar Estoque para Produção</button>
+            <div class="flex justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Histórico de Consumo de Ingredientes</h3>
+                ${canCreate ? `<button onclick="ProducaoModule.modalBaixaIngrediente()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700">
+                    <i class="fas fa-arrow-down"></i> Baixar Estoque Manual
+                </button>` : ''}
+            </div>
+
+            <div class="bg-white rounded shadow overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">Data</th>
+                            <th class="p-3">Ingrediente</th>
+                            <th class="p-3">Qtd</th>
+                            <th class="p-3">Ordem (OP)</th>
+                            <th class="p-3">Responsável</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${consumo.map(c => {
+                            const ordem = ordens.find(o => o.ID === c.OrdemID);
+                            const opCode = ordem ? `#${ordem.Codigo}` : 'Avulso';
+                            return `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3">${Utils.formatDate(c.DataRetirada)}</td>
+                                <td class="p-3 font-bold">${c.ProdutoNome}</td>
+                                <td class="p-3">${c.Quantidade}</td>
+                                <td class="p-3"><span class="bg-gray-100 px-2 py-1 rounded text-xs">${opCode}</span></td>
+                                <td class="p-3 text-xs text-gray-500">${c.Responsavel || '-'}</td>
+                            </tr>
+                        `}).join('')}
+                        ${consumo.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum registro de consumo.</td></tr>' : ''}
+                    </tbody>
+                </table>
             </div>
         `;
+    },
+
+    modalBaixaIngrediente: () => {
+        const estoque = ProducaoModule.state.estoque;
+        const ordensAbertas = ProducaoModule.state.ordens.filter(o => o.Status !== 'Concluída');
+
+        Utils.openModal('Baixa Manual de Ingrediente', `
+            <form onsubmit="ProducaoModule.saveBaixaIngrediente(event)">
+                <div class="mb-3">
+                    <label class="text-xs font-bold">Ingrediente (Estoque)</label>
+                    <select name="ProdutoID" class="border p-2 rounded w-full" required onchange="this.form.ProdutoNome.value = this.options[this.selectedIndex].text">
+                        <option value="">Selecione...</option>
+                        ${estoque.map(e => `<option value="${e.ID}">${e.Nome} (Atual: ${e.Quantidade} ${e.Unidade})</option>`).join('')}
+                    </select>
+                    <input type="hidden" name="ProdutoNome">
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Quantidade</label><input type="number" step="0.01" name="Quantidade" class="border p-2 rounded w-full" required></div>
+                    <div><label class="text-xs font-bold">Vincular a Ordem (Opcional)</label>
+                        <select name="OrdemID" class="border p-2 rounded w-full">
+                            <option value="">Sem Ordem (Avulso)</option>
+                            ${ordensAbertas.map(o => `<option value="${o.ID}">OP #${o.Codigo} - ${o.Responsavel}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="Responsavel" class="border p-2 rounded w-full" required></div>
+                <button class="w-full bg-green-600 text-white py-2 rounded font-bold">Confirmar Baixa</button>
+            </form>
+        `);
+    },
+
+    saveBaixaIngrediente: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        
+        if (Number(data.Quantidade) <= 0) return Utils.toast('Quantidade inválida.', 'error');
+
+        try {
+            await Utils.api('saveIngredientConsumption', null, data);
+            Utils.toast('Baixa realizada com sucesso!', 'success');
+            Utils.closeModal();
+            ProducaoModule.fetchData();
+        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
     // 🧮 7️⃣ Custos (Placeholder visual)
@@ -717,8 +811,13 @@ const ProducaoModule = {
                         });
                     }
                 }
+                // Remove campos temporários do objeto data para não quebrar o salvamento no banco
+                if (key.startsWith('ingrediente_')) {
+                    delete data[key];
+                }
             }
             data.IngredientesJSON = ingredientes;
+            if (ingredientes.length === 0) return Utils.toast('⚠️ É obrigatório adicionar pelo menos um ingrediente à ficha técnica.', 'warning');
         }
 
         try {
@@ -733,6 +832,15 @@ const ProducaoModule = {
         if(confirm('Tem certeza que deseja excluir?')) { 
             try {
                 await Utils.api('delete', 'FichasTecnicas', null, id); 
+                ProducaoModule.fetchData(); 
+            } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
+        }
+    },
+
+    deleteDesperdicio: async (id) => {
+        if(confirm('Tem certeza que deseja excluir este registro de desperdício?')) { 
+            try {
+                await Utils.api('delete', 'ControleDesperdicio', null, id); 
                 ProducaoModule.fetchData(); 
             } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
         }

@@ -6,7 +6,8 @@ const EventosModule = {
         stockItems: [],
         purchaseOrders: [],
         view: 'calendar', // 'calendar' or 'list'
-        instituicao: []
+        instituicao: [],
+        purchaseCart: [] // Carrinho de compras para pedidos
     },
 
     init: () => {
@@ -27,6 +28,7 @@ const EventosModule = {
             EventosModule.state.purchaseOrders = orders || [];
         } catch (e) {
             console.log("Erro ao carregar dados.");
+            Utils.toast("Erro ao carregar dados de eventos e estoque.", "error");
         }
         EventosModule.render();
     },
@@ -188,26 +190,52 @@ const EventosModule = {
     renderPurchaseOrders: () => {
         const container = document.getElementById('purchase-view');
         const items = EventosModule.state.stockItems || [];
+        const cart = EventosModule.state.purchaseCart || [];
         const canCreate = Utils.checkPermission('Eventos', 'criar');
         
-        // Ordenar itens por nome
-        items.sort((a, b) => {
-            const nomeA = a.Nome || a.Item || '';
-            const nomeB = b.Nome || b.Item || '';
-            return nomeA.localeCompare(nomeB);
-        });
+        // Calcular Total do Carrinho
+        const totalGeral = cart.reduce((acc, item) => acc + (item.qty * item.price), 0);
 
         container.innerHTML = `
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-800">Gerar Pedido de Compra</h3>
-                ${canCreate ? `<button onclick="EventosModule.savePurchaseOrder()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition mr-2">
-                    <i class="fas fa-save mr-2"></i> Salvar Pedido
-                </button>` : ''}
-                <button onclick="EventosModule.printPurchaseOrder()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 transition">
-                    <i class="fas fa-print mr-2"></i> Imprimir Pedido
-                </button>
+                <div>
+                    ${canCreate ? `<button onclick="EventosModule.savePurchaseOrder()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition mr-2">
+                        <i class="fas fa-save mr-2"></i> Salvar Pedido
+                    </button>` : ''}
+                    <button onclick="EventosModule.sharePurchaseOrderWhatsApp()" class="bg-green-500 text-white px-4 py-2 rounded shadow hover:bg-green-600 transition mr-2">
+                        <i class="fab fa-whatsapp mr-2"></i> WhatsApp
+                    </button>
+                    <button onclick="EventosModule.printPurchaseOrder()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 transition">
+                        <i class="fas fa-print mr-2"></i> Imprimir Pedido
+                    </button>
+                </div>
             </div>
 
+            <!-- Área de Seleção (Adicionar Item) -->
+            <div class="bg-gray-50 p-4 rounded mb-6 border border-gray-200 shadow-sm">
+                <h4 class="font-bold text-gray-700 mb-2 text-sm uppercase">Adicionar Item ao Pedido</h4>
+                <div class="flex flex-col md:flex-row gap-2 items-end">
+                    <div class="flex-1 w-full">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Produto (Estoque)</label>
+                        <select id="purchase-product-select" class="border p-2 rounded w-full bg-white">
+                            <option value="">Selecione um produto...</option>
+                            ${items.sort((a,b) => (a.Nome||'').localeCompare(b.Nome||'')).map(i => 
+                                `<option value="${i.ID}">${i.Nome} (Atual: ${i.Quantidade} ${i.Unidade}) - Custo: ${Utils.formatCurrency(i.CustoUnitario)}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div class="w-full md:w-32">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">Quantidade</label>
+                        <input type="number" id="purchase-qty-input" class="border p-2 rounded w-full text-center" min="1" value="1">
+                    </div>
+                    <button onclick="EventosModule.addToCart()" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 h-10 font-bold w-full md:w-auto">
+                        <i class="fas fa-plus"></i> Adicionar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tabela de Itens Selecionados -->
             <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left" id="purchase-table">
                     <thead class="bg-gray-100 text-gray-600 uppercase">
@@ -217,30 +245,35 @@ const EventosModule = {
                             <th class="p-3 text-center w-32">Quantidade</th>
                             <th class="p-3 text-left">Observação</th>
                             <th class="p-3 text-right">Subtotal (Kz)</th>
+                            <th class="p-3 text-center">Ações</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${items.map(item => {
-                            const nome = item.Nome || item.Item || 'Produto sem nome';
-                            return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3 font-medium">${nome} <span class="text-xs text-gray-400">(${item.Unidade || '-'})</span></td>
-                                <td class="p-3 text-right" data-price="${item.CustoUnitario || 0}">${Utils.formatCurrency(item.CustoUnitario)}</td>
+                        ${cart.map((item, index) => `
+                            <tr>
+                                <td class="p-3 font-medium">${item.name}</td>
+                                <td class="p-3 text-right">${Utils.formatCurrency(item.price)}</td>
                                 <td class="p-3 text-center">
-                                    <input type="number" min="0" step="0.01" class="border p-1 rounded w-24 text-center purchase-qty" 
-                                        data-id="${item.ID}" oninput="EventosModule.calcPurchaseTotal(this)">
+                                    <input type="number" class="border p-1 rounded w-20 text-center" value="${item.qty}" 
+                                        onchange="EventosModule.updateCartItem(${index}, 'qty', this.value)">
                                 </td>
                                 <td class="p-3">
-                                    <input type="text" class="border p-1 rounded w-full text-sm purchase-obs" placeholder="Obs...">
+                                    <input type="text" class="border p-1 rounded w-full text-xs" value="${item.obs}" placeholder="Obs..." 
+                                        onchange="EventosModule.updateCartItem(${index}, 'obs', this.value)">
                                 </td>
-                                <td class="p-3 text-right font-bold text-gray-700 purchase-subtotal">0,00</td>
+                                <td class="p-3 text-right font-bold text-gray-700">${Utils.formatCurrency(item.qty * item.price)}</td>
+                                <td class="p-3 text-center">
+                                    <button onclick="EventosModule.removeFromCart(${index})" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                </td>
                             </tr>
-                        `}).join('')}
+                        `).join('')}
+                        ${cart.length === 0 ? '<tr><td colspan="6" class="p-8 text-center text-gray-400 italic">Nenhum item adicionado ao pedido. Selecione acima.</td></tr>' : ''}
                     </tbody>
                     <tfoot>
                         <tr class="bg-gray-100 font-bold text-lg">
-                            <td colspan="3" class="p-3 text-right">TOTAL ESTIMADO:</td>
-                            <td class="p-3 text-right text-indigo-700" id="purchase-total">Kz 0,00</td>
+                            <td colspan="4" class="p-3 text-right">TOTAL ESTIMADO:</td>
+                            <td class="p-3 text-right text-indigo-700">${Utils.formatCurrency(totalGeral)}</td>
+                            <td></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -254,45 +287,111 @@ const EventosModule = {
         `;
     },
 
-    calcPurchaseTotal: (input) => {
-        const row = input.closest('tr');
-        const price = parseFloat(row.querySelector('[data-price]').getAttribute('data-price')) || 0;
-        const qty = parseFloat(input.value) || 0;
-        const subtotal = price * qty;
+    addToCart: () => {
+        const select = document.getElementById('purchase-product-select');
+        const qtyInput = document.getElementById('purchase-qty-input');
+        const id = select.value;
+        const qty = parseFloat(qtyInput.value);
+
+        if (!id) return Utils.toast('Selecione um produto.', 'warning');
+        if (!qty || qty <= 0) return Utils.toast('Quantidade inválida.', 'warning');
+
+        const item = EventosModule.state.stockItems.find(i => i.ID === id);
+        if (!item) return;
+
+        // Verifica se já existe no carrinho
+        const existing = EventosModule.state.purchaseCart.find(i => i.id === id);
+        if (existing) {
+            existing.qty += qty;
+        } else {
+            EventosModule.state.purchaseCart.push({
+                id: item.ID,
+                name: item.Nome || item.Item,
+                price: Number(item.CustoUnitario || 0),
+                qty: qty,
+                obs: ''
+            });
+        }
         
-        row.querySelector('.purchase-subtotal').innerText = Utils.formatCurrency(subtotal);
+        // Resetar campos
+        select.value = '';
+        qtyInput.value = 1;
         
-        // Atualiza Total Geral
-        let total = 0;
-        document.querySelectorAll('.purchase-qty').forEach(inp => {
-            const r = inp.closest('tr');
-            const p = parseFloat(r.querySelector('[data-price]').getAttribute('data-price')) || 0;
-            const q = parseFloat(inp.value) || 0;
-            total += p * q;
-        });
-        
-        document.getElementById('purchase-total').innerText = Utils.formatCurrency(total);
+        EventosModule.renderPurchaseOrders();
     },
 
-    getPurchaseItems: () => {
-        const itemsToBuy = [];
-        document.querySelectorAll('.purchase-qty').forEach(inp => {
-            const qty = parseFloat(inp.value) || 0;
-            if (qty > 0) {
-                const row = inp.closest('tr');
-                // Ajuste para pegar apenas o nome do produto, removendo a unidade que está num span
-                const name = row.querySelector('td:first-child').childNodes[0].textContent.trim();
-                const price = parseFloat(row.querySelector('[data-price]').getAttribute('data-price')) || 0;
-                const obs = row.querySelector('.purchase-obs').value;
-                itemsToBuy.push({ name, price, qty, obs, total: price * qty });
-            }
-        });
+    removeFromCart: (index) => {
+        EventosModule.state.purchaseCart.splice(index, 1);
+        EventosModule.renderPurchaseOrders();
+    },
 
-        return itemsToBuy;
+    updateCartItem: (index, field, value) => {
+        if (field === 'qty') {
+            const val = parseFloat(value);
+            if (val > 0) EventosModule.state.purchaseCart[index].qty = val;
+        } else if (field === 'obs') {
+            EventosModule.state.purchaseCart[index].obs = value;
+        }
+        EventosModule.renderPurchaseOrders();
+    },
+
+    sharePurchaseOrderWhatsApp: () => {
+        const itemsToBuy = EventosModule.state.purchaseCart.map(i => ({
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            obs: i.obs,
+            total: i.qty * i.price
+        }));
+
+        if (itemsToBuy.length === 0) return Utils.toast('Selecione pelo menos um item.', 'warning');
+
+        const totalGeral = itemsToBuy.reduce((acc, i) => acc + i.total, 0);
+        const user = Utils.getUser();
+
+        let msg = `*🛒 PEDIDO DE COMPRA*\n`;
+        msg += `_Solicitante: ${user.Nome || 'Sistema'}_\n`;
+        msg += `_Data: ${new Date().toLocaleDateString()}_\n\n`;
+        
+        msg += `*ITENS DO PEDIDO:*\n`;
+        itemsToBuy.forEach(i => {
+            msg += `▪️ *${i.name}*\n`;
+            msg += `   Qtd: ${i.qty} | Unit: ${Utils.formatCurrency(i.price)}\n`;
+            if(i.obs) msg += `   Obs: ${i.obs}\n`;
+            msg += `   Subtotal: ${Utils.formatCurrency(i.total)}\n`;
+        });
+        
+        msg += `\n*💰 TOTAL ESTIMADO: ${Utils.formatCurrency(totalGeral)}*`;
+
+        const encodedMsg = encodeURIComponent(msg);
+
+        Utils.openModal('Enviar Pedido por WhatsApp', `
+            <div class="text-center">
+                <i class="fab fa-whatsapp text-4xl text-green-500 mb-4"></i>
+                <p class="text-gray-600 mb-6">O pedido foi gerado. Envie para o fornecedor.</p>
+                
+                <a href="https://wa.me/?text=${encodedMsg}" target="_blank" class="block w-full bg-green-500 text-white py-3 rounded font-bold hover:bg-green-600 flex items-center justify-center gap-2 transition mb-3 shadow">
+                    Enviar para WhatsApp
+                </a>
+                
+                <button onclick="navigator.clipboard.writeText(document.getElementById('msg-preview-pedido').innerText).then(() => Utils.toast('Texto copiado!'))" class="block w-full bg-gray-100 text-gray-700 py-3 rounded font-bold hover:bg-gray-200 flex items-center justify-center gap-2 transition">
+                    <i class="fas fa-copy"></i> Copiar Texto
+                </button>
+                
+                <div class="mt-4 text-left bg-gray-50 p-3 rounded border text-xs max-h-48 overflow-y-auto whitespace-pre-wrap font-mono text-gray-600" id="msg-preview-pedido">${msg}</div>
+            </div>
+        `);
     },
 
     savePurchaseOrder: async () => {
-        const items = EventosModule.getPurchaseItems();
+        const items = EventosModule.state.purchaseCart.map(i => ({
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            obs: i.obs,
+            total: i.qty * i.price
+        }));
+
         if (items.length === 0) return Utils.toast('Selecione pelo menos um item.', 'warning');
 
         if(!confirm('Deseja salvar este pedido de compra no histórico?')) return;
@@ -310,7 +409,8 @@ const EventosModule = {
         try {
             await Utils.api('savePurchaseOrder', null, pedido);
             Utils.toast('Pedido de compra salvo com sucesso!', 'success');
-            // Opcional: Limpar campos ou recarregar
+            EventosModule.state.purchaseCart = []; // Limpar carrinho
+            EventosModule.renderPurchaseOrders();
         } catch (err) {
             Utils.toast('Erro ao salvar pedido: ' + err.message, 'error');
         }
@@ -402,7 +502,13 @@ const EventosModule = {
     },
 
     printPurchaseOrder: () => {
-        const itemsToBuy = EventosModule.getPurchaseItems();
+        const itemsToBuy = EventosModule.state.purchaseCart.map(i => ({
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            obs: i.obs,
+            total: i.qty * i.price
+        }));
 
         if (itemsToBuy.length === 0) return Utils.toast('Selecione pelo menos um item.', 'warning');
 

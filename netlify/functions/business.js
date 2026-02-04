@@ -28,20 +28,17 @@ exports.handler = async (event) => {
         let userSession = null;
 
         // --- 1. VERIFICAÇÃO DE SEGURANÇA (JWT) ---
-        // if (action !== 'login') {
-        //     const token = event.headers.authorization ? event.headers.authorization.split(' ')[1] : null;
-        //     if (!token) {
-        //         return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Acesso Negado: Token não fornecido.' }) };
-        //     }
-        //     try {
-        //         userSession = jwt.verify(token, SECRET);
-        //     } catch (err) {
-        //         return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Sessão Expirada. Faça login novamente.' }) };
-        //     }
-        // }
-        
-        // Mock Session para não quebrar logs de auditoria em modo DEV
-        if (action !== 'login') userSession = { id: 'dev-bypass', nome: 'Admin (Dev)', cargo: 'Administrador' };
+        if (action !== 'login') {
+            const token = event.headers.authorization ? event.headers.authorization.split(' ')[1] : null;
+            if (!token) {
+                return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Acesso Negado: Token não fornecido.' }) };
+            }
+            try {
+                userSession = jwt.verify(token, SECRET);
+            } catch (err) {
+                return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Sessão Expirada. Faça login novamente.' }) };
+            }
+        }
 
         if (action === 'getAll') {
             const { page, limit } = data || {};
@@ -60,41 +57,29 @@ exports.handler = async (event) => {
             const email = data.email ? data.email.trim() : '';
             const password = data.password ? data.password.trim() : '';
 
-            // --- BYPASS DE LOGIN (DEV) ---
-            // Permite entrar com campos vazios
-            if (!email && !password) {
-                result = {
-                    ID: 'dev-admin-id',
-                    Nome: 'Admin (Dev)',
-                    Email: 'admin@dev.com',
-                    Cargo: 'Administrador',
-                    token: 'dev-bypass-token'
-                };
-            } else {
-                // 1. Busca usuário pelo Email
-                const { data: user, error: err } = await supabase
-                    .from('Usuarios')
-                    .select('*')
-                    .eq('Email', email) // O banco diferencia maiúsculas/minúsculas dependendo da configuração
-                    .maybeSingle(); // Usa maybeSingle para não dar erro se não achar ninguém
-                
-                if (err) {
-                    console.error('Erro Supabase:', err);
-                    throw new Error(`Erro no Banco: ${err.message}`);
-                }
-                
-                // 2. Verifica se usuário existe e se a senha bate
-                if (!user) throw new Error('Usuário não encontrado com este email.');
-                if (user.Senha !== password) throw new Error('Senha incorreta.');
-                
-                // Segurança: Remover senha do objeto retornado
-                delete user.Senha;
-                
-                // Gerar Token JWT
-                const token = jwt.sign({ id: user.ID, email: user.Email, nome: user.Nome, cargo: user.Cargo }, SECRET, { expiresIn: '12h' });
-                user.token = token; // Envia o token junto com os dados do usuário
-                result = user;
+            // 1. Busca usuário pelo Email
+            const { data: user, error: err } = await supabase
+                .from('Usuarios')
+                .select('*')
+                .eq('Email', email) // O banco diferencia maiúsculas/minúsculas dependendo da configuração
+                .maybeSingle(); // Usa maybeSingle para não dar erro se não achar ninguém
+            
+            if (err) {
+                console.error('Erro Supabase:', err);
+                throw new Error(`Erro no Banco: ${err.message}`);
             }
+            
+            // 2. Verifica se usuário existe e se a senha bate
+            if (!user) throw new Error('Usuário não encontrado com este email.');
+            if (user.Senha !== password) throw new Error('Senha incorreta.');
+            
+            // Segurança: Remover senha do objeto retornado
+            delete user.Senha;
+            
+            // Gerar Token JWT
+            const token = jwt.sign({ id: user.ID, email: user.Email, nome: user.Nome, cargo: user.Cargo }, SECRET, { expiresIn: '12h' });
+            user.token = token; // Envia o token junto com os dados do usuário
+            result = user;
         } else if (action === 'save') {
             const payload = { ...data };
             // Remove ID vazio para permitir inserção (Auto-Increment/UUID)
@@ -219,6 +204,11 @@ exports.handler = async (event) => {
             const { data: conta, error: errConta } = await supabase.from(table).select('*').eq('ID', id).single();
             if (errConta || !conta) throw new Error('Conta não encontrada.');
 
+            // Validação: Impede pagamento duplicado
+            if (conta.Status === 'Pago' || conta.Status === 'Recebido') {
+                throw new Error('Esta conta já foi liquidada anteriormente.');
+            }
+
             // 2. Atualizar status da conta para Pago/Recebido
             const novoStatus = isReceber ? 'Recebido' : 'Pago';
             const { error: errUpdate } = await supabase.from(table).update({ 
@@ -267,6 +257,9 @@ exports.handler = async (event) => {
                 // Gerar Código Automático se não vier (Simples: Timestamp ou Serial no banco seria melhor, aqui via JS)
                 if(!payload.Codigo) payload.Codigo = `INV-${Date.now().toString().slice(-6)}`;
                 
+                // Remove ID vazio para evitar erro de chave duplicada ou inválida (Deixa o banco gerar o UUID)
+                if (!payload.ID) delete payload.ID;
+
                 const { data: newBem, error: errIns } = await supabase.from('Inventario').insert(payload).select().single();
                 if (errIns) throw errIns;
                 bemID = newBem.ID;
@@ -347,7 +340,8 @@ exports.handler = async (event) => {
             if (errFicha || !ficha) throw new Error('Ficha técnica não encontrada.');
 
             const ingredientes = ficha.IngredientesJSON || [];
-            if (ingredientes.length === 0) throw new Error('Ficha técnica sem ingredientes definidos.');
+            // Validação: Exige ingredientes para garantir a baixa de estoque
+            if (ingredientes.length === 0) throw new Error('Ficha técnica sem ingredientes definidos. Edite a ficha e adicione ingredientes antes de concluir.');
 
             // 4. Calcular Fator de Proporção
             const rendimentoFicha = Number(ficha.Rendimento) || 1;
@@ -357,7 +351,19 @@ exports.handler = async (event) => {
 
             const factor = qtdProduzida / rendimentoFicha;
 
-            // 5. Processar Ingredientes
+            // 5. Validação de Estoque (Pré-check para evitar estoque negativo)
+            for (const ing of ingredientes) {
+                const qtdConsumo = Number(ing.quantidade) * factor;
+                const { data: itemEstoque } = await supabase.from('Estoque').select('Quantidade, Nome').eq('ID', ing.id).single();
+                
+                if (itemEstoque) {
+                    if (Number(itemEstoque.Quantidade) < qtdConsumo) {
+                        throw new Error(`Estoque insuficiente para "${itemEstoque.Nome}". Necessário: ${qtdConsumo.toFixed(2)}, Atual: ${itemEstoque.Quantidade}`);
+                    }
+                }
+            }
+
+            // 6. Processar Baixa (Agora seguro)
             for (const ing of ingredientes) {
                 const qtdConsumo = Number(ing.quantidade) * factor;
                 
@@ -394,6 +400,47 @@ exports.handler = async (event) => {
             // 6. Atualizar Status da Ordem
             const { error: errUpdate } = await supabase.from('OrdensProducao').update({ Status: 'Concluída' }).eq('ID', id);
             if (errUpdate) throw errUpdate;
+
+            result = { success: true };
+
+        } else if (action === 'saveIngredientConsumption') {
+            const { ProdutoID, ProdutoNome, Quantidade, OrdemID, Responsavel } = data;
+            const qtd = Number(Quantidade);
+
+            if (qtd <= 0) throw new Error('Quantidade deve ser maior que zero.');
+
+            // 1. Verificar Estoque
+            const { data: itemEstoque, error: errEstoque } = await supabase.from('Estoque').select('*').eq('ID', ProdutoID).single();
+            if (errEstoque || !itemEstoque) throw new Error('Produto não encontrado no estoque.');
+
+            if (Number(itemEstoque.Quantidade) < qtd) {
+                throw new Error(`Estoque insuficiente. Disponível: ${itemEstoque.Quantidade}`);
+            }
+
+            // 2. Baixar Estoque
+            const novaQtd = Number(itemEstoque.Quantidade) - qtd;
+            const { error: errUpdate } = await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', ProdutoID);
+            if (errUpdate) throw new Error('Erro ao atualizar estoque.');
+
+            // 3. Registrar Movimentação (Saída)
+            await supabase.from('MovimentacoesEstoque').insert({
+                ProdutoID: ProdutoID,
+                Tipo: 'Saida',
+                Quantidade: qtd,
+                Responsavel: Responsavel || 'Sistema',
+                Observacoes: OrdemID ? `Consumo Manual OP` : 'Consumo Manual Produção',
+                DetalhesJSON: { OrdemID: OrdemID }
+            });
+
+            // 4. Registrar ConsumoIngredientes
+            const { error: errConsumo } = await supabase.from('ConsumoIngredientes').insert({
+                OrdemID: OrdemID || null,
+                ProdutoID: ProdutoID,
+                ProdutoNome: ProdutoNome || itemEstoque.Nome,
+                Quantidade: qtd,
+                Responsavel: Responsavel
+            });
+            if (errConsumo) throw new Error('Erro ao registrar consumo.');
 
             result = { success: true };
 
@@ -475,7 +522,8 @@ exports.handler = async (event) => {
                 resEstoque,
                 resEventos,
                 resRefeicoes,
-                resRefeicoesMes
+                resRefeicoesMes,
+                resOrdensAbertas
             ] = await Promise.all([
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('FichasTecnicas').select('Categoria', { count: 'exact' }),
@@ -487,7 +535,8 @@ exports.handler = async (event) => {
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
                 supabase.from('MLPain_Registros').select('Data, Quantidade').gte('Data', strSevenDaysAgo),
-                supabase.from('MLPain_Registros').select('Quantidade').gte('Data', startOfMonth)
+                supabase.from('MLPain_Registros').select('Quantidade').gte('Data', startOfMonth),
+                supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída')
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)
@@ -503,6 +552,7 @@ exports.handler = async (event) => {
             const pratos = resPratosData.data || [];
             const eventosProximos = resEventos.data || [];
             const refeicoesData = resRefeicoes.data || [];
+            const ordensPendentes = resOrdensAbertas.data || [];
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
@@ -557,6 +607,21 @@ exports.handler = async (event) => {
                 if(f.Tipo === 'Receita') finMap[key].r += Number(f.Valor);
                 else finMap[key].d += Number(f.Valor);
             });
+
+            // 1.1 Fluxo de Caixa Diário (Mês Atual)
+            const dailyFlow = {};
+            const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+            for(let i=1; i<=daysInMonth; i++) dailyFlow[i] = { r: 0, d: 0 };
+
+            financas.forEach(f => {
+                if (f.Data >= startOfMonth && f.Data <= today) {
+                    const d = new Date(f.Data).getDate();
+                    if(dailyFlow[d]) {
+                        if(f.Tipo === 'Receita') dailyFlow[d].r += Number(f.Valor);
+                        else dailyFlow[d].d += Number(f.Valor);
+                    }
+                }
+            });
             
             const sortedKeys = Object.keys(finMap).sort().slice(-6);
             const chartFin = {
@@ -602,10 +667,16 @@ exports.handler = async (event) => {
                     jubileu: jubileuDia,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
                     estoqueBaixo: estoqueCritico,
-                    eventos: eventosProximos
+                    eventos: eventosProximos,
+                    ordensProducao: ordensPendentes // Alerta de Ordens Paradas/Abertas
                 },
                 charts: {
                     financeiro: chartFin,
+                    fluxoDiario: {
+                        labels: Object.keys(dailyFlow),
+                        receitas: Object.values(dailyFlow).map(v => v.r),
+                        despesas: Object.values(dailyFlow).map(v => v.d)
+                    },
                     pratos: {
                         labels: Object.keys(catMap),
                         data: Object.values(catMap)
