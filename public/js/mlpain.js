@@ -854,7 +854,7 @@ const MLPainModule = {
         document.head.appendChild(style);
 
         const opt = {
-            margin: [5, 0, 5, 0], // Ajuste: Margens laterais 0mm para aproveitar papel
+            margin: [0, 0, 0, 0], // Ajuste: Margens 0mm totais para aproveitar papel ao máximo
             filename: `relatorio-mlpain-${filenameSuffix}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 1400 },
