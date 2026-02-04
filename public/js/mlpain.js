@@ -786,7 +786,7 @@ const MLPainModule = {
         document.head.appendChild(style);
 
         const opt = {
-            margin: [3, 3, 3, 3],
+            margin: [1, 3, 3, 1], // Ajuste: Topo 1mm, Esq 1mm para aproveitar papel
             filename: `relatorio-mlpain-${MLPainModule.state.filterMonth}.pdf`,
             image: { type: 'jpeg', quality: 0.98 },
             html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0, windowWidth: 2000 },
