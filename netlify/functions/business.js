@@ -478,26 +478,38 @@ exports.handler = async (event) => {
             if (error) throw error;
             result = itens;
 
+        } else if (action === 'getMLPainRecords') {
+            // Otimização Frontend: Baixa apenas o mês selecionado
+            const { month, startDate, endDate } = data;
+            let start, end;
+
+            if (month) { // Formato 'YYYY-MM'
+                start = `${month}-01`;
+                const [y, m] = month.split('-');
+                end = new Date(y, m, 0).toISOString().split('T')[0]; // Último dia do mês
+            } else if (startDate && endDate) {
+                start = startDate;
+                end = endDate;
+            } else {
+                throw new Error('Parâmetros insuficientes para getMLPainRecords. Forneça "month" ou "startDate" e "endDate".');
+            }
+            
+            ({ data: result, error } = await supabase
+                .from('MLPain_Registros')
+                .select('*')
+                .gte('Data', start)
+                .lte('Data', end)
+                .order('Data', { ascending: true }));
+
         } else if (action === 'getDietStats') {
             const date = (data && data.date) ? data.date : new Date().toISOString().split('T')[0];
             
-            const { data: recs, error: err } = await supabase
-                .from('MLPain_Registros')
-                .select('Tipo, Subtipo, Quantidade')
-                .eq('Data', date);
-
+            // Otimização: Processamento via RPC no Banco de Dados
+            const { data: stats, error: err } = await supabase
+                .rpc('get_estatisticas_dietas', { data_consulta: date });
+            
             if (err) throw err;
-
-            let solidos = 0, sopa = 0, cha = 0;
-
-            (recs || []).forEach(r => {
-                const qtd = Number(r.Quantidade || 0);
-                if (r.Tipo === 'Sólido') solidos += qtd;
-                else if (r.Subtipo === 'Sopa') sopa += qtd;
-                else if (r.Subtipo === 'Chá') cha += qtd;
-            });
-
-            result = { solidos, sopa, cha, total: solidos + sopa + cha };
+            result = stats;
 
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
@@ -537,8 +549,8 @@ exports.handler = async (event) => {
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
-                supabase.from('MLPain_Registros').select('Data, Quantidade').gte('Data', strSevenDaysAgo),
-                supabase.from('MLPain_Registros').select('Quantidade').gte('Data', startOfMonth),
+                supabase.rpc('get_refeicoes_grafico', { data_inicio: strSevenDaysAgo }),
+                supabase.rpc('get_total_refeicoes_mes', { data_inicio: startOfMonth }),
                 supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída')
             ]);
 
@@ -547,7 +559,7 @@ exports.handler = async (event) => {
             const totalProdutos = resPratosData.count || 0;
             const totalFuncionarios = resFuncionarios.count || 0;
             const totalFornecedores = resFornecedores.count || 0;
-            const totalRefeicoes = (resRefeicoesMes.data || []).reduce((acc, r) => acc + Number(r.Quantidade), 0);
+            const totalRefeicoes = resRefeicoesMes.data || 0;
             const financas = resFinancas.data || [];
             const aniversariantes = resAniversariantes.data || [];
             const ferias = resFerias.data || [];
@@ -650,7 +662,7 @@ exports.handler = async (event) => {
                 refMap[s] = 0;
             }
             refeicoesData.forEach(r => {
-                const d = r.Data.split('T')[0];
+                const d = r.Data; // RPC já retorna data formatada ou objeto Date dependendo do driver, mas string ISO é padrão
                 if(refMap[d] !== undefined) refMap[d] += Number(r.Quantidade);
             });
 

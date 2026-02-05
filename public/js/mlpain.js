@@ -33,7 +33,7 @@ const MLPainModule = {
         try {
             const [areas, registros, inst, pratos, funcionarios] = await Promise.all([
                 Utils.api('getAll', 'MLPain_Areas'),
-                Utils.api('getAll', 'MLPain_Registros'),
+                Utils.api('getMLPainRecords', 'MLPain_Registros', { month: MLPainModule.state.filterMonth }),
                 Utils.api('getAll', 'InstituicaoConfig'),
                 Utils.api('getAll', 'FichasTecnicas'),
                 Utils.api('getAll', 'Funcionarios')
@@ -50,6 +50,26 @@ const MLPainModule = {
         } catch (e) {
             console.error(e);
             Utils.toast("Erro ao carregar dados do M.L. Pain.");
+        }
+    },
+
+    updateMonth: async (val) => {
+        if (!val) return;
+        MLPainModule.state.filterMonth = val;
+        MLPainModule.state.customFilterStart = '';
+        MLPainModule.state.customFilterEnd = '';
+        
+        const container = document.getElementById('mlpain-content');
+        container.innerHTML = `<div class="flex flex-col items-center justify-center h-64"><i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i><p class="text-gray-500">Carregando dados de ${val}...</p></div>`;
+
+        try {
+            const registros = await Utils.api('getMLPainRecords', 'MLPain_Registros', { month: val });
+            MLPainModule.state.registros = registros || [];
+            MLPainModule.renderTabela(container);
+        } catch (e) {
+            console.error(e);
+            Utils.toast('Erro ao atualizar mês.', 'error');
+            MLPainModule.renderTabela(container); // Tenta renderizar mesmo com erro (mostra vazio)
         }
     },
 
@@ -87,7 +107,21 @@ const MLPainModule = {
     // --- 1. VISÃO GERAL ---
     renderVisaoGeral: async (container) => {
         const date = MLPainModule.state.filterDate || MLPainModule.getLocalDate();
-        const recs = MLPainModule.state.registros.filter(r => r.Data === date);
+
+        // Otimização: Busca os dados dos últimos 30 dias para os gráficos,
+        // em vez de depender do state.registros que agora é mensal.
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 29);
+        const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+        const endDate = new Date().toISOString().split('T')[0];
+
+        let allRecsForCharts = [];
+        try {
+            allRecsForCharts = await Utils.api('getMLPainRecords', 'MLPain_Registros', { startDate, endDate });
+        } catch (e) {
+            console.error("Erro ao buscar dados para gráficos da visão geral:", e);
+        }
+        const recs = allRecsForCharts.filter(r => r.Data === date);
         
         const canCreate = Utils.checkPermission('MLPain', 'criar');
         // Dados para o Gráfico de Metas
@@ -112,7 +146,7 @@ const MLPainModule = {
             const label = `${d.getDate()}/${d.getMonth() + 1}`;
             last30Days.push(label);
 
-            const dayRecs = MLPainModule.state.registros.filter(r => r.Data === dateStr);
+            const dayRecs = allRecsForCharts.filter(r => r.Data === dateStr);
             
             const solidos = dayRecs.filter(r => r.Tipo === 'Sólido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
             const liquidos = dayRecs.filter(r => r.Tipo === 'Líquido').reduce((acc, r) => acc + Number(r.Quantidade), 0);
@@ -434,7 +468,7 @@ const MLPainModule = {
     },
 
     // --- 3. TABELA E GRÁFICOS ---
-    renderTabela: (container) => {
+    renderTabela: async (container) => {
         const month = MLPainModule.state.filterMonth;
         const start = MLPainModule.state.customFilterStart;
         const end = MLPainModule.state.customFilterEnd;
@@ -444,19 +478,34 @@ const MLPainModule = {
         let reportTitle = '';
 
         if (start && end) {
-            recs = MLPainModule.state.registros.filter(r => r.Data >= start && r.Data <= end);
+            // Se um período personalizado for definido, busca esses dados específicos.
+            try {
+                // Mostra um loader temporário enquanto busca os dados
+                container.innerHTML = `<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando relatório para o período selecionado...</p></div>`;
+                recs = await Utils.api('getMLPainRecords', 'MLPain_Registros', { startDate: start, endDate: end });
+            } catch (e) {
+                Utils.toast('Erro ao carregar dados do período personalizado.', 'error');
+                console.error(e);
+                recs = []; // Garante que não quebre se a API falhar
+            }
+
             reportTitle = `Relatório Personalizado: ${Utils.formatDate(start)} a ${Utils.formatDate(end)}`;
             
             const [sY, sM, sD] = start.split('-').map(Number);
             const [eY, eM, eD] = end.split('-').map(Number);
             let curr = new Date(sY, sM - 1, sD);
             const last = new Date(eY, eM - 1, eD);
+            
+            // Limita a renderização a um máximo de 90 dias para evitar crash do navegador
+            const diffDays = (last - curr) / (1000 * 60 * 60 * 24);
+            if (diffDays > 90) { last.setDate(curr.getDate() + 90); Utils.toast('Período muito longo. Exibindo os primeiros 90 dias.', 'info'); }
+
             while (curr <= last) {
                 daysToRender.push(new Date(curr));
                 curr.setDate(curr.getDate() + 1);
             }
         } else {
-            recs = MLPainModule.state.registros.filter(r => r.Data.startsWith(month));
+            recs = MLPainModule.state.registros; // Usa os dados do mês já carregados
             reportTitle = `Relatório de Refeições - ${month}`;
             const [year, monthNum] = month.split('-');
             const daysInMonth = new Date(year, monthNum, 0).getDate();
@@ -604,10 +653,10 @@ const MLPainModule = {
                         <input type="date" class="text-xs border rounded p-1" value="${MLPainModule.state.customFilterStart}" onchange="MLPainModule.state.customFilterStart=this.value">
                         <span class="text-xs">-</span>
                         <input type="date" class="text-xs border rounded p-1" value="${MLPainModule.state.customFilterEnd}" onchange="MLPainModule.state.customFilterEnd=this.value">
-                        <button onclick="MLPainModule.renderTabela()" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700"><i class="fas fa-filter"></i></button>
-                        <button onclick="MLPainModule.state.customFilterStart='';MLPainModule.state.customFilterEnd='';MLPainModule.renderTabela()" class="text-gray-500 px-2 text-xs hover:text-red-500" title="Limpar Filtro"><i class="fas fa-times"></i></button>
+                        <button onclick="MLPainModule.renderTabela(document.getElementById('mlpain-content'))" class="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700"><i class="fas fa-filter"></i></button>
+                        <button onclick="MLPainModule.state.customFilterStart='';MLPainModule.state.customFilterEnd='';MLPainModule.renderTabela(document.getElementById('mlpain-content'))" class="text-gray-500 px-2 text-xs hover:text-red-500" title="Limpar Filtro"><i class="fas fa-times"></i></button>
                     </div>
-                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.state.filterMonth = this.value; MLPainModule.state.customFilterStart=''; MLPainModule.state.customFilterEnd=''; MLPainModule.renderTabela(document.getElementById('mlpain-content'))">
+                    <input type="month" value="${month}" class="border p-2 rounded" onchange="MLPainModule.updateMonth(this.value)">
                     <button onclick="MLPainModule.exportPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
                         <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
                     </button>
@@ -782,7 +831,7 @@ const MLPainModule = {
         document.body.removeChild(link);
     },
 
-    exportPDF: () => {
+    exportPDF: async () => {
         const { areas, registros, filterMonth, customFilterStart, customFilterEnd, instituicao } = MLPainModule.state;
         const inst = instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
@@ -797,7 +846,14 @@ const MLPainModule = {
 
         // Determinar Período e Dados
         if (customFilterStart && customFilterEnd) {
-            recs = registros.filter(r => r.Data >= customFilterStart && r.Data <= customFilterEnd);
+            Utils.toast('Gerando PDF para período personalizado...', 'info');
+            try {
+                recs = await Utils.api('getMLPainRecords', 'MLPain_Registros', { startDate: customFilterStart, endDate: customFilterEnd });
+            } catch (e) {
+                Utils.toast('Erro ao buscar dados para o PDF.', 'error');
+                return;
+            }
+
             reportTitle = `Relatório Personalizado`;
             periodStr = `${Utils.formatDate(customFilterStart)} a ${Utils.formatDate(customFilterEnd)}`;
             
@@ -810,7 +866,7 @@ const MLPainModule = {
                 curr.setDate(curr.getDate() + 1);
             }
         } else {
-            recs = registros.filter(r => r.Data.startsWith(filterMonth));
+            recs = registros; // Usa os dados do mês já carregados no estado
             reportTitle = `Relatório Mensal`;
             const [year, monthNum] = filterMonth.split('-');
             periodStr = new Date(year, monthNum - 1).toLocaleString('pt-AO', { month: 'long', year: 'numeric' }).toUpperCase();
@@ -854,21 +910,28 @@ const MLPainModule = {
         const generateTableHtml = (title, typeKey, areasList) => {
             if (areasList.length === 0) return '';
             
-            let headerRow = `<tr><th class="col-area">ÁREA / DIA</th>`;
+            // Estilos Inline Otimizados para A4 Paisagem (Fonte 6px, Bordas Finas)
+            const stTh = 'background-color: #f3f4f6; color: #111827; font-weight: bold; font-size: 6px; border: 0.5px solid #6b7280; padding: 1px;';
+            const stTd = 'border: 0.5px solid #6b7280; padding: 1px; text-align: center; font-size: 6px;';
+            const stTotal = 'background-color: #f9fafb; font-weight: bold;';
+            const stFooter = 'background-color: #e5e7eb; font-weight: bold;';
+
+            let headerRow = `<tr><th class="col-area" style="${stTh} width: 12%; text-align: left;">ÁREA / DIA</th>`;
             daysToRender.forEach(d => {
-                headerRow += `<th class="col-day">${d.getDate()}</th>`;
+                headerRow += `<th class="col-day" style="${stTh}">${d.getDate()}</th>`;
             });
-            headerRow += `<th class="col-total">TOTAL</th></tr>`;
+            headerRow += `<th class="col-total" style="${stTh} width: 4%;">TOTAL</th></tr>`;
 
             let bodyRows = '';
             let grandTotal = 0;
             const colTotals = new Array(daysToRender.length).fill(0);
 
-            areasList.forEach(a => {
-                let rowHtml = `<tr><td class="col-area text-left">${a.Nome}</td>`;
+            areasList.forEach((a, idx) => {
+                const bgRow = idx % 2 === 1 ? 'background-color: #f9fafb;' : '';
+                let rowHtml = `<tr style="${bgRow}"><td class="col-area text-left" style="${stTd} text-align: left; font-weight: bold;">${a.Nome}</td>`;
                 let rowTotal = 0;
                 
-                daysToRender.forEach((d, idx) => {
+                daysToRender.forEach((d, i) => {
                     const y = d.getFullYear();
                     const m = String(d.getMonth() + 1).padStart(2, '0');
                     const day = String(d.getDate()).padStart(2, '0');
@@ -876,23 +939,23 @@ const MLPainModule = {
                     
                     const val = matrix[a.ID][k] ? matrix[a.ID][k][typeKey] : 0;
                     rowTotal += val;
-                    colTotals[idx] += val;
-                    rowHtml += `<td>${val > 0 ? val : ''}</td>`;
+                    colTotals[i] += val;
+                    rowHtml += `<td style="${stTd}">${val > 0 ? val : ''}</td>`;
                 });
                 grandTotal += rowTotal;
-                rowHtml += `<td class="col-total">${rowTotal}</td></tr>`;
+                rowHtml += `<td class="col-total" style="${stTd} ${stTotal}">${rowTotal}</td></tr>`;
                 bodyRows += rowHtml;
             });
 
             // Linha de Totais
-            let footerRow = `<tr class="total-row"><td class="col-area text-right">TOTAL</td>`;
-            colTotals.forEach(t => footerRow += `<td>${t > 0 ? t : ''}</td>`);
-            footerRow += `<td class="col-total">${grandTotal}</td></tr>`;
+            let footerRow = `<tr class="total-row" style="${stFooter}"><td class="col-area text-right" style="${stTd} text-align: right;">TOTAL</td>`;
+            colTotals.forEach(t => footerRow += `<td style="${stTd}">${t > 0 ? t : ''}</td>`);
+            footerRow += `<td class="col-total" style="${stTd}">${grandTotal}</td></tr>`;
 
             return `
                 <div class="table-section">
                     <h3 class="table-title">${title}</h3>
-                    <table>
+                    <table cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse; font-size: 6px; table-layout: fixed;">
                         <thead>${headerRow}</thead>
                         <tbody>${bodyRows}${footerRow}</tbody>
                     </table>
@@ -946,21 +1009,21 @@ const MLPainModule = {
                 .table-title { font-size: 10px; font-weight: bold; margin-bottom: 4px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 2px; }
                 
                 table {
-                    width: 100%; border-collapse: collapse; font-size: 8px;
+                    width: 100%; border-collapse: collapse; font-size: 6px;
                     table-layout: fixed; /* Garante colunas iguais */
                 }
                 th, td {
-                    border: 1px solid #d1d5db; padding: 2px 1px;
+                    border: 0.5px solid #6b7280; padding: 1px;
                     text-align: center; vertical-align: middle;
                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                 }
-                th { background-color: #f3f4f6; font-weight: bold; color: #111827; font-size: 7px; }
+                th { background-color: #f3f4f6; font-weight: bold; color: #111827; font-size: 6px; }
                 
                 .col-area { width: 12%; text-align: left; padding-left: 4px; font-weight: bold; white-space: normal; }
                 .col-day { width: auto; }
-                .col-total { width: 5%; font-weight: bold; background-color: #f9fafb; }
+                .col-total { width: 4%; font-weight: bold; background-color: #f9fafb; }
                 
                 tr:nth-child(even) { background-color: #f9fafb; }
                 .total-row { background-color: #e5e7eb; font-weight: bold; }
@@ -992,27 +1055,23 @@ const MLPainModule = {
         container.innerHTML = styles + headerHtml + tablesHtml;
 
         // Renderização Oculta (Correção para evitar PDF em branco)
-        container.style.position = 'absolute'; 
+        container.style.position = 'fixed'; 
+        container.style.left = '-10000px'; // Fora da tela em vez de opacidade 0
         container.style.top = '0';
-        container.style.left = '0';
-        container.style.opacity = '0'; // Invisível mas renderizável
-        container.style.zIndex = '-1'; // Atrás de tudo
         document.body.appendChild(container);
 
         const opt = { 
             margin: 5, 
             filename: `mlpain-relatorio-${filterMonth}.pdf`, 
             image: { type: 'jpeg', quality: 0.98 }, 
-            html2canvas: { scale: 2, useCORS: true }, 
+            html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } 
         };
         
-        // Pequeno delay para garantir renderização do DOM
-        setTimeout(() => {
-            html2pdf().set(opt).from(container).save().then(() => {
-                document.body.removeChild(container);
-            });
-        }, 100);
+        // Usa Promise para garantir renderização sem setTimeout arbitrário
+        html2pdf().set(opt).from(container).save().then(() => {
+            document.body.removeChild(container);
+        });
     },
 
     shareReportWhatsApp: () => {

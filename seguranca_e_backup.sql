@@ -17,20 +17,45 @@ ALTER TABLE "PlanejamentoProducao" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "OrdensProducao" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ConsumoIngredientes" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ControleDesperdicio" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "MLPain_Areas" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "MLPain_Registros" ENABLE ROW LEVEL SECURITY;
 
 -- 1.2. Criar Política de Acesso (Permitir acesso público/anonimo por enquanto)
 -- NOTA: Como sua API usa a chave ANON, precisamos liberar o acesso para ela.
 -- Futuramente, podemos restringir isso apenas ao IP do servidor ou usuário logado.
 
+DROP POLICY IF EXISTS "Acesso API Usuarios" ON "Usuarios";
 CREATE POLICY "Acesso API Usuarios" ON "Usuarios" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Funcionarios" ON "Funcionarios";
 CREATE POLICY "Acesso API Funcionarios" ON "Funcionarios" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Financas" ON "Financas";
 CREATE POLICY "Acesso API Financas" ON "Financas" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Estoque" ON "Estoque";
 CREATE POLICY "Acesso API Estoque" ON "Estoque" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API FichasTecnicas" ON "FichasTecnicas";
 CREATE POLICY "Acesso API FichasTecnicas" ON "FichasTecnicas" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Planejamento" ON "PlanejamentoProducao";
 CREATE POLICY "Acesso API Planejamento" ON "PlanejamentoProducao" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Ordens" ON "OrdensProducao";
 CREATE POLICY "Acesso API Ordens" ON "OrdensProducao" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Consumo" ON "ConsumoIngredientes";
 CREATE POLICY "Acesso API Consumo" ON "ConsumoIngredientes" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API Desperdicio" ON "ControleDesperdicio";
 CREATE POLICY "Acesso API Desperdicio" ON "ControleDesperdicio" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API MLPain Areas" ON "MLPain_Areas";
+CREATE POLICY "Acesso API MLPain Areas" ON "MLPain_Areas" FOR ALL USING (true);
+
+DROP POLICY IF EXISTS "Acesso API MLPain Registros" ON "MLPain_Registros";
+CREATE POLICY "Acesso API MLPain Registros" ON "MLPain_Registros" FOR ALL USING (true);
 
 
 -- ==============================================================================
@@ -106,6 +131,9 @@ ALTER TABLE "Inventario" ADD COLUMN IF NOT EXISTS "ValorAquisicao" DECIMAL(12,2)
 -- Tabela MLPain (Cozinha)
 ALTER TABLE "MLPain_Registros" ADD COLUMN IF NOT EXISTS "AreaNome" VARCHAR(100);
 ALTER TABLE "MLPain_Registros" ADD COLUMN IF NOT EXISTS "ResponsavelEntrega" VARCHAR(255);
+ALTER TABLE "MLPain_Areas" ADD COLUMN IF NOT EXISTS "MetaDiaria" INTEGER DEFAULT 0;
+ALTER TABLE "MLPain_Areas" ADD COLUMN IF NOT EXISTS "Tipo" VARCHAR(50) DEFAULT 'Sólido';
+ALTER TABLE "MLPain_Areas" ADD COLUMN IF NOT EXISTS "Ordem" INTEGER DEFAULT 0;
 
 -- Tabela Configurações
 ALTER TABLE "InstituicaoConfig" ADD COLUMN IF NOT EXISTS "SubsidioFeriasPorcentagem" DECIMAL(5,2) DEFAULT 50.00;
@@ -154,3 +182,69 @@ ALTER TABLE "Eventos" ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Acesso API Eventos" ON "Eventos";
 CREATE POLICY "Acesso API Eventos" ON "Eventos" FOR ALL USING (true);
+
+-- ==============================================================================
+-- PARTE 8: FUNÇÕES DE PERFORMANCE (RPC) - OTIMIZAÇÃO MLPAIN
+-- ==============================================================================
+-- Estas funções processam dados pesados no servidor SQL para evitar lentidão no App.
+
+-- 8.1. Total de Refeições no Mês (Para Dashboard)
+CREATE OR REPLACE FUNCTION get_total_refeicoes_mes(data_inicio DATE)
+RETURNS INTEGER AS $$
+BEGIN
+    RETURN (SELECT COALESCE(SUM("Quantidade"), 0)::INTEGER FROM "MLPain_Registros" WHERE "Data" >= data_inicio);
+END;
+$$ LANGUAGE plpgsql;
+
+-- 8.2. Estatísticas de Dietas do Dia (Para Relatório Diário)
+CREATE OR REPLACE FUNCTION get_estatisticas_dietas(data_consulta DATE)
+RETURNS JSONB AS $$
+DECLARE
+    total_val INTEGER;
+    detalhes_json JSONB;
+    result JSONB;
+BEGIN
+    -- 1. Calcular Total Geral (Soma tudo, sem risco de esquecer categorias novas)
+    SELECT COALESCE(SUM("Quantidade"), 0) INTO total_val FROM "MLPain_Registros" WHERE "Data" = data_consulta;
+
+    -- 2. Calcular Detalhes Dinâmicos (Agrupa automaticamente pelo que estiver cadastrado)
+    SELECT jsonb_object_agg(categoria, qtd) INTO detalhes_json
+    FROM (
+        SELECT 
+            CASE 
+                WHEN "Tipo" = 'Sólido' THEN 'Sólido'
+                WHEN "Subtipo" IS NOT NULL AND "Subtipo" != '' THEN "Subtipo"
+                ELSE COALESCE("Tipo", 'Outros')
+            END as categoria,
+            SUM("Quantidade") as qtd
+        FROM "MLPain_Registros"
+        WHERE "Data" = data_consulta
+        GROUP BY 1
+    ) sub;
+
+    -- 3. Montar Resultado (Híbrido: Compatibilidade + Dinâmico)
+    result := jsonb_build_object(
+        'total', total_val,
+        'detalhes', COALESCE(detalhes_json, '{}'::jsonb),
+        -- Mantemos estes campos para não quebrar o frontend atual
+        'solidos', COALESCE((detalhes_json->>'Sólido')::int, 0),
+        'sopa', COALESCE((detalhes_json->>'Sopa')::int, 0),
+        'cha', COALESCE((detalhes_json->>'Chá')::int, 0)
+    );
+
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 8.3. Dados para Gráfico de Refeições (Últimos 7 dias)
+CREATE OR REPLACE FUNCTION get_refeicoes_grafico(data_inicio DATE)
+RETURNS TABLE ("Data" DATE, "Quantidade" INTEGER) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT "MLPain_Registros"."Data", COALESCE(SUM("MLPain_Registros"."Quantidade"), 0)::INTEGER
+    FROM "MLPain_Registros"
+    WHERE "MLPain_Registros"."Data" >= data_inicio
+    GROUP BY "MLPain_Registros"."Data"
+    ORDER BY "MLPain_Registros"."Data";
+END;
+$$ LANGUAGE plpgsql;

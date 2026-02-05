@@ -13,7 +13,7 @@ const MLPainModule = {
         try {
             const [areas, registros] = await Promise.all([
                 Utils.api('getAll', 'MLPain_Areas'),
-                Utils.api('getAll', 'MLPain_Registros')
+                Utils.api('getMLPainRecords', 'MLPain_Registros', { month: MLPainModule.state.currentMonth })
             ]);
             // Ordenar áreas pela ordem definida
             MLPainModule.state.areas = (areas || []).sort((a, b) => (a.Ordem || 0) - (b.Ordem || 0));
@@ -53,7 +53,7 @@ const MLPainModule = {
     updateMonth: (val) => {
         if (!val) return;
         MLPainModule.state.currentMonth = val;
-        MLPainModule.render();
+        MLPainModule.fetchData(); // Recarrega os dados do novo mês (Otimização)
     },
 
     exportPDF: () => {
@@ -62,7 +62,8 @@ const MLPainModule = {
         const daysInMonth = new Date(year, month, 0).getDate();
         
         // Filtrar registros do mês selecionado
-        const filteredRegistros = registros.filter(r => r.Data && r.Data.startsWith(currentMonth));
+        // Nota: registros já vêm filtrados do backend agora, mas manter o filtro local é seguro
+        const filteredRegistros = registros; 
 
         // Criar Container Temporário para o PDF
         const container = document.createElement('div');
