@@ -412,9 +412,6 @@ const EstoqueModule = {
                         <button onclick="EstoqueModule.exportEntradasMesPDF()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
                             <i class="fas fa-file-invoice"></i> <span class="hidden md:inline">Entradas do Mês</span>
                         </button>
-                        <button onclick="EstoqueModule.exportEntradasMesPDF()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
-                            <i class="fas fa-file-invoice"></i> <span class="hidden md:inline">Entradas do Mês</span>
-                        </button>
                     </div>
                 </div>
             </div>

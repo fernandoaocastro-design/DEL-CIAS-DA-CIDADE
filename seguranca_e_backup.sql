@@ -146,6 +146,46 @@ ALTER TABLE "FichasTecnicas" ADD COLUMN IF NOT EXISTS "IngredientesJSON" JSONB;
 ALTER TABLE "FichasTecnicas" ADD COLUMN IF NOT EXISTS "ValorNutricional" JSONB;
 
 -- ==============================================================================
+-- PARTE 5.1: TABELA DE PLANEJAMENTO DE PRODUÇÃO (NOVO MÓDULO)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS "production_plans" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    "planning_date" DATE,
+    "staff_count_day" INTEGER DEFAULT 0,
+    "staff_count_night" INTEGER DEFAULT 0,
+    "patient_solid" INTEGER DEFAULT 0,
+    "patient_liquid" INTEGER DEFAULT 0,
+    "meta_solid" INTEGER GENERATED ALWAYS AS ("staff_count_day" + "staff_count_night" + "patient_solid") STORED,
+    "meta_soup" INTEGER GENERATED ALWAYS AS ("patient_liquid") STORED,
+    "meta_tea" INTEGER GENERATED ALWAYS AS ("patient_liquid") STORED,
+    "production_details" JSONB
+);
+
+ALTER TABLE "production_plans" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Production Plans" ON "production_plans" FOR ALL USING (true);
+
+-- ==============================================================================
+-- PARTE 5.1: TABELA DE PLANEJAMENTO DE PRODUÇÃO (NOVO MÓDULO)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS "production_plans" (
+    "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "created_at" TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    "planning_date" DATE,
+    "staff_count_day" INTEGER DEFAULT 0,
+    "staff_count_night" INTEGER DEFAULT 0,
+    "patient_solid" INTEGER DEFAULT 0,
+    "patient_liquid" INTEGER DEFAULT 0,
+    "meta_solid" INTEGER GENERATED ALWAYS AS ("staff_count_day" + "staff_count_night" + "patient_solid") STORED,
+    "meta_soup" INTEGER GENERATED ALWAYS AS ("patient_liquid") STORED,
+    "meta_tea" INTEGER GENERATED ALWAYS AS ("patient_liquid") STORED,
+    "production_details" JSONB
+);
+
+ALTER TABLE "production_plans" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Production Plans" ON "production_plans" FOR ALL USING (true);
+
+-- ==============================================================================
 -- PARTE 6: TABELA DE ESCALA (DIARISTAS)
 -- ==============================================================================
 -- Tabela para definir dias de trabalho ou folga fixos por dia da semana

@@ -8,7 +8,8 @@ const ProducaoModule = {
         estoque: [], // Necessário para ingredientes
         consumo: [],
         charts: {},
-        instituicao: []
+        instituicao: [],
+        productionPlans: [] // Novo array para production_plans
     },
 
     init: () => {
@@ -17,14 +18,15 @@ const ProducaoModule = {
 
     fetchData: async () => {
         try {
-            const [fichas, plan, ordens, desp, estoque, consumo, inst] = await Promise.all([
+            const [fichas, plan, ordens, desp, estoque, consumo, inst, prodPlans] = await Promise.all([
                 Utils.api('getAll', 'FichasTecnicas'),
                 Utils.api('getAll', 'PlanejamentoProducao'),
                 Utils.api('getAll', 'OrdensProducao'),
                 Utils.api('getAll', 'ControleDesperdicio'),
                 Utils.api('getAll', 'Estoque'),
                 Utils.api('getAll', 'ConsumoIngredientes'),
-                Utils.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'InstituicaoConfig'),
+                Utils.api('getAll', 'production_plans')
             ]);
             
             ProducaoModule.state.fichas = fichas || [];
@@ -34,6 +36,7 @@ const ProducaoModule = {
             ProducaoModule.state.estoque = estoque || [];
             ProducaoModule.state.consumo = consumo || [];
             ProducaoModule.state.instituicao = inst || [];
+            ProducaoModule.state.productionPlans = prodPlans || [];
             
             ProducaoModule.render();
         } catch (e) {
@@ -62,12 +65,315 @@ const ProducaoModule = {
         const tab = ProducaoModule.state.activeTab;
 
         if (tab === 'planejamento') ProducaoModule.renderPlanejamento(container);
+        else if (tab === 'visao-geral') ProducaoModule.renderVisaoGeralAgendamento(container);
+        else if (tab === 'novo') ProducaoModule.renderNovoPlanejamento(container);
         else if (tab === 'fichas') ProducaoModule.renderFichas(container);
         else if (tab === 'ordens') ProducaoModule.renderOrdens(container);
         else if (tab === 'ingredientes') ProducaoModule.renderIngredientes(container);
         else if (tab === 'desperdicio') ProducaoModule.renderDesperdicio(container);
         else if (tab === 'custos') ProducaoModule.renderCustos(container);
         else if (tab === 'relatorios') ProducaoModule.renderRelatorios(container);
+    },
+
+    // 📅 NOVO MÓDULO: AGENDAMENTO DE PRODUÇÃO
+    renderVisaoGeralAgendamento: (container) => {
+        const plans = ProducaoModule.state.productionPlans || [];
+        container.innerHTML = `
+            <div class="flex justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Visão Geral do Agendamento</h3>
+                <button onclick="ProducaoModule.setTab('novo')" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">
+                    <i class="fas fa-plus"></i> Novo Planejamento
+                </button>
+            </div>
+            <div class="bg-white rounded shadow overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr><th>Data</th><th>Staff (Dia/Noite)</th><th>Pacientes (Sól/Liq)</th><th>Meta Sólida</th><th>Ações</th></tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${plans.map(p => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 font-bold">${Utils.formatDate(p.planning_date)}</td>
+                                <td class="p-3">${p.staff_count_day} / ${p.staff_count_night}</td>
+                                <td class="p-3">${p.patient_solid} / ${p.patient_liquid}</td>
+                                <td class="p-3 font-bold text-blue-600">${p.meta_solid}</td>
+                                <td class="p-3">
+                                    <button onclick="ProducaoModule.printProductionPlan('${p.id}')" class="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded transition" title="Imprimir Ficha de Produção"><i class="fas fa-file-pdf"></i> Ficha do Dia</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${plans.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum planejamento encontrado.</td></tr>' : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    renderNovoPlanejamento: (container) => {
+        container.innerHTML = `
+            <div class="max-w-5xl mx-auto">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                    <i class="fas fa-calendar-plus text-blue-600"></i> Novo Planejamento de Produção
+                </h2>
+
+                <form onsubmit="ProducaoModule.saveProductionPlan(event)">
+                    <!-- SEÇÃO 1: CÁLCULO DE PESSOAS / META -->
+                    <div class="bg-white p-6 rounded-lg shadow mb-6 border-l-4 border-blue-500">
+                        <h3 class="font-bold text-gray-700 mb-4 border-b pb-2">1. Definição de Metas (Pessoas)</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Data do Planejamento</label>
+                                <input type="date" name="planning_date" class="border p-2 rounded w-full" required>
+                            </div>
+                            <div class="bg-gray-50 p-3 rounded">
+                                <label class="block text-xs font-bold text-blue-600 uppercase mb-2">Funcionários (Staff)</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input type="number" name="staff_count_day" placeholder="Dia" class="border p-2 rounded text-sm" min="0">
+                                    <input type="number" name="staff_count_night" placeholder="Noite" class="border p-2 rounded text-sm" min="0">
+                                </div>
+                            </div>
+                            <div class="bg-gray-50 p-3 rounded">
+                                <label class="block text-xs font-bold text-green-600 uppercase mb-2">Pacientes</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <input type="number" name="patient_solid" placeholder="Sólida" class="border p-2 rounded text-sm" min="0">
+                                    <input type="number" name="patient_liquid" placeholder="Líquida" class="border p-2 rounded text-sm" min="0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SEÇÃO 2: FICHA TÉCNICA (CARTÕES) -->
+                    <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                        <i class="fas fa-clipboard-list"></i> Ficha Técnica de Produção
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                        
+                        <!-- CARTÃO 1: SÓLIDOS -->
+                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
+                            <div class="bg-green-600 text-white p-3 font-bold text-center">🍽️ SÓLIDOS (Prato Principal)</div>
+                            <div class="p-4 flex-1">
+                                <div class="mb-4">
+                                    <label class="block text-xs font-bold text-gray-500 mb-1">Nome do Prato</label>
+                                    <input type="text" id="solid-dish-name" class="border p-2 rounded w-full font-bold text-gray-700" placeholder="Ex: Frango Grelhado">
+                                </div>
+                                <label class="block text-xs font-bold text-gray-500 mb-1">Ingredientes</label>
+                                <div id="solid-ingredients-list" class="space-y-2 mb-4 max-h-64 overflow-y-auto pr-1"></div>
+                                <button type="button" onclick="ProducaoModule.addIngredienteRow()" class="w-full py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded hover:bg-gray-50 hover:border-green-500 hover:text-green-600 transition text-sm font-bold">+ Adicionar Ingrediente</button>
+                            </div>
+                        </div>
+
+                        <!-- CARTÃO 2: SOPA -->
+                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
+                            <div class="bg-yellow-500 text-white p-3 font-bold text-center">🥣 SOPA (Base & Legumes)</div>
+                            <div class="p-4 flex-1 space-y-4">
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div><label class="text-xs font-bold text-gray-500">Fuba (g/Kg)</label><input type="number" step="0.1" id="soup-fuba" class="border p-2 rounded w-full"></div>
+                                    <div><label class="text-xs font-bold text-gray-500">Batata Rena</label><input type="number" step="0.1" id="soup-potato" class="border p-2 rounded w-full"></div>
+                                    <div><label class="text-xs font-bold text-gray-500">Massa (Pct)</label><input type="number" step="1" id="soup-pasta" class="border p-2 rounded w-full"></div>
+                                    <div><label class="text-xs font-bold text-gray-500">Cebola (Kg)</label><input type="number" step="0.1" id="soup-onion" class="border p-2 rounded w-full"></div>
+                                </div>
+                                <div class="border-t pt-3">
+                                    <label class="block text-xs font-bold text-gray-500 mb-2">Seleção de Legumes</label>
+                                    <div class="grid grid-cols-2 gap-2 text-sm">
+                                        ${['Cenoura', 'Abóbora', 'Couve', 'Repolho', 'Beringela', 'Quiabo'].map(v => `<label class="flex items-center gap-2"><input type="checkbox" class="soup-veg" value="${v}"> ${v}</label>`).join('')}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CARTÃO 3: CHÁ -->
+                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
+                            <div class="bg-orange-500 text-white p-3 font-bold text-center">☕ CHÁ (Matinal/Noturno)</div>
+                            <div class="p-4 flex-1">
+                                <div class="space-y-4">
+                                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Erva / Chá (Qtd)</label><input type="number" step="0.1" id="tea-herb" class="border p-2 rounded w-full" placeholder="Ex: 5"></div>
+                                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Açúcar (Kg)</label><input type="number" step="0.1" id="tea-sugar" class="border p-2 rounded w-full" placeholder="Ex: 2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3">
+                        <button type="button" onclick="ProducaoModule.setTab('visao-geral')" class="px-6 py-3 rounded border text-gray-600 hover:bg-gray-100">Cancelar</button>
+                        <button type="submit" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg flex items-center gap-2"><i class="fas fa-save"></i> Salvar Planejamento</button>
+                    </div>
+                </form>
+            </div>
+        `;
+        ProducaoModule.addIngredienteRow();
+    },
+
+    addIngredienteRow: () => {
+        const container = document.getElementById('solid-ingredients-list');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.className = 'flex gap-2 items-center ingredient-row';
+        div.innerHTML = `<input type="text" placeholder="Item (ex: Arroz)" class="border p-2 rounded w-full text-sm ing-name"><input type="text" placeholder="Qtd" class="border p-2 rounded w-24 text-sm ing-qty"><button type="button" onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2"><i class="fas fa-times"></i></button>`;
+        container.appendChild(div);
+    },
+
+    saveProductionPlan: async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+        const baseData = { planning_date: formData.get('planning_date'), staff_count_day: Number(formData.get('staff_count_day')||0), staff_count_night: Number(formData.get('staff_count_night')||0), patient_solid: Number(formData.get('patient_solid')||0), patient_liquid: Number(formData.get('patient_liquid')||0) };
+        
+        const solidIngredients = [];
+        document.querySelectorAll('.ingredient-row').forEach(row => { const name = row.querySelector('.ing-name').value; const qty = row.querySelector('.ing-qty').value; if (name) solidIngredients.push({ item: name, qtd: qty }); });
+        const soupVegs = [];
+        document.querySelectorAll('.soup-veg:checked').forEach(cb => soupVegs.push(cb.value));
+
+        const productionDetails = { solidos: { prato: document.getElementById('solid-dish-name').value, ingredientes: solidIngredients }, sopa: { fuba: document.getElementById('soup-fuba').value, batata: document.getElementById('soup-potato').value, massa: document.getElementById('soup-pasta').value, cebola: document.getElementById('soup-onion').value, legumes: soupVegs }, cha: { erva: document.getElementById('tea-herb').value, acucar: document.getElementById('tea-sugar').value } };
+        
+        try { await Utils.api('save', 'production_plans', { ...baseData, production_details: productionDetails }); Utils.toast('Planejamento salvo!', 'success'); ProducaoModule.fetchData(); ProducaoModule.setTab('visao-geral'); } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
+    },
+
+    printProductionPlan: (id) => {
+        const plan = ProducaoModule.state.productionPlans.find(p => p.id === id);
+        if (!plan) return Utils.toast('Planejamento não encontrado.', 'error');
+
+        const details = plan.production_details || {};
+        const solidos = details.solidos || {};
+        const sopa = details.sopa || {};
+        const cha = details.cha || {};
+        const inst = ProducaoModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        // Elemento temporário
+        const printDiv = document.createElement('div');
+        printDiv.id = 'print-production-plan';
+        printDiv.style.position = 'absolute';
+        printDiv.style.left = '-9999px';
+        printDiv.style.top = '0';
+        printDiv.style.width = '210mm'; // A4 Portrait
+        printDiv.style.background = 'white';
+
+        // Helper para formatar ingredientes
+        const renderIngredientes = (list) => {
+            if (!list || list.length === 0) return '<div class="text-xs text-gray-500 italic">Nenhum ingrediente listado.</div>';
+            return `<ul class="list-disc pl-4 text-sm">${list.map(i => `<li><b>${i.item}</b>: ${i.qtd}</li>`).join('')}</ul>`;
+        };
+
+        // Helper para legumes (array de strings)
+        const renderLegumes = (list) => {
+             if (!list || list.length === 0) return '-';
+             return list.join(', ');
+        };
+
+        printDiv.innerHTML = `
+            <div class="p-8 font-sans text-gray-900">
+                <!-- Cabeçalho -->
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-600">Ficha de Produção Diária</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-2xl font-bold text-gray-800">${Utils.formatDate(plan.planning_date)}</h2>
+                        <p class="text-xs text-gray-500">Gerado em: ${new Date().toLocaleString()}</p>
+                    </div>
+                </div>
+
+                <!-- 1. Metas de Produção -->
+                <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
+                    <h3 class="font-bold text-gray-800 border-b border-gray-300 mb-3 pb-1 uppercase text-sm">1. Metas de Produção</h3>
+                    <div class="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-bold">Sólidos (Total)</p>
+                            <p class="text-2xl font-bold text-blue-700">${plan.meta_solid}</p>
+                            <p class="text-xs text-gray-400">Staff: ${plan.staff_count_day + plan.staff_count_night} | Pacientes: ${plan.patient_solid}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-bold">Sopa (Líquida)</p>
+                            <p class="text-2xl font-bold text-yellow-600">${plan.meta_soup}</p>
+                            <p class="text-xs text-gray-400">Pacientes: ${plan.patient_liquid}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 uppercase font-bold">Chá</p>
+                            <p class="text-2xl font-bold text-orange-600">${plan.meta_tea}</p>
+                            <p class="text-xs text-gray-400">Pacientes: ${plan.patient_liquid}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Prato Principal (Sólidos) -->
+                <div class="mb-6">
+                    <h3 class="font-bold text-white bg-green-700 p-2 mb-3 uppercase text-sm rounded-t">2. Sólidos - Prato Principal</h3>
+                    <div class="border border-green-200 rounded-b p-4">
+                        <div class="mb-3">
+                            <span class="text-xs font-bold text-gray-500 uppercase block">Nome do Prato</span>
+                            <span class="text-lg font-bold">${solidos.prato || 'Não definido'}</span>
+                        </div>
+                        <div>
+                            <span class="text-xs font-bold text-gray-500 uppercase block mb-1">Ingredientes / Insumos</span>
+                            ${renderIngredientes(solidos.ingredientes)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6">
+                    <!-- 3. Sopa -->
+                    <div class="mb-6">
+                        <h3 class="font-bold text-white bg-yellow-600 p-2 mb-3 uppercase text-sm rounded-t">3. Sopa</h3>
+                        <div class="border border-yellow-200 rounded-b p-4 text-sm">
+                            <div class="grid grid-cols-2 gap-2 mb-3">
+                                <div><span class="font-bold block text-xs text-gray-500">Fuba</span>${sopa.fuba || '-'} g/Kg</div>
+                                <div><span class="font-bold block text-xs text-gray-500">Batata Rena</span>${sopa.batata || '-'} g/Kg</div>
+                                <div><span class="font-bold block text-xs text-gray-500">Massa</span>${sopa.massa || '-'} Pct</div>
+                                <div><span class="font-bold block text-xs text-gray-500">Cebola</span>${sopa.cebola || '-'} Kg</div>
+                            </div>
+                            <div class="border-t pt-2 mt-2">
+                                <span class="font-bold block text-xs text-gray-500 mb-1">Legumes Selecionados</span>
+                                <p>${renderLegumes(sopa.legumes)}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Chá -->
+                    <div class="mb-6">
+                        <h3 class="font-bold text-white bg-orange-600 p-2 mb-3 uppercase text-sm rounded-t">4. Chá</h3>
+                        <div class="border border-orange-200 rounded-b p-4 text-sm">
+                            <div class="mb-3">
+                                <span class="font-bold block text-xs text-gray-500">Erva / Chá</span>
+                                <span class="text-lg">${cha.erva || '-'} <span class="text-xs font-normal">Qtd</span></span>
+                            </div>
+                            <div>
+                                <span class="font-bold block text-xs text-gray-500">Açúcar</span>
+                                <span class="text-lg">${cha.acucar || '-'} <span class="text-xs font-normal">Kg</span></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Assinaturas -->
+                <div class="mt-12 grid grid-cols-2 gap-12 text-center">
+                    <div class="border-t border-gray-400 pt-2">
+                        <p class="font-bold text-sm">Responsável Cozinha</p>
+                    </div>
+                    <div class="border-t border-gray-400 pt-2">
+                        <p class="font-bold text-sm">Nutricionista / Supervisor</p>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(printDiv);
+
+        const opt = {
+            margin: 10,
+            filename: `ficha-producao-${plan.planning_date}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(printDiv).save().then(() => {
+            document.body.removeChild(printDiv);
+        });
     },
 
     // 🍽️ 1️⃣ Planejamento de Produção

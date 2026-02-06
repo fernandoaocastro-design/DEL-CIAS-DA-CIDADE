@@ -48,7 +48,11 @@ exports.handler = async (event) => {
                 const from = (page - 1) * limit;
                 const to = from + limit - 1;
                 
-                const { data: rows, count, error: err } = await supabase.from(table).select('*', { count: 'exact' }).range(from, to).order('CriadoEm', { ascending: false });
+                // Correção: MovimentacoesEstoque usa 'Data' em vez de 'CriadoEm'
+                let sortCol = 'CriadoEm';
+                if (table === 'MovimentacoesEstoque') sortCol = 'Data';
+
+                const { data: rows, count, error: err } = await supabase.from(table).select('*', { count: 'exact' }).range(from, to).order(sortCol, { ascending: false });
                 error = err;
                 result = { data: rows, total: count };
             } else {
@@ -293,7 +297,8 @@ exports.handler = async (event) => {
                 'Financas', 'ContasReceber', 'ContasPagar', 'Estoque', 'Fornecedores', 'MovimentacoesEstoque',
                 'FichasTecnicas', 'PlanejamentoProducao', 'OrdensProducao', 'ConsumoIngredientes', 'ControleDesperdicio', 'PedidosCompra', 'ItensPedidoCompra', 'Notificacoes', 'MLPain_Areas', 'MLPain_Registros', 'Inventario', 'HistoricoInventario',
                 'InstituicaoConfig', 'Departamentos', 'Cargos', 'ParametrosRH', 'ParametrosCozinha',
-                'ParametrosEstoque', 'ParametrosPatrimonio', 'ParametrosFinanceiro', 'LogsAuditoria'
+                'ParametrosEstoque', 'ParametrosPatrimonio', 'ParametrosFinanceiro', 'LogsAuditoria',
+                'production_plans'
             ];
 
             const backupData = {};
