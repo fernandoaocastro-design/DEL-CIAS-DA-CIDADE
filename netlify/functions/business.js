@@ -191,7 +191,8 @@ exports.handler = async (event) => {
 
             // 3. Registrar Movimentação
             const { error: errMov } = await supabase.from('MovimentacoesEstoque').insert({
-                ProdutoID: produtoId, Tipo: tipo, Quantidade: qtdMov, Responsavel: responsavel, Observacoes: observacoes, DetalhesJSON: detalhes
+                ProdutoID: produtoId, Tipo: tipo, Quantidade: qtdMov, Responsavel: responsavel, Observacoes: observacoes, DetalhesJSON: detalhes,
+                Data: new Date()
             });
             if (errMov) throw new Error('Erro ao registrar histórico.');
 
@@ -386,7 +387,8 @@ exports.handler = async (event) => {
                         Quantidade: qtdConsumo,
                         Responsavel: ordem.Responsavel || 'Sistema',
                         Observacoes: `Produção Ordem #${ordem.Codigo}`,
-                        DetalhesJSON: { OrdemID: ordem.ID }
+                        DetalhesJSON: { OrdemID: ordem.ID },
+                        Data: new Date()
                     });
 
                     // Registrar Consumo Específico da Ordem
@@ -432,7 +434,8 @@ exports.handler = async (event) => {
                 Quantidade: qtd,
                 Responsavel: Responsavel || 'Sistema',
                 Observacoes: OrdemID ? `Consumo Manual OP` : 'Consumo Manual Produção',
-                DetalhesJSON: { OrdemID: OrdemID }
+                DetalhesJSON: { OrdemID: OrdemID },
+                Data: new Date()
             });
 
             // 4. Registrar ConsumoIngredientes

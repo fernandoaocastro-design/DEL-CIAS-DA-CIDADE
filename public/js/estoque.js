@@ -409,6 +409,12 @@ const EstoqueModule = {
                         <button onclick="EstoqueModule.exportMovimentacoesPDF()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
                             <i class="fas fa-file-pdf"></i> <span class="hidden md:inline">Exportar PDF</span>
                         </button>
+                        <button onclick="EstoqueModule.exportEntradasMesPDF()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
+                            <i class="fas fa-file-invoice"></i> <span class="hidden md:inline">Entradas do Mês</span>
+                        </button>
+                        <button onclick="EstoqueModule.exportEntradasMesPDF()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-all flex items-center gap-2 whitespace-nowrap transform hover:scale-105 active:scale-95">
+                            <i class="fas fa-file-invoice"></i> <span class="hidden md:inline">Entradas do Mês</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -679,6 +685,7 @@ const EstoqueModule = {
             Utils.toast('Movimentação registrada!', 'success'); 
             Utils.closeModal(); 
             EstoqueModule.fetchData();
+            EstoqueModule.fetchMovimentacoes();
         } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
@@ -748,6 +755,82 @@ const EstoqueModule = {
         });
     },
 
+    exportEntradasMesPDF: async () => {
+        try {
+            Utils.toast('Baixando dados para o relatório...', 'info');
+            // Busca todas as movimentações (sem paginação) para filtrar no front
+            const allMovs = await Utils.api('getAll', 'MovimentacoesEstoque');
+            
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            const monthName = now.toLocaleString('pt-BR', { month: 'long' });
+
+            // Filtra apenas Entradas do mês atual
+            const entradas = allMovs.filter(m => {
+                if (m.Tipo !== 'Entrada') return false;
+                if (!m.Data) return false;
+                const d = new Date(m.Data);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            });
+
+            if (entradas.length === 0) return Utils.toast('Nenhuma entrada registrada neste mês.', 'warning');
+
+            // Ordena por data
+            entradas.sort((a, b) => new Date(b.Data) - new Date(a.Data));
+
+            // Elementos para PDF
+            const element = document.createElement('div');
+            element.style.width = '100%';
+            element.style.background = 'white';
+            
+            const inst = EstoqueModule.state.instituicao[0] || {};
+            const user = Utils.getUser();
+            const showLogo = inst.ExibirLogoRelatorios;
+            const totalQtd = entradas.reduce((acc, m) => acc + Number(m.Quantidade), 0);
+
+            element.innerHTML = `
+                <div style="padding: 20px; font-family: sans-serif; color: #333;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #166534; padding-bottom: 10px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 50px; width: auto;">` : ''}
+                            <div><h1 style="font-size: 20px; font-weight: bold; margin: 0; color: #166534;">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p style="font-size: 12px; color: #666; margin: 0;">Relatório de Entradas de Estoque</p></div>
+                        </div>
+                        <div style="text-align: right;"><h2 style="font-size: 16px; font-weight: bold; margin: 0; text-transform: uppercase;">${monthName} / ${currentYear}</h2><p style="font-size: 10px; color: #666; margin: 0;">Gerado em: ${new Date().toLocaleDateString()}</p></div>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                        <thead>
+                            <tr style="background-color: #f0fdf4; color: #166534;">
+                                <th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Data</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Produto</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: center;">Qtd</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Responsável</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Fornecedor/Detalhes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${entradas.map((m, index) => {
+                                const prod = EstoqueModule.state.items.find(i => i.ID === m.ProdutoID);
+                                const nomeProd = prod ? prod.Nome : 'Item Desconhecido';
+                                const detalhes = m.DetalhesJSON || {};
+                                const fornecedor = detalhes.fornecedor || detalhes.Fornecedor || '-';
+                                return `<tr style="background-color: ${index % 2 === 0 ? 'white' : '#f9fafb'};"><td style="padding: 6px; border: 1px solid #e5e7eb;">${new Date(m.Data).toLocaleDateString()} ${new Date(m.Data).toLocaleTimeString().slice(0,5)}</td><td style="padding: 6px; border: 1px solid #e5e7eb; font-weight: bold;">${nomeProd}</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; color: #166534; font-weight: bold;">${m.Quantidade}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${m.Responsavel || '-'}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${fornecedor}</td></tr>`;
+                            }).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f0fdf4; font-weight: bold;"><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0; text-align: right;">TOTAL DE ITENS:</td><td style="padding: 8px; border: 1px solid #bbf7d0; text-align: center; color: #166534;">${totalQtd.toFixed(2)}</td><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0;"></td></tr>
+                        </tfoot>
+                    </table>
+                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9px; color: #999;">Gerado por: ${user.Nome}</div>
+                </div>`;
+
+            element.style.position = 'fixed'; element.style.left = '-10000px'; document.body.appendChild(element);
+            const opt = { margin: 10, filename: `relatorio-entradas-${monthName}-${currentYear}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+            await html2pdf().set(opt).from(element).save();
+            document.body.removeChild(element);
+            Utils.toast('Relatório gerado com sucesso!', 'success');
+        } catch (e) {
+            console.error(e);
+            Utils.toast('Erro ao gerar PDF: ' + e.message, 'error');
+        }
+    },
+
     setMovFilter: (subtipo) => {
         EstoqueModule.state.filterMovSubtipo = subtipo;
         EstoqueModule.renderMovimentacoes();
@@ -806,6 +889,82 @@ const EstoqueModule = {
             footer.classList.add('hidden');
             document.head.removeChild(style);
         });
+    },
+
+    exportEntradasMesPDF: async () => {
+        try {
+            Utils.toast('Baixando dados para o relatório...', 'info');
+            // Busca todas as movimentações (sem paginação) para filtrar no front
+            const allMovs = await Utils.api('getAll', 'MovimentacoesEstoque');
+            
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            const monthName = now.toLocaleString('pt-BR', { month: 'long' });
+
+            // Filtra apenas Entradas do mês atual
+            const entradas = allMovs.filter(m => {
+                if (m.Tipo !== 'Entrada') return false;
+                if (!m.Data) return false;
+                const d = new Date(m.Data);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            });
+
+            if (entradas.length === 0) return Utils.toast('Nenhuma entrada registrada neste mês.', 'warning');
+
+            // Ordena por data
+            entradas.sort((a, b) => new Date(b.Data) - new Date(a.Data));
+
+            // Elementos para PDF
+            const element = document.createElement('div');
+            element.style.width = '100%';
+            element.style.background = 'white';
+            
+            const inst = EstoqueModule.state.instituicao[0] || {};
+            const user = Utils.getUser();
+            const showLogo = inst.ExibirLogoRelatorios;
+            const totalQtd = entradas.reduce((acc, m) => acc + Number(m.Quantidade), 0);
+
+            element.innerHTML = `
+                <div style="padding: 20px; font-family: sans-serif; color: #333;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #166534; padding-bottom: 10px; margin-bottom: 20px;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 50px; width: auto;">` : ''}
+                            <div><h1 style="font-size: 20px; font-weight: bold; margin: 0; color: #166534;">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p style="font-size: 12px; color: #666; margin: 0;">Relatório de Entradas de Estoque</p></div>
+                        </div>
+                        <div style="text-align: right;"><h2 style="font-size: 16px; font-weight: bold; margin: 0; text-transform: uppercase;">${monthName} / ${currentYear}</h2><p style="font-size: 10px; color: #666; margin: 0;">Gerado em: ${new Date().toLocaleDateString()}</p></div>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                        <thead>
+                            <tr style="background-color: #f0fdf4; color: #166534;">
+                                <th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Data</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Produto</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: center;">Qtd</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Responsável</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Fornecedor/Detalhes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${entradas.map((m, index) => {
+                                const prod = EstoqueModule.state.items.find(i => i.ID === m.ProdutoID);
+                                const nomeProd = prod ? prod.Nome : 'Item Desconhecido';
+                                const detalhes = m.DetalhesJSON || {};
+                                const fornecedor = detalhes.fornecedor || detalhes.Fornecedor || '-';
+                                return `<tr style="background-color: ${index % 2 === 0 ? 'white' : '#f9fafb'};"><td style="padding: 6px; border: 1px solid #e5e7eb;">${new Date(m.Data).toLocaleDateString()} ${new Date(m.Data).toLocaleTimeString().slice(0,5)}</td><td style="padding: 6px; border: 1px solid #e5e7eb; font-weight: bold;">${nomeProd}</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; color: #166534; font-weight: bold;">${m.Quantidade}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${m.Responsavel || '-'}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${fornecedor}</td></tr>`;
+                            }).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="background-color: #f0fdf4; font-weight: bold;"><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0; text-align: right;">TOTAL DE ITENS:</td><td style="padding: 8px; border: 1px solid #bbf7d0; text-align: center; color: #166534;">${totalQtd.toFixed(2)}</td><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0;"></td></tr>
+                        </tfoot>
+                    </table>
+                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9px; color: #999;">Gerado por: ${user.Nome}</div>
+                </div>`;
+
+            element.style.position = 'fixed'; element.style.left = '-10000px'; document.body.appendChild(element);
+            const opt = { margin: 10, filename: `relatorio-entradas-${monthName}-${currentYear}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
+            await html2pdf().set(opt).from(element).save();
+            document.body.removeChild(element);
+            Utils.toast('Relatório gerado com sucesso!', 'success');
+        } catch (e) {
+            console.error(e);
+            Utils.toast('Erro ao gerar PDF: ' + e.message, 'error');
+        }
     },
 
     // --- GESTÃO DE FORNECEDORES ---
