@@ -21,6 +21,36 @@ modalStyle.innerHTML = `
     
     /* Remove display:none do Tailwind para permitir transição de opacidade */
     #modal-container.hidden { display: flex !important; visibility: hidden; }
+
+    /* Sidebar Animation Helpers */
+    .no-transition { transition: none !important; }
+
+    /* --- SIDEBAR INTELIGENTE & TOOLTIPS --- */
+    /* Esconde texto e logo quando recolhido */
+    #sidebar.w-20 .sidebar-text, 
+    #sidebar.w-20 #sidebar-logo { display: none; }
+
+    /* Transforma o texto em Tooltip ao passar o mouse (apenas quando recolhido) */
+    #sidebar.w-20 nav a, #sidebar.w-20 nav button { position: relative; }
+    
+    #sidebar.w-20 nav a:hover span.sidebar-text,
+    #sidebar.w-20 nav button:hover span.sidebar-text {
+        display: block;
+        position: absolute;
+        left: 100%; /* Joga para fora do menu */
+        top: 50%;
+        transform: translateY(-50%);
+        background-color: #020617; /* slate-950 */
+        color: #fcd34d; /* yellow-400 */
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 50;
+        box-shadow: 4px 4px 10px rgba(0,0,0,0.5);
+        border: 1px solid #1e293b;
+        margin-left: 10px;
+    }
 `;
 document.head.appendChild(modalStyle);
 
@@ -124,21 +154,37 @@ const Utils = {
     
     toggleSidebar: () => {
         const sidebar = document.getElementById('sidebar');
-        const texts = document.querySelectorAll('.menu-text');
-        const iconOnly = document.getElementById('sidebar-icon-only');
         
-        if (sidebar) {
-            sidebar.classList.toggle('w-64');
-            sidebar.classList.toggle('w-20');
+        if (!sidebar) return;
+        
+        const isCollapsed = sidebar.classList.contains('w-20');
+        
+        if (isCollapsed) {
+            // EXPANDIR
+            sidebar.classList.replace('w-20', 'w-64');
+            localStorage.setItem('sidebarState', 'expanded');
+        } else {
+            // RECOLHER
+            sidebar.classList.replace('w-64', 'w-20');
             
-            // Fecha submenus se recolher para evitar quebras visuais
-            if (sidebar.classList.contains('w-20')) {
-                document.querySelectorAll('[id^="submenu-"]').forEach(s => s.classList.add('hidden'));
-            }
+            // Fecha submenus e reseta ícones para evitar quebras visuais
+            document.querySelectorAll('[id^="submenu-"]').forEach(s => s.classList.add('hidden'));
+            document.querySelectorAll('.fa-chevron-down').forEach(i => i.classList.remove('rotate-180'));
+            
+            localStorage.setItem('sidebarState', 'collapsed');
         }
+    },
+
+    initSidebar: () => {
+        const state = localStorage.getItem('sidebarState');
+        const sidebar = document.getElementById('sidebar');
         
-        texts.forEach(t => t.classList.toggle('hidden'));
-        if(iconOnly) iconOnly.classList.toggle('hidden');
+        if (state === 'collapsed' && sidebar) {
+            // Desativa transição temporariamente para não "piscar" a animação no load
+            sidebar.classList.add('no-transition');
+            Utils.toggleSidebar(); // Reaproveita a lógica para fechar
+            setTimeout(() => sidebar.classList.remove('no-transition'), 100);
+        }
     },
 
     // --- NOVAS FUNCIONALIDADES DE CABEÇALHO ---
@@ -350,4 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Aplica permissões na sidebar
     Utils.applySidebarPermissions();
+
+    // Restaura estado do menu lateral
+    Utils.initSidebar();
 });
