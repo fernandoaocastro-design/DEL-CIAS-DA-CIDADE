@@ -13,21 +13,40 @@
     <div class="flex h-screen overflow-hidden">
         <!-- SIDEBAR -->
         <aside id="sidebar" class="w-64 bg-slate-950 text-white flex flex-col transition-all duration-300">
-            <div class="p-6 text-center border-b border-gray-700">
-                <h1 class="text-2xl font-bold text-yellow-500">Delícia da Cidade</h1>
-                <p class="text-xs text-gray-400">Sistema de Gestão v1.0</p>
+            <div class="p-6 text-center border-b border-gray-700 relative">
+                <button onclick="Utils.toggleSidebar()" class="absolute top-2 right-2 text-gray-400 hover:text-white"><i class="fas fa-bars"></i></button>
+                <div id="sidebar-logo">
+                    <h1 class="text-2xl font-bold text-yellow-500">Delícia da Cidade</h1>
+                    <p class="text-xs text-gray-400">Sistema de Gestão v1.0</p>
+                </div>
             </div>
             <nav class="flex-1 overflow-y-auto py-4">
-                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-chart-pie w-6"></i> Dashboard</a>
-                <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-users w-6"></i> Recursos Humanos</a>
-                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-boxes w-6"></i> Estoque</a>
-                <a href="producao.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-fire-burner w-6"></i> Produção</a>
-                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-calendar-alt w-6"></i> Eventos e Pedidos</a>
-                <a href="mlpain.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-clipboard-list w-6"></i> M.L.PAIN</a>
-                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-coins w-6"></i> Finanças</a>
-                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-qrcode w-6"></i> Patrimônio</a>
-                <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-cog w-6"></i> Configurações</a>
+                <a href="dashboard.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-chart-pie w-6"></i> <span class="sidebar-text ml-2">Dashboard</span></a>
+                <a href="rh.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-users w-6"></i> <span class="sidebar-text ml-2">Recursos Humanos</span></a>
+                <a href="estoque.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-boxes w-6"></i> <span class="sidebar-text ml-2">Estoque</span></a>
+                
+                <!-- Menu Agendamento (Sanfona) -->
+                <div class="nav-item">
+                    <button onclick="document.getElementById('submenu-agendamento').classList.toggle('hidden'); this.querySelector('.fa-chevron-down').classList.toggle('rotate-180')" class="w-full flex items-center justify-between px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300">
+                        <span class="flex items-center"><i class="fas fa-calendar-alt w-6"></i> <span class="sidebar-text ml-2">Agendamento</span></span>
+                        <i class="fas fa-chevron-down text-xs transition-transform duration-200 sidebar-text"></i>
+                    </button>
+                    <div id="submenu-agendamento" class="hidden bg-slate-800/50">
+                        <a href="producao.html" class="flex items-center pl-14 pr-6 py-2 text-sm text-gray-400 hover:text-white hover:bg-slate-700 transition-all"><i class="fas fa-chart-pie w-4 mr-2"></i> <span class="sidebar-text">Visão Geral</span></a>
+                        <a href="producao.html" class="flex items-center pl-14 pr-6 py-2 text-sm text-gray-400 hover:text-white hover:bg-slate-700 transition-all"><i class="fas fa-plus-circle w-4 mr-2"></i> <span class="sidebar-text">Novo Planejamento</span></a>
+                        <a href="producao.html" class="flex items-center pl-14 pr-6 py-2 text-sm text-gray-400 hover:text-white hover:bg-slate-700 transition-all"><i class="fas fa-book-open w-4 mr-2"></i> <span class="sidebar-text">Pratos & Fichas</span></a>
+                    </div>
+                </div>
+                
+                <a href="eventos.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-calendar-alt w-6"></i> <span class="sidebar-text ml-2">Eventos e Pedidos</span></a>
+                <a href="mlpain.html" class="flex items-center px-6 py-3 bg-slate-800 text-white border-l-4 border-yellow-500"><i class="fas fa-clipboard-list w-6"></i> <span class="sidebar-text ml-2">M.L.PAIN</span></a>
+                <a href="financas.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-coins w-6"></i> <span class="sidebar-text ml-2">Finanças</span></a>
+                <a href="inventario.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-qrcode w-6"></i> <span class="sidebar-text ml-2">Patrimônio</span></a>
+                <a href="configuracoes.html" class="flex items-center px-6 py-3 text-gray-400 hover:bg-slate-700 hover:text-yellow-400 hover:pl-8 transition-all duration-300"><i class="fas fa-cog w-6"></i> <span class="sidebar-text ml-2">Configurações</span></a>
             </nav>
+            <div class="p-4 border-t border-gray-800">
+                <p class="text-xs text-gray-500 text-center sidebar-text">Versão 1.0.0</p>
+            </div>
         </aside>
 
         <!-- CONTENT WRAPPER -->
