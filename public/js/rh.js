@@ -229,34 +229,6 @@ const RHModule = {
         RHModule.renderFuncionarios();
     },
 
-    exportCSV: () => {
-        let data = RHModule.state.cache.funcionarios || [];
-        if (RHModule.state.filterTerm) {
-            const term = RHModule.state.filterTerm.toLowerCase();
-            data = data.filter(f => 
-                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
-                (f.BI && f.BI.toLowerCase().includes(term)) ||
-                (f.Departamento && f.Departamento.toLowerCase().includes(term))
-            );
-        }
-
-        if (data.length === 0) return Utils.toast('Nenhum funcionário para exportar.', 'info');
-
-        const headers = ['Nome', 'Nascimento', 'BI', 'Telefone', 'Email', 'Cargo', 'Departamento', 'Turno', 'Salario', 'TipoContrato', 'Admissao', 'Iban', 'Status'];
-        
-        const escapeCSV = (str) => (str === null || str === undefined) ? '' : `"${String(str).replace(/"/g, '""')}"`;
-
-        const csvContent = [headers.join(','), ...data.map(row => headers.map(header => escapeCSV(row[header])).join(','))].join('\n');
-        const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.setAttribute("href", URL.createObjectURL(blob));
-        link.setAttribute("download", "lista_funcionarios.csv");
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        Utils.toast('Exportação concluída!', 'success');
-    },
-
     modalFuncionario: (id = null) => {
         const f = id ? RHModule.state.cache.funcionarios.find(x => x.ID === id) : {};
         const tiposContrato = RHModule.state.cache.parametros.filter(p => p.Tipo === 'TipoContrato');
@@ -429,6 +401,54 @@ const RHModule = {
         }
     },
 
+    // --- FUNÇÃO DE IMPRESSÃO NATIVA (SUBSTITUI HTML2PDF) ---
+    printNative: (htmlContent) => {
+        let iframe = document.getElementById('print-iframe');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'print-iframe';
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+        }
+        
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(`
+            <html>
+            <head>
+                <title>Imprimir Relatório</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <style>
+                    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: sans-serif; }
+                    @page { margin: 10mm; size: auto; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+                    th { background-color: #f3f4f6; }
+                </style>
+            </head>
+            <body>
+                ${htmlContent}
+                <script>
+                    // Aguarda o carregamento de estilos e imagens antes de imprimir
+                    window.onload = () => {
+                        setTimeout(() => {
+                            window.print();
+                        }, 1000);
+                    };
+                </script>
+            </body>
+            </html>
+        `);
+        doc.close();
+    },
+
     printEscalaGeral: async () => {
         // Carrega escalas sob demanda se ainda não carregou
         if (!RHModule.state.cache.escala) {
@@ -443,16 +463,7 @@ const RHModule = {
         const inst = RHModule.state.cache.instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
 
-        // Elemento temporário para impressão
-        const printDiv = document.createElement('div');
-        printDiv.id = 'print-escala-geral';
-        // Ajuste de posicionamento para evitar PDF em branco (renderização fora da tela)
-        printDiv.style.position = 'absolute';
-        printDiv.style.top = '0';
-        printDiv.style.left = '0';
-        printDiv.style.zIndex = '-9999';
-        printDiv.style.width = '297mm'; // A4 Landscape
-        printDiv.style.background = 'white';
+        // Construção do HTML
         
         let html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
@@ -497,14 +508,11 @@ const RHModule = {
         });
 
         html += `</tbody></table><div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
-        printDiv.innerHTML = html;
-        document.body.appendChild(printDiv);
-
-        const opt = { margin: 5, filename: `escala-trabalho-${new Date().toISOString().split('T')[0]}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } };
-        html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
+        
+        RHModule.printNative(html);
     },
 
-    printEscalaGeral: async (isWhatsapp = false) => {
+    shareEscalaGeral: async () => {
         // Carrega escalas sob demanda se ainda não carregou
         if (!RHModule.state.cache.escala) {
              try {
@@ -583,17 +591,7 @@ const RHModule = {
         const inst = RHModule.state.cache.instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
 
-        // Elemento temporário
-        const printDiv = document.createElement('div');
-        printDiv.id = 'print-profile';
-        printDiv.className = 'bg-white p-8';
-        printDiv.style.position = 'absolute';
-        printDiv.style.left = '0';
-        printDiv.style.top = '0';
-        printDiv.style.zIndex = '-9999';
-        printDiv.style.width = '210mm';
-
-        printDiv.innerHTML = `
+        let html = `
             <div class="font-sans text-gray-900">
                 <!-- Cabeçalho -->
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
@@ -655,40 +653,36 @@ const RHModule = {
                 </div>
             </div>
         `;
-
-        document.body.appendChild(printDiv);
-
-        // Renderizar Gráfico (Sem animação para sair no PDF)
+        
+        // Script para renderizar o gráfico dentro do iframe de impressão
+        let chartScript = '';
         if (historico.length > 0 && typeof Chart !== 'undefined') {
-            new Chart(document.getElementById('chart-profile-evolution'), {
-                type: 'line',
-                data: {
-                    labels: historico.map(h => h.Periodo),
-                    datasets: [{
-                        label: 'Salário Líquido (Kz)',
-                        data: historico.map(h => h.SalarioLiquido),
-                        borderColor: '#10B981',
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.3
-                    }]
-                },
-                options: { animation: false, responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-            });
+            const labels = JSON.stringify(historico.map(h => h.Periodo));
+            const data = JSON.stringify(historico.map(h => h.SalarioLiquido));
+            
+            html += `
+                <script>
+                    new Chart(document.getElementById('chart-profile-evolution'), {
+                        type: 'line',
+                        data: {
+                            labels: ${labels},
+                            datasets: [{
+                                label: 'Salário Líquido (Kz)',
+                                data: ${data},
+                                borderColor: '#10B981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.3
+                            }]
+                        },
+                        options: { animation: false, responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                    });
+                </script>
+            `;
         }
 
-        const opt = {
-            margin: 10,
-            filename: `perfil-${f.Nome.replace(/\s+/g, '-').toLowerCase()}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(printDiv).save().then(() => {
-            document.body.removeChild(printDiv);
-        });
+        RHModule.printNative(html);
     },
 
     // --- 2. ABA FREQUÊNCIA ---
@@ -1000,16 +994,7 @@ const RHModule = {
         const diasGozados = feriasAno.reduce((acc, cur) => acc + Number(cur.Dias), 0);
         const saldoRestante = 30 - diasGozados; // Assumindo direito a 30 dias/ano
 
-        // Elemento temporário para impressão
-        const printDiv = document.createElement('div');
-        printDiv.className = 'bg-white p-8';
-        printDiv.style.position = 'absolute';
-        printDiv.style.left = '-9999px'; // Esconde fora da tela
-        printDiv.style.top = '0';
-        printDiv.style.width = '210mm'; // Largura A4
-        printDiv.id = 'guia-ferias-print';
-        
-        printDiv.innerHTML = `
+        const html = `
             <div class="border-2 border-gray-800 p-8 max-w-3xl mx-auto font-serif text-gray-900">
                 <!-- Cabeçalho -->
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
@@ -1069,19 +1054,7 @@ const RHModule = {
             </div>
         `;
 
-        document.body.appendChild(printDiv);
-        
-        const opt = {
-            margin: 10,
-            filename: `guia-ferias-${func.Nome.split(' ')[0]}-${ferias.DataInicio}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(printDiv).save().then(() => {
-            document.body.removeChild(printDiv);
-        });
+        RHModule.printNative(html);
     },
 
     shareGuiaFerias: (id) => {
@@ -1625,6 +1598,7 @@ const RHModule = {
                     <div><label class="block text-xs font-bold text-gray-500">Até</label><input type="date" id="rel-fim" class="border p-2 rounded"></div>
                     <button onclick="RHModule.updateRelatorios()" class="bg-blue-600 text-white px-4 py-2 rounded"><i class="fas fa-filter"></i> Filtrar</button>
                     <button onclick="document.getElementById('rel-inicio').value='';document.getElementById('rel-fim').value='';RHModule.updateRelatorios()" class="text-gray-500 px-4 py-2 hover:text-gray-700">Limpar</button>
+                    <button onclick="RHModule.renderComissoes()" class="bg-green-600 text-white px-4 py-2 rounded ml-auto"><i class="fas fa-dollar-sign"></i> Comissões</button>
                 </div>
             </div>
 
@@ -1636,6 +1610,47 @@ const RHModule = {
         `;
         
         RHModule.updateRelatorios();
+    },
+
+    renderComissoes: async () => {
+        const start = document.getElementById('rel-inicio').value;
+        const end = document.getElementById('rel-fim').value;
+        
+        if (!start || !end) return Utils.toast('Selecione um período (De/Até) para calcular comissões.', 'warning');
+
+        document.getElementById('relatorio-results').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-green-600"></i><p>Calculando vendas...</p></div>';
+
+        try {
+            const data = await Utils.api('getWaiterSales', null, { startDate: start, endDate: end });
+            
+            let html = `
+                <h4 class="text-lg font-bold text-green-700 mb-4 border-b border-green-200 pb-2">💰 Relatório de Vendas e Comissões (${Utils.formatDate(start)} a ${Utils.formatDate(end)})</h4>
+                <div class="bg-white rounded shadow overflow-hidden">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-green-50 text-green-800">
+                            <tr>
+                                <th class="p-3">Funcionário / Garçom</th>
+                                <th class="p-3 text-center">Qtd Eventos</th>
+                                <th class="p-3 text-right">Total Vendas</th>
+                                <th class="p-3 text-right">Comissão (10%)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${data.map(r => `
+                                <tr class="hover:bg-green-50">
+                                    <td class="p-3 font-bold">${r.name}</td>
+                                    <td class="p-3 text-center">${r.count}</td>
+                                    <td class="p-3 text-right">${Utils.formatCurrency(r.total)}</td>
+                                    <td class="p-3 text-right font-bold text-green-600">${Utils.formatCurrency(r.commission)}</td>
+                                </tr>
+                            `).join('')}
+                            ${data.length === 0 ? '<tr><td colspan="4" class="p-4 text-center text-gray-500">Nenhuma venda registrada com responsável neste período.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            document.getElementById('relatorio-results').innerHTML = html;
+        } catch (e) { Utils.toast('Erro ao calcular comissões.', 'error'); }
     },
 
     updateRelatorios: () => {
@@ -1901,15 +1916,14 @@ const RHModule = {
     },
 
     exportPDF: () => {
-        const element = document.getElementById('print-area');
-        const header = document.getElementById('pdf-header');
-        const footer = document.getElementById('pdf-footer');
         const inst = RHModule.state.cache.instituicao[0] || {};
         const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         
-        // Monta o cabeçalho com Logotipo e Dados da Empresa
-        header.innerHTML = `
+        // Captura o conteúdo atual do relatório
+        const content = document.getElementById('relatorio-results').innerHTML;
+        
+        const html = `
             <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
                 ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                 <div>
@@ -1917,29 +1931,17 @@ const RHModule = {
                     <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
                 </div>
             </div>
+            
+            ${content}
+            
+            <div class="mt-10 pt-4 border-t text-center">
+                <p class="font-bold text-gray-800">${user.Nome}</p>
+                <p class="text-sm text-gray-600">${user.Assinatura || ''}</p>
+                <p class="text-xs text-gray-400 mt-1">Documento gerado em ${new Date().toLocaleString()}</p>
+            </div>
         `;
-        header.classList.remove('hidden'); // Torna visível para a captura
-
-        // Monta o rodapé com a Assinatura Digital
-        footer.innerHTML = `
-            <p class="font-bold text-gray-800">${user.Nome}</p>
-            <p class="text-sm text-gray-600">${user.Assinatura || ''}</p>
-            <p class="text-xs text-gray-400 mt-1">Documento gerado em ${new Date().toLocaleString()}</p>
-        `;
-        footer.classList.remove('hidden');
         
-        const opt = {
-            margin: 10,
-            filename: 'relatorio-rh-departamentos.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
-        };
-        
-        html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden'); // Esconde novamente após gerar
-            footer.classList.add('hidden');
-        });
+        RHModule.printNative(html);
     },
 
     printTabPDF: (type) => {
@@ -2071,17 +2073,28 @@ const RHModule = {
             content = buildTable(headers, rows);
         }
 
-        const printDiv = document.createElement('div');
-        printDiv.id = 'print-tab-generic';
-        printDiv.style.position = 'absolute'; printDiv.style.top = '0'; printDiv.style.left = '0'; printDiv.style.zIndex = '-9999';
-        printDiv.style.width = orientation === 'landscape' ? '297mm' : '210mm';
-        printDiv.style.background = 'white';
-        
-        printDiv.innerHTML = `<div class="p-8 font-sans text-gray-900 bg-white"><div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6"><div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}<div><h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p class="text-sm">${inst.Endereco || ''}</p></div></div><div class="text-right"><h2 class="text-xl font-bold">${title.toUpperCase()}</h2><p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p><p class="text-xs text-gray-500">Por: ${user.Nome}</p></div></div>${content}<div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">${title.toUpperCase()}</h2>
+                        <p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p>
+                        <p class="text-xs text-gray-500">Por: ${user.Nome}</p>
+                    </div>
+                </div>
+                ${content}
+                <div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div>
+            </div>
+        `;
 
-        document.body.appendChild(printDiv);
-        const opt = { margin: 10, filename: filename, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: orientation } };
-        html2pdf().set(opt).from(printDiv).save().then(() => { document.body.removeChild(printDiv); });
+        RHModule.printNative(html);
     },
 
     // --- GENÉRICOS ---

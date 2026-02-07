@@ -28,6 +28,7 @@ const ConfigModule = {
         setTimeout(() => {
             if (tab === 'geral') ConfigModule.renderGeral(container);
             else if (tab === 'usuarios') ConfigModule.renderUsuarios(container);
+            else if (tab === 'perfis') ConfigModule.renderPerfis(container);
             else if (tab === 'logs') ConfigModule.renderLogs(container);
             else if (tab === 'rh') ConfigModule.renderParametros(container, 'ParametrosRH', ['TipoContrato', 'Turno', 'Regime', 'SituacaoFuncional']);
             else if (tab === 'cozinha') ConfigModule.renderParametros(container, 'ParametrosCozinha', ['TipoRefeicao', 'AreaProducao', 'UnidadeMedida']);
@@ -203,6 +204,7 @@ const ConfigModule = {
     renderUsuarios: async (container) => {
         try {
             const users = await Utils.api('getAll', 'Usuarios') || [];
+            const perfis = await Utils.api('getAll', 'PerfisAcesso') || [];
             const canCreate = Utils.checkPermission('Configuracoes', 'criar');
             const canEdit = Utils.checkPermission('Configuracoes', 'editar');
             const canDelete = Utils.checkPermission('Configuracoes', 'excluir');
@@ -210,7 +212,7 @@ const ConfigModule = {
             container.innerHTML = `
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="text-2xl font-bold text-gray-800">Gestão de Usuários</h3>
-                    ${canCreate ? `<button onclick="ConfigModule.modalUsuario()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+                    ${canCreate ? `<button onclick="ConfigModule.modalUsuario(null)" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
                         <i class="fas fa-user-plus mr-2"></i> Novo Usuário
                     </button>` : ''}
                 </div>
@@ -252,6 +254,7 @@ const ConfigModule = {
             const users = await Utils.api('getAll', 'Usuarios');
             user = users.find(u => u.ID === id) || {};
         }
+        const perfis = await Utils.api('getAll', 'PerfisAcesso') || [];
 
         // Geração da Tabela de Permissões
         const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
@@ -268,7 +271,7 @@ const ConfigModule = {
             actions.forEach(act => {
                 const isChecked = (perms[mod] && perms[mod][act]) ? 'checked' : '';
                 permsHtml += `<label class="flex items-center gap-1 text-[10px] cursor-pointer hover:bg-gray-100 px-1 rounded select-none">
-                    <input type="checkbox" name="perm_${mod}_${act}" ${isChecked} class="rounded text-blue-600 focus:ring-blue-500"> ${act.charAt(0).toUpperCase() + act.slice(1)}
+                    <input type="checkbox" name="perm_${mod}_${act}" ${isChecked} class="perm-check rounded text-blue-600 focus:ring-blue-500"> ${act.charAt(0).toUpperCase() + act.slice(1)}
                 </label>`;
             });
             
@@ -309,11 +312,35 @@ const ConfigModule = {
                     <input type="password" name="Senha" class="border p-2 rounded w-full" ${id ? '' : 'required'}>
                 </div>
                 
+                <div class="mb-2 bg-yellow-50 p-2 rounded border border-yellow-200">
+                    <label class="text-xs font-bold text-yellow-800">Aplicar Perfil de Acesso (Preenchimento Rápido)</label>
+                    <select id="select-perfil" class="border p-1 rounded w-full text-sm mt-1" onchange="ConfigModule.aplicarPerfil(this)">
+                        <option value="">Selecione um perfil...</option>
+                        ${perfis.map(p => `<option value='${JSON.stringify(p.Permissoes)}'>${p.Nome}</option>`).join('')}
+                    </select>
+                </div>
+
                 ${permsHtml}
 
                 <button class="w-full bg-blue-600 text-white py-2 rounded font-bold mt-4">Salvar Usuário</button>
             </form>
         `);
+    },
+
+    aplicarPerfil: (select) => {
+        if (!select.value) return;
+        const perms = JSON.parse(select.value);
+        
+        // Reseta todos
+        document.querySelectorAll('.perm-check').forEach(c => c.checked = false);
+        
+        // Aplica novos
+        Object.keys(perms).forEach(mod => {
+            Object.keys(perms[mod]).forEach(act => {
+                const checkbox = document.querySelector(`input[name="perm_${mod}_${act}"]`);
+                if (checkbox) checkbox.checked = true;
+            });
+        });
     },
 
     saveUsuario: async (e) => {
@@ -353,6 +380,86 @@ const ConfigModule = {
             await Utils.api('delete', 'Usuarios', null, id);
             ConfigModule.renderUsuarios(document.getElementById('config-content'));
         } catch (e) { Utils.toast('Erro ao excluir.', 'error'); }
+    },
+
+    // --- 4. PERFIS DE ACESSO ---
+    renderPerfis: async (container) => {
+        try {
+            const perfis = await Utils.api('getAll', 'PerfisAcesso') || [];
+            
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-2xl font-bold text-gray-800">Perfis de Acesso</h3>
+                    <button onclick="ConfigModule.modalPerfil()" class="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 transition">
+                        <i class="fas fa-plus mr-2"></i> Novo Perfil
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    ${perfis.map(p => `
+                        <div class="bg-white p-4 rounded shadow border-l-4 border-purple-500">
+                            <div class="flex justify-between items-start">
+                                <h4 class="font-bold text-lg">${p.Nome}</h4>
+                                <button onclick="ConfigModule.deleteParam('PerfisAcesso', '${p.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">${Object.keys(p.Permissoes || {}).length} módulos permitidos</p>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao carregar perfis.</p>'; }
+    },
+
+    modalPerfil: () => {
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const actions = ['ver', 'criar', 'editar', 'excluir'];
+        
+        let permsHtml = '<div class="mt-4 border-t pt-4"><h5 class="font-bold text-gray-700 mb-2">Definir Permissões do Perfil</h5><div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto border p-2 rounded bg-gray-50">';
+        
+        modules.forEach(mod => {
+            permsHtml += `<div class="bg-white p-2 rounded border shadow-sm">
+                <div class="font-bold text-xs mb-1 border-b pb-1 text-gray-600">${mod}</div>
+                <div class="flex flex-wrap gap-2">`;
+            actions.forEach(act => {
+                permsHtml += `<label class="flex items-center gap-1 text-[10px] cursor-pointer hover:bg-gray-100 px-1 rounded select-none">
+                    <input type="checkbox" name="perm_${mod}_${act}" class="rounded text-purple-600 focus:ring-purple-500"> ${act.charAt(0).toUpperCase() + act.slice(1)}
+                </label>`;
+            });
+            permsHtml += `</div></div>`;
+        });
+        permsHtml += '</div></div>';
+
+        Utils.openModal('Novo Perfil de Acesso', `
+            <form onsubmit="ConfigModule.savePerfil(event)">
+                <div class="mb-3">
+                    <label class="text-xs font-bold">Nome do Perfil</label>
+                    <input name="Nome" class="border p-2 rounded w-full" required placeholder="Ex: Gerente de Estoque">
+                </div>
+                ${permsHtml}
+                <button class="w-full bg-purple-600 text-white py-2 rounded font-bold mt-4">Salvar Perfil</button>
+            </form>
+        `);
+    },
+
+    savePerfil: async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        
+        const permissoes = {};
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const actions = ['ver', 'criar', 'editar', 'excluir'];
+
+        modules.forEach(mod => {
+            permissoes[mod] = {};
+            actions.forEach(act => {
+                if (data[`perm_${mod}_${act}`] === 'on') permissoes[mod][act] = true;
+                delete data[`perm_${mod}_${act}`];
+            });
+        });
+        data.Permissoes = permissoes;
+
+        try { await Utils.api('save', 'PerfisAcesso', data); Utils.toast('Perfil salvo!'); Utils.closeModal(); ConfigModule.setTab('perfis'); } 
+        catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
     renderLogs: async (container) => {

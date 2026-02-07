@@ -7,7 +7,9 @@ const EventosModule = {
         purchaseOrders: [],
         view: 'calendar', // 'calendar' or 'list'
         instituicao: [],
-        purchaseCart: [] // Carrinho de compras para pedidos
+        purchaseCart: [], // Carrinho de compras para pedidos
+        charts: {},
+        clients: []
     },
 
     init: () => {
@@ -21,15 +23,17 @@ const EventosModule = {
                 Utils.api('getAll', 'Eventos'),
                 Utils.api('getAll', 'InstituicaoConfig'),
                 Utils.api('getAll', 'Estoque'),
-                Utils.api('getAll', 'PedidosCompra')
+                Utils.api('getAll', 'PedidosCompra'),
+                Utils.api('getAll', 'Clientes')
             ]);
             
-            const [resEvents, resInst, resStock, resOrders] = results;
+            const [resEvents, resInst, resStock, resOrders, resClients] = results;
 
             EventosModule.state.events = resEvents.status === 'fulfilled' ? resEvents.value : [];
             EventosModule.state.instituicao = resInst.status === 'fulfilled' ? resInst.value : [];
             EventosModule.state.stockItems = resStock.status === 'fulfilled' ? resStock.value : [];
             EventosModule.state.purchaseOrders = resOrders.status === 'fulfilled' ? resOrders.value : [];
+            EventosModule.state.clients = resClients.status === 'fulfilled' ? resClients.value : [];
 
             if (resEvents.status === 'rejected') console.warn('Erro ao carregar Eventos (Tabela inexistente?):', resEvents.reason);
             if (resStock.status === 'rejected') Utils.toast('Erro ao carregar Estoque.', 'error');
@@ -49,9 +53,21 @@ const EventosModule = {
         const btnList = document.getElementById('btn-view-list');
         const btnPurch = document.getElementById('btn-view-purchase');
         const btnHist = document.getElementById('btn-view-history');
+        const btnABC = document.getElementById('btn-view-abc');
+        
+        // Injeta botão Fidelidade se não existir
+        let btnLoyalty = document.getElementById('btn-view-loyalty');
+        if (!btnLoyalty && btnABC && btnABC.parentElement) {
+            btnLoyalty = document.createElement('button');
+            btnLoyalty.id = 'btn-view-loyalty';
+            btnLoyalty.innerText = 'Fidelidade';
+            btnLoyalty.onclick = () => EventosModule.setView('loyalty');
+            btnLoyalty.className = 'px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100 transition';
+            btnABC.parentElement.appendChild(btnLoyalty);
+        }
         
         // Reset classes
-        [btnCal, btnList, btnPurch, btnHist].forEach(btn => {
+        [btnCal, btnList, btnPurch, btnHist, btnABC, btnLoyalty].forEach(btn => {
             if(btn) btn.className = 'px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100 transition';
         });
 
@@ -59,6 +75,18 @@ const EventosModule = {
         document.getElementById('list-view').classList.add('hidden');
         document.getElementById('purchase-view').classList.add('hidden');
         document.getElementById('history-view').classList.add('hidden');
+        const abcView = document.getElementById('abc-view');
+        if(abcView) abcView.classList.add('hidden');
+        
+        // Cria container Fidelidade se não existir
+        let loyaltyView = document.getElementById('loyalty-view');
+        if (!loyaltyView) {
+            loyaltyView = document.createElement('div');
+            loyaltyView.id = 'loyalty-view';
+            loyaltyView.className = 'hidden';
+            document.getElementById('calendar-view').parentElement.appendChild(loyaltyView);
+        }
+        loyaltyView.classList.add('hidden');
 
         if(view === 'calendar') {
             btnCal.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
@@ -72,6 +100,14 @@ const EventosModule = {
         } else if (view === 'history') {
             if(btnHist) btnHist.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
             document.getElementById('history-view').classList.remove('hidden');
+        } else if (view === 'abc') {
+            if(btnABC) btnABC.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
+            if(abcView) abcView.classList.remove('hidden');
+            EventosModule.renderClientABC();
+        } else if (view === 'loyalty') {
+            if(btnLoyalty) btnLoyalty.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
+            loyaltyView.classList.remove('hidden');
+            EventosModule.renderLoyalty();
         }
         EventosModule.render();
     },
@@ -108,6 +144,8 @@ const EventosModule = {
         // else if (EventosModule.state.view === 'list') EventosModule.renderList(); // Função não implementada
         else if (EventosModule.state.view === 'purchase') EventosModule.renderPurchaseOrders();
         else if (EventosModule.state.view === 'history') EventosModule.renderPurchaseHistory();
+        // abc view is rendered on setView
+        // loyalty view is rendered on setView
     },
 
     renderCalendar: () => {
@@ -181,6 +219,13 @@ const EventosModule = {
         const d = date ? new Date(date) : new Date();
         const dateStr = d.toISOString().split('T')[0];
         
+        // Busca funcionários para o select de responsável (Garçom)
+        // Idealmente isso viria do cache global ou de uma chamada específica, 
+        // mas vamos tentar pegar do RHModule se disponível ou fazer uma chamada rápida
+        // Para simplificar, faremos um input texto com sugestão ou select se tivermos dados
+        // Assumindo que podemos pegar do localStorage se o RH já carregou, ou deixar texto livre por enquanto.
+        // Melhor: input texto simples para não depender de outro módulo carregado.
+        
         Utils.openModal('Novo Evento / Pedido', `
             <form onsubmit="EventosModule.save(event)">
                 <div class="mb-3"><label class="text-xs font-bold">Título do Evento</label><input name="Titulo" class="border p-2 rounded w-full" required placeholder="Ex: Aniversário, Coffee Break..."></div>
@@ -188,7 +233,11 @@ const EventosModule = {
                     <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" value="${dateStr}" class="border p-2 rounded w-full" required></div>
                     <div><label class="text-xs font-bold">Horário</label><input type="time" name="Hora" class="border p-2 rounded w-full"></div>
                 </div>
-                <div class="mb-3"><label class="text-xs font-bold">Cliente / Solicitante</label><input name="Cliente" class="border p-2 rounded w-full"></div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Cliente</label><input name="Cliente" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold">Valor Estimado (Kz)</label><input type="number" step="0.01" name="Valor" class="border p-2 rounded w-full"></div>
+                    <div class="col-span-2"><label class="text-xs font-bold">Responsável / Garçom</label><input name="Responsavel" class="border p-2 rounded w-full" placeholder="Quem atendeu?"></div>
+                </div>
                 <div class="mb-3"><label class="text-xs font-bold">Descrição / Itens</label><textarea name="Descricao" class="border p-2 rounded w-full h-20"></textarea></div>
                 <button class="w-full bg-indigo-600 text-white py-2 rounded font-bold">Salvar Evento</button>
             </form>
@@ -463,6 +512,181 @@ const EventosModule = {
                 </table>
             </div>
         `;
+    },
+
+    renderClientABC: async () => {
+        const container = document.getElementById('abc-view');
+        container.innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-indigo-600"></i><p class="mt-2">Carregando relatórios...</p></div>';
+
+        try {
+            const [abcData, salesData] = await Promise.all([
+                Utils.api('getClientABC'),
+                Utils.api('getSalesByDayOfWeek')
+            ]);
+            
+            const { clients, totalRevenue } = abcData;
+            
+            const countA = clients.filter(c => c.classe === 'A').length;
+            const countB = clients.filter(c => c.classe === 'B').length;
+            const countC = clients.filter(c => c.classe === 'C').length;
+
+            container.innerHTML = `
+                <h3 class="text-xl font-bold text-gray-800 mb-6">Relatórios de Eventos</h3>
+                
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Curva ABC de Clientes</h4>
+                
+                <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+                    <div class="p-4 bg-green-100 rounded border border-green-200">
+                        <div class="text-2xl font-bold text-green-700">Classe A</div>
+                        <div class="text-sm text-green-800">${countA} clientes (80% da Receita)</div>
+                    </div>
+                    <div class="p-4 bg-blue-100 rounded border border-blue-200">
+                        <div class="text-2xl font-bold text-blue-700">Classe B</div>
+                        <div class="text-sm text-blue-800">${countB} clientes (15% da Receita)</div>
+                    </div>
+                    <div class="p-4 bg-gray-100 rounded border border-gray-200">
+                        <div class="text-2xl font-bold text-gray-700">Classe C</div>
+                        <div class="text-sm text-gray-800">${countC} clientes (5% da Receita)</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded shadow overflow-hidden mb-8">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-600 uppercase">
+                            <tr><th class="p-3">Classe</th><th class="p-3">Cliente</th><th class="p-3 text-right">Valor Total</th><th class="p-3 text-right">% Repr.</th></tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${clients.map(c => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="p-3 font-bold text-center ${c.classe === 'A' ? 'text-green-600 bg-green-50' : (c.classe === 'B' ? 'text-blue-600 bg-blue-50' : 'text-gray-500')}">${c.classe}</td>
+                                    <td class="p-3 font-bold">${c.name}</td>
+                                    <td class="p-3 text-right">${Utils.formatCurrency(c.value)}</td>
+                                    <td class="p-3 text-right text-xs text-gray-500">${c.percent.toFixed(1)}%</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Vendas por Dia da Semana</h4>
+                    <div class="h-64"><canvas id="chartSalesDay"></canvas></div>
+                </div>
+            `;
+
+            // Renderizar Gráfico
+            if (EventosModule.state.charts.salesDay) EventosModule.state.charts.salesDay.destroy();
+
+            EventosModule.state.charts.salesDay = new Chart(document.getElementById('chartSalesDay'), {
+                type: 'bar',
+                data: {
+                    labels: salesData.map(d => d.day),
+                    datasets: [{
+                        label: 'Total Vendas (Kz)',
+                        data: salesData.map(d => d.total),
+                        backgroundColor: '#4F46E5',
+                        borderRadius: 4,
+                        yAxisID: 'y'
+                    }, {
+                        label: 'Qtd Eventos',
+                        data: salesData.map(d => d.count),
+                        backgroundColor: '#F59E0B',
+                        type: 'line',
+                        yAxisID: 'y1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { type: 'linear', display: true, position: 'left', beginAtZero: true },
+                        y1: { type: 'linear', display: true, position: 'right', beginAtZero: true, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+
+        } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao carregar relatório.</p>'; }
+    },
+
+    renderLoyalty: () => {
+        const container = document.getElementById('loyalty-view');
+        const clients = EventosModule.state.clients || [];
+        
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Programa de Fidelidade</h3>
+                <div class="flex gap-2">
+                    <button onclick="EventosModule.recalculateLoyalty()" class="bg-yellow-500 text-white px-4 py-2 rounded shadow hover:bg-yellow-600 transition">
+                        <i class="fas fa-sync-alt mr-2"></i> Recalcular Pontos
+                    </button>
+                    <button onclick="EventosModule.modalClient()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+                        <i class="fas fa-user-plus mr-2"></i> Novo Cliente
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">Cliente</th>
+                            <th class="p-3">Contato</th>
+                            <th class="p-3 text-right">Total Gasto</th>
+                            <th class="p-3 text-center">Pontos</th>
+                            <th class="p-3 text-center">Última Compra</th>
+                            <th class="p-3 text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${clients.map(c => `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 font-bold">${c.Nome}</td>
+                                <td class="p-3 text-xs">${c.Telefone || '-'} <br> ${c.Email || '-'}</td>
+                                <td class="p-3 text-right">${Utils.formatCurrency(c.TotalGasto)}</td>
+                                <td class="p-3 text-center">
+                                    <span class="bg-purple-100 text-purple-800 px-2 py-1 rounded font-bold">${c.Pontos || 0}</span>
+                                </td>
+                                <td class="p-3 text-center text-xs">${Utils.formatDate(c.UltimaCompra)}</td>
+                                <td class="p-3 text-center">
+                                    <button onclick="EventosModule.modalClient('${c.ID}')" class="text-blue-600 hover:text-blue-800 mr-2"><i class="fas fa-edit"></i></button>
+                                    <button onclick="EventosModule.deleteClient('${c.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${clients.length === 0 ? '<tr><td colspan="6" class="p-6 text-center text-gray-500">Nenhum cliente cadastrado.</td></tr>' : ''}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    modalClient: (id = null) => {
+        const client = id ? EventosModule.state.clients.find(c => c.ID === id) : {};
+        Utils.openModal(id ? 'Editar Cliente' : 'Novo Cliente', `
+            <form onsubmit="EventosModule.saveClient(event)">
+                <input type="hidden" name="ID" value="${client.ID || ''}">
+                <div class="mb-3"><label class="text-xs font-bold">Nome</label><input name="Nome" value="${client.Nome || ''}" class="border p-2 rounded w-full" required></div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Telefone</label><input name="Telefone" value="${client.Telefone || ''}" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold">Email</label><input name="Email" value="${client.Email || ''}" class="border p-2 rounded w-full"></div>
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar</button>
+            </form>
+        `);
+    },
+
+    saveClient: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try { await Utils.api('save', 'Clientes', data); Utils.toast('Cliente salvo!'); Utils.closeModal(); EventosModule.fetchData(); } catch(e) { Utils.toast('Erro.', 'error'); }
+    },
+
+    deleteClient: async (id) => {
+        if(confirm('Excluir cliente?')) { try { await Utils.api('delete', 'Clientes', null, id); EventosModule.fetchData(); } catch(e) { Utils.toast('Erro.', 'error'); } }
+    },
+
+    recalculateLoyalty: async () => {
+        try { await Utils.api('recalculateLoyalty'); Utils.toast('Pontos atualizados com sucesso!', 'success'); EventosModule.fetchData(); } catch(e) { Utils.toast('Erro ao recalcular.', 'error'); }
     },
 
     viewOrderDetails: async (id) => {

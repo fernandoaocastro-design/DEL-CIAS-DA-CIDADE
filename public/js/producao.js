@@ -9,7 +9,8 @@ const ProducaoModule = {
         consumo: [],
         charts: {},
         instituicao: [],
-        productionPlans: [] // Novo array para production_plans
+        productionPlans: [],
+        checklistDate: new Date().toISOString().split('T')[0]
     },
 
     init: () => {
@@ -73,6 +74,7 @@ const ProducaoModule = {
         else if (tab === 'desperdicio') ProducaoModule.renderDesperdicio(container);
         else if (tab === 'custos') ProducaoModule.renderCustos(container);
         else if (tab === 'relatorios') ProducaoModule.renderRelatorios(container);
+        else if (tab === 'limpeza') ProducaoModule.renderLimpeza(container);
     },
 
     // 📅 NOVO MÓDULO: AGENDAMENTO DE PRODUÇÃO
@@ -1081,6 +1083,93 @@ const ProducaoModule = {
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
             });
         }
+    },
+
+    // 🧹 8️⃣ Checklist de Limpeza
+    renderLimpeza: async (container) => {
+        const date = ProducaoModule.state.checklistDate;
+        
+        // Itens padrão do checklist
+        const standardItems = [
+            { area: 'Cozinha', item: 'Higienização das Bancadas' },
+            { area: 'Cozinha', item: 'Limpeza do Chão e Ralos' },
+            { area: 'Cozinha', item: 'Limpeza da Coifa/Exaustor' },
+            { area: 'Cozinha', item: 'Descarte de Lixo Orgânico' },
+            { area: 'Cozinha', item: 'Limpeza de Fogões e Fornos' },
+            { area: 'Copa', item: 'Organização de Louças' },
+            { area: 'Copa', item: 'Limpeza de Pias e Torneiras' },
+            { area: 'Estoque', item: 'Verificação de Validade (Visual)' },
+            { area: 'Estoque', item: 'Organização de Prateleiras' },
+            { area: 'Geral', item: 'Limpeza de Maçanetas e Interruptores' }
+        ];
+
+        let savedItems = [];
+        try {
+            savedItems = await Utils.api('getChecklist', null, { date });
+        } catch (e) { console.error(e); }
+
+        // Mesclar itens padrão com salvos
+        const checklist = standardItems.map(std => {
+            const saved = savedItems.find(s => s.Item === std.item && s.Area === std.area);
+            return saved || { ...std, Status: 'Pendente', Data: date, Observacao: '' };
+        });
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Checklist de Limpeza e Higiene</h3>
+                <div class="flex gap-2">
+                    <input type="date" value="${date}" class="border p-2 rounded" onchange="ProducaoModule.state.checklistDate = this.value; ProducaoModule.renderLimpeza(document.getElementById('producao-content'))">
+                    <button onclick="ProducaoModule.saveChecklist()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fas fa-save"></i> Salvar</button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded shadow overflow-hidden">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">Área</th>
+                            <th class="p-3">Item de Verificação</th>
+                            <th class="p-3 text-center">Status</th>
+                            <th class="p-3">Observação</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y" id="checklist-body">
+                        ${checklist.map((item, idx) => `
+                            <tr class="hover:bg-gray-50 checklist-row" data-area="${item.area}" data-item="${item.item}">
+                                <td class="p-3 font-bold text-gray-500">${item.area}</td>
+                                <td class="p-3">${item.item}</td>
+                                <td class="p-3 text-center">
+                                    <select class="border p-1 rounded text-xs status-select ${item.Status === 'OK' ? 'bg-green-100 text-green-800' : (item.Status === 'Atenção' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100')}" onchange="this.className = 'border p-1 rounded text-xs status-select ' + (this.value === 'OK' ? 'bg-green-100 text-green-800' : (this.value === 'Atenção' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'))">
+                                        <option ${item.Status === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                                        <option ${item.Status === 'OK' ? 'selected' : ''}>OK</option>
+                                        <option ${item.Status === 'Atenção' ? 'selected' : ''}>Atenção</option>
+                                        <option ${item.Status === 'Não Realizado' ? 'selected' : ''}>Não Realizado</option>
+                                    </select>
+                                </td>
+                                <td class="p-3"><input type="text" class="border p-1 rounded w-full text-xs obs-input" value="${item.Observacao || ''}" placeholder="Obs..."></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    saveChecklist: async () => {
+        const rows = document.querySelectorAll('.checklist-row');
+        const items = Array.from(rows).map(row => ({
+            Data: ProducaoModule.state.checklistDate,
+            Area: row.dataset.area,
+            Item: row.dataset.item,
+            Status: row.querySelector('.status-select').value,
+            Observacao: row.querySelector('.obs-input').value,
+            Responsavel: Utils.getUser().Nome
+        }));
+
+        try {
+            await Utils.api('saveChecklist', null, { items });
+            Utils.toast('Checklist salvo com sucesso!', 'success');
+        } catch (e) { Utils.toast('Erro ao salvar.', 'error'); }
     },
 
     // 📊 5️⃣ Relatórios (Placeholder visual)

@@ -804,6 +804,53 @@ const MLPainModule = {
         MLPainModule.renderDetalhamento();
     },
 
+    // --- FUNÇÃO DE IMPRESSÃO NATIVA (SUBSTITUI HTML2PDF) ---
+    printNative: (htmlContent) => {
+        let iframe = document.getElementById('print-iframe');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'print-iframe';
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+        }
+        
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(`
+            <html>
+            <head>
+                <title>Relatório M.L. Pain</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style>
+                    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: sans-serif; }
+                    @page { margin: 5mm; size: landscape; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #6b7280; padding: 2px; text-align: center; font-size: 9px; }
+                    th { background-color: #f3f4f6; font-weight: bold; }
+                    .break-inside-avoid { page-break-inside: avoid; }
+                </style>
+            </head>
+            <body>
+                ${htmlContent}
+                <script>
+                    window.onload = () => {
+                        setTimeout(() => {
+                            window.print();
+                        }, 1000);
+                    };
+                </script>
+            </body>
+            </html>
+        `);
+        doc.close();
+    },
+
     exportDetalhamentoCSV: () => {
         const month = MLPainModule.state.filterMonth;
         const turno = MLPainModule.state.filterTurno;
@@ -836,8 +883,6 @@ const MLPainModule = {
         const inst = instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
         const user = Utils.getUser();
-        
-        console.log('Gerando PDF M.L. Pain:', { areas, registros });
 
         let recs = [];
         let daysToRender = [];
@@ -906,29 +951,49 @@ const MLPainModule = {
             }
         });
 
+        // Cabeçalho do Relatório
+        let html = `
+            <div class="p-4 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-12 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-xs text-gray-600">Relatório de Controle - M.L. Pain</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-lg font-bold">${reportTitle.toUpperCase()}</h2>
+                        <p class="text-xs">${periodStr}</p>
+                        <p class="text-[10px] text-gray-500">Gerado por: ${user.Nome}</p>
+                    </div>
+                </div>
+        `;
+
         // Função para Gerar HTML de Tabela
         const generateTableHtml = (title, typeKey, areasList) => {
             if (areasList.length === 0) return '';
             
-            // Estilos Inline Otimizados para A4 Paisagem (Fonte 6px, Bordas Finas)
-            const stTh = 'background-color: #f3f4f6; color: #111827; font-weight: bold; font-size: 6px; border: 0.5px solid #6b7280; padding: 1px;';
-            const stTd = 'border: 0.5px solid #6b7280; padding: 1px; text-align: center; font-size: 6px;';
-            const stTotal = 'background-color: #f9fafb; font-weight: bold;';
-            const stFooter = 'background-color: #e5e7eb; font-weight: bold;';
+            let tableHtml = `
+                <div class="mb-6 break-inside-avoid">
+                    <h3 class="text-sm font-bold mb-1 text-gray-700 border-b border-gray-300">${title}</h3>
+                    <table class="w-full border-collapse border border-gray-400 text-[9px]">
+                        <thead>
+                            <tr class="bg-gray-100">
+                                <th class="border border-gray-400 p-1 text-left w-24 bg-gray-200">ÁREA / DIA</th>
+            `;
 
-            let headerRow = `<tr><th class="col-area" style="${stTh} width: 12%; text-align: left;">ÁREA / DIA</th>`;
             daysToRender.forEach(d => {
-                headerRow += `<th class="col-day" style="${stTh}">${d.getDate()}</th>`;
+                tableHtml += `<th class="border border-gray-400 p-0.5 w-5">${d.getDate()}</th>`;
             });
-            headerRow += `<th class="col-total" style="${stTh} width: 4%;">TOTAL</th></tr>`;
+            tableHtml += `<th class="border border-gray-400 p-1 bg-gray-300 w-10 font-bold">TOTAL</th></tr></thead><tbody>`;
 
-            let bodyRows = '';
             let grandTotal = 0;
             const colTotals = new Array(daysToRender.length).fill(0);
 
             areasList.forEach((a, idx) => {
-                const bgRow = idx % 2 === 1 ? 'background-color: #f9fafb;' : '';
-                let rowHtml = `<tr style="${bgRow}"><td class="col-area text-left" style="${stTd} text-align: left; font-weight: bold;">${a.Nome}</td>`;
+                const bgRow = idx % 2 === 1 ? 'bg-gray-50' : '';
+                tableHtml += `<tr class="${bgRow}"><td class="border border-gray-400 p-1 text-left font-bold">${a.Nome}</td>`;
                 let rowTotal = 0;
                 
                 daysToRender.forEach((d, i) => {
@@ -940,138 +1005,32 @@ const MLPainModule = {
                     const val = matrix[a.ID][k] ? matrix[a.ID][k][typeKey] : 0;
                     rowTotal += val;
                     colTotals[i] += val;
-                    rowHtml += `<td style="${stTd}">${val > 0 ? val : ''}</td>`;
+                    tableHtml += `<td class="border border-gray-400 p-0.5 text-center">${val > 0 ? val : ''}</td>`;
                 });
                 grandTotal += rowTotal;
-                rowHtml += `<td class="col-total" style="${stTd} ${stTotal}">${rowTotal}</td></tr>`;
-                bodyRows += rowHtml;
+                tableHtml += `<td class="border border-gray-400 p-1 font-bold bg-gray-100 text-center">${rowTotal}</td></tr>`;
             });
 
             // Linha de Totais
-            let footerRow = `<tr class="total-row" style="${stFooter}"><td class="col-area text-right" style="${stTd} text-align: right;">TOTAL</td>`;
-            colTotals.forEach(t => footerRow += `<td style="${stTd}">${t > 0 ? t : ''}</td>`);
-            footerRow += `<td class="col-total" style="${stTd}">${grandTotal}</td></tr>`;
+            tableHtml += `<tr class="bg-gray-200 font-bold"><td class="border border-gray-400 p-1 text-right">TOTAL</td>`;
+            colTotals.forEach(t => tableHtml += `<td class="border border-gray-400 p-0.5 text-center">${t > 0 ? t : ''}</td>`);
+            tableHtml += `<td class="border border-gray-400 p-1 text-center">${grandTotal}</td></tr>`;
 
-            return `
-                <div class="table-section">
-                    <h3 class="table-title">${title}</h3>
-                    <table cellspacing="0" cellpadding="0" style="width: 100%; border-collapse: collapse; font-size: 6px; table-layout: fixed;">
-                        <thead>${headerRow}</thead>
-                        <tbody>${bodyRows}${footerRow}</tbody>
-                    </table>
-                </div>
-            `;
+            tableHtml += `</tbody></table></div>`;
+            return tableHtml;
         };
 
-        // Criar Container Temporário
-        const container = document.createElement('div');
-        container.id = 'print-mlpain-pdf';
-        
-        // CSS Profissional para A4 Paisagem
-        const styles = `
-            <style>
-                /* Ajustes para Impressão e PDF */
-                @media print {
-                    * {
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-                    body, html {
-                        height: auto !important;
-                        overflow: visible !important;
-                    }
-                    /* Ocultar elementos de UI na impressão nativa */
-                    nav, header, .sidebar, button, .no-print {
-                        display: none !important;
-                    }
-                }
+        html += generateTableHtml('MAPA DE DIETAS SÓLIDAS', 'Solido', solidAreas);
+        html += generateTableHtml('MAPA DE DIETAS LÍQUIDAS - SOPA', 'Sopa', liquidAreas);
+        html += generateTableHtml('MAPA DE DIETAS LÍQUIDAS - CHÁ', 'Cha', liquidAreas);
 
-                #print-mlpain-pdf {
-                    width: 285mm; /* Largura segura para A4 Paisagem */
-                    background-color: white;
-                    padding: 5mm;
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    color: #1f2937;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }
-                .pdf-header {
-                    display: flex; justify-content: space-between; align-items: center;
-                    border-bottom: 2px solid #1f2937; padding-bottom: 10px; margin-bottom: 10px;
-                }
-                .pdf-logo-text h1 { font-size: 18px; font-weight: bold; text-transform: uppercase; margin: 0; }
-                .pdf-logo-text p { font-size: 10px; color: #6b7280; margin: 0; }
-                .pdf-info { text-align: right; }
-                .pdf-info h2 { font-size: 14px; font-weight: bold; margin: 0; color: #374151; }
-                .pdf-info p { font-size: 10px; margin: 0; }
-                
-                .table-section { margin-bottom: 15px; page-break-inside: avoid; }
-                .table-title { font-size: 10px; font-weight: bold; margin-bottom: 4px; color: #374151; border-bottom: 1px solid #e5e7eb; padding-bottom: 2px; }
-                
-                table {
-                    width: 100%; border-collapse: collapse; font-size: 6px;
-                    table-layout: fixed; /* Garante colunas iguais */
-                }
-                th, td {
-                    border: 0.5px solid #6b7280; padding: 1px;
-                    text-align: center; vertical-align: middle;
-                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                }
-                th { background-color: #f3f4f6; font-weight: bold; color: #111827; font-size: 6px; }
-                
-                .col-area { width: 12%; text-align: left; padding-left: 4px; font-weight: bold; white-space: normal; }
-                .col-day { width: auto; }
-                .col-total { width: 4%; font-weight: bold; background-color: #f9fafb; }
-                
-                tr:nth-child(even) { background-color: #f9fafb; }
-                .total-row { background-color: #e5e7eb; font-weight: bold; }
-                .text-left { text-align: left; }
-                .text-right { text-align: right; }
-            </style>
-        `;
-
-        const headerHtml = `
-            <div class="pdf-header">
-                <div class="pdf-logo-text">
-                    ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 30px; margin-bottom: 5px;">` : ''}
-                    <h1>${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                    <p>Relatório de Controle - M.L. Pain</p>
-                </div>
-                <div class="pdf-info">
-                    <h2>${reportTitle.toUpperCase()}</h2>
-                    <p>${periodStr}</p>
-                    <p>Gerado por: ${user.Nome || 'Sistema'}</p>
-                </div>
+        html += `
+            <div class="mt-4 pt-2 border-t text-center text-[8px] text-gray-400">
+                Documento gerado eletronicamente em ${new Date().toLocaleString()}
             </div>
-        `;
+        </div>`;
 
-        const tablesHtml = 
-            generateTableHtml('MAPA DE DIETAS SÓLIDAS', 'Solido', solidAreas) +
-            generateTableHtml('MAPA DE DIETAS LÍQUIDAS - SOPA', 'Sopa', liquidAreas) +
-            generateTableHtml('MAPA DE DIETAS LÍQUIDAS - CHÁ', 'Cha', liquidAreas);
-
-        container.innerHTML = styles + headerHtml + tablesHtml;
-
-        // Renderização Oculta (Correção para evitar PDF em branco)
-        container.style.position = 'fixed'; 
-        container.style.left = '-10000px'; // Fora da tela em vez de opacidade 0
-        container.style.top = '0';
-        document.body.appendChild(container);
-
-        const opt = { 
-            margin: 5, 
-            filename: `mlpain-relatorio-${filterMonth}.pdf`, 
-            image: { type: 'jpeg', quality: 0.98 }, 
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, 
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' } 
-        };
-        
-        // Usa Promise para garantir renderização sem setTimeout arbitrário
-        html2pdf().set(opt).from(container).save().then(() => {
-            document.body.removeChild(container);
-        });
+        MLPainModule.printNative(html);
     },
 
     shareReportWhatsApp: () => {

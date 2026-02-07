@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], fornecedores: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
+    state: { items: [], movimentacoes: [], movStats: [], fornecedores: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
     // Classificação Inteligente
     taxonomy: {
         'Alimentos': {
@@ -42,8 +42,16 @@ const EstoqueModule = {
     fetchMovimentacoes: async () => {
         try {
             const { page, limit } = EstoqueModule.state.pagination;
-            const response = await Utils.api('getAll', 'MovimentacoesEstoque', { page, limit });
+            const subtipo = EstoqueModule.state.filterMovSubtipo;
+            
+            // Busca lista paginada e estatísticas para o gráfico em paralelo
+            const [response, stats] = await Promise.all([
+                Utils.api('getMovimentacoesEstoque', null, { page, limit, subtipo }),
+                Utils.api('getMovimentacoesStats', null, {})
+            ]);
+
             EstoqueModule.state.movimentacoes = response.data || [];
+            EstoqueModule.state.movStats = stats || [];
             EstoqueModule.state.pagination.total = response.total || 0;
         } catch(e) { console.error(e); }
     },
@@ -171,6 +179,7 @@ const EstoqueModule = {
                                 <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(total)}</td>
                                 <td class="p-3 text-center">${Utils.formatDate(i.Validade)}</td>
                                 <td class="p-3 text-center">
+                                    <button onclick="EstoqueModule.history('${i.ID}')" class="text-gray-500 hover:text-gray-700 mr-2" title="Histórico Completo"><i class="fas fa-history"></i></button>
                                     ${canEdit ? `<button onclick="EstoqueModule.modalItem('${i.ID}')" class="text-blue-500 hover:text-blue-700 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                     ${canDelete ? `<button onclick="EstoqueModule.delete('${i.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                                 </td>
@@ -349,29 +358,76 @@ const EstoqueModule = {
         });
     },
 
+    history: async (id) => {
+        const item = EstoqueModule.state.items.find(i => i.ID === id);
+        if(!item) return;
+
+        Utils.openModal(`Histórico: ${item.Nome}`, '<div class="text-center p-8"><i class="fas fa-spinner fa-spin text-3xl text-blue-600"></i><p class="mt-2">Carregando histórico...</p></div>');
+
+        try {
+            const { movs, logs } = await Utils.api('getProductHistory', null, { id });
+            
+            let html = `
+                <div class="flex gap-4 mb-4 border-b">
+                    <button onclick="document.getElementById('tab-movs').classList.remove('hidden');document.getElementById('tab-logs').classList.add('hidden');this.classList.add('border-b-2','border-blue-500','font-bold','text-blue-600');this.nextElementSibling.classList.remove('border-b-2','border-blue-500','font-bold','text-blue-600');" class="px-4 py-2 border-b-2 border-blue-500 font-bold text-blue-600 transition">Movimentações</button>
+                    <button onclick="document.getElementById('tab-logs').classList.remove('hidden');document.getElementById('tab-movs').classList.add('hidden');this.classList.add('border-b-2','border-blue-500','font-bold','text-blue-600');this.previousElementSibling.classList.remove('border-b-2','border-blue-500','font-bold','text-blue-600');" class="px-4 py-2 text-gray-500 hover:text-gray-700 transition">Auditoria (Edições)</button>
+                </div>
+
+                <div id="tab-movs" class="max-h-96 overflow-y-auto custom-scrollbar">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 sticky top-0"><tr><th class="p-2">Data</th><th class="p-2">Tipo</th><th class="p-2 text-center">Qtd</th><th class="p-2">Responsável</th><th class="p-2">Obs</th></tr></thead>
+                        <tbody>
+                            ${movs.map(m => `
+                                <tr class="border-b hover:bg-gray-50">
+                                    <td class="p-2 text-xs text-gray-500">${new Date(m.Data).toLocaleString()}</td>
+                                    <td class="p-2"><span class="px-2 py-1 rounded text-xs font-bold ${m.Tipo === 'Entrada' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${m.Tipo}</span></td>
+                                    <td class="p-2 text-center font-bold">${m.Quantidade}</td>
+                                    <td class="p-2 text-xs font-medium">${m.Responsavel || '-'}</td>
+                                    <td class="p-2 text-xs text-gray-400 italic">${m.Observacoes || '-'}</td>
+                                </tr>
+                            `).join('')}
+                            ${movs.length === 0 ? '<tr><td colspan="5" class="p-6 text-center text-gray-400">Nenhuma movimentação recente.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div id="tab-logs" class="hidden max-h-96 overflow-y-auto custom-scrollbar">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 sticky top-0"><tr><th class="p-2">Data</th><th class="p-2">Usuário (Sistema)</th><th class="p-2">Ação</th><th class="p-2">Detalhes</th></tr></thead>
+                        <tbody>
+                            ${logs.map(l => `
+                                <tr class="border-b hover:bg-gray-50">
+                                    <td class="p-2 text-xs text-gray-500">${new Date(l.CriadoEm).toLocaleString()}</td>
+                                    <td class="p-2 text-xs font-bold text-blue-600">${l.UsuarioNome || 'Sistema'}</td>
+                                    <td class="p-2 text-xs font-bold">${l.Acao}</td>
+                                    <td class="p-2 text-xs text-gray-500">${l.Descricao}</td>
+                                </tr>
+                            `).join('')}
+                            ${logs.length === 0 ? '<tr><td colspan="4" class="p-6 text-center text-gray-400">Nenhum registro de auditoria encontrado.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            Utils.openModal(`Histórico: ${item.Nome}`, html);
+        } catch(e) {
+            Utils.toast('Erro ao carregar histórico: ' + e.message, 'error');
+        }
+    },
+
     renderMovimentacoes: () => {
         let movs = EstoqueModule.state.movimentacoes || [];
+        const stats = EstoqueModule.state.movStats || [];
         const items = EstoqueModule.state.items || [];
         
         // Obter Subtipos únicos para o filtro
         const subtipos = [...new Set(items.map(i => i.Subtipo).filter(Boolean))].sort();
 
-        // Filtrar por Subtipo se selecionado
-        if (EstoqueModule.state.filterMovSubtipo) {
-            movs = movs.filter(m => {
-                const prod = items.find(i => i.ID === m.ProdutoID);
-                return prod && prod.Subtipo === EstoqueModule.state.filterMovSubtipo;
-            });
-        }
-
-        // Ordenar por data (mais recente primeiro)
-        movs.sort((a, b) => new Date(b.Data) - new Date(a.Data));
-
-        // Dados para o Gráfico de Movimentações (Últimos 6 meses)
+        // Dados para o Gráfico (Usando stats leve, não a lista paginada)
         const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
         const movMap = {};
         
-        movs.forEach(m => {
+        stats.forEach(m => {
             const d = new Date(m.Data);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             if (!movMap[key]) movMap[key] = { entrada: 0, saida: 0 };
@@ -437,9 +493,10 @@ const EstoqueModule = {
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         ${movs.map(m => {
-                            const prod = EstoqueModule.state.items.find(i => i.ID === m.ProdutoID);
-                            const nomeProd = prod ? prod.Nome : 'Item Excluído';
-                            const subtipo = prod ? prod.Subtipo : '-';
+                            // Usa dados do JOIN se disponível, ou fallback para items locais
+                            const prodNome = m.Estoque ? m.Estoque.Nome : (EstoqueModule.state.items.find(i => i.ID === m.ProdutoID)?.Nome || 'Item Excluído');
+                            const prodSubtipo = m.Estoque ? m.Estoque.Subtipo : '-';
+                            
                             const color = m.Tipo === 'Entrada' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
                             const tipoIcon = m.Tipo === 'Entrada' ? 'fa-arrow-down' : 'fa-arrow-up';
                             
@@ -450,9 +507,9 @@ const EstoqueModule = {
                                         <i class="fas ${tipoIcon}"></i> ${m.Tipo}
                                     </span>
                                 </td>
-                                <td class="p-4 font-medium text-gray-800">${nomeProd}</td>
+                                <td class="p-4 font-medium text-gray-800">${prodNome}</td>
                                 <td class="p-4 text-xs text-gray-500">
-                                    <span class="bg-gray-100 px-2 py-1 rounded border border-gray-200">${subtipo}</span>
+                                    <span class="bg-gray-100 px-2 py-1 rounded border border-gray-200">${prodSubtipo}</span>
                                 </td>
                                 <td class="p-4 text-center font-bold text-gray-700">${m.Quantidade}</td>
                                 <td class="p-4 text-sm text-gray-600">${m.Responsavel || '-'}</td>
@@ -699,57 +756,88 @@ const EstoqueModule = {
         EstoqueModule.render();
     },
 
+    // --- FUNÇÃO DE IMPRESSÃO NATIVA (SUBSTITUI HTML2PDF) ---
+    printNative: (htmlContent) => {
+        let iframe = document.getElementById('print-iframe');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'print-iframe';
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+        }
+        
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(`
+            <html>
+            <head>
+                <title>Imprimir Relatório</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style>
+                    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: sans-serif; }
+                    @page { margin: 10mm; size: auto; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #e5e7eb; padding: 6px; text-align: left; font-size: 10px; }
+                    th { background-color: #f3f4f6; font-weight: bold; }
+                    /* Ocultar coluna de ações na impressão */
+                    th:last-child, td:last-child { display: none; }
+                </style>
+            </head>
+            <body>
+                ${htmlContent}
+                <script>
+                    window.onload = () => {
+                        setTimeout(() => {
+                            window.print();
+                        }, 1000);
+                    };
+                </script>
+            </body>
+            </html>
+        `);
+        doc.close();
+    },
+
     exportPDF: () => {
-        const element = document.getElementById('print-area-estoque');
-        const header = document.getElementById('pdf-header');
-        const footer = document.getElementById('pdf-footer');
         const inst = EstoqueModule.state.instituicao[0] || {};
         const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
 
-        header.innerHTML = `
-            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
-                    <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
+        // Captura o HTML da tabela atual
+        const table = document.querySelector('#print-area-estoque table');
+        const tableHtml = table ? table.outerHTML : '<p>Sem dados</p>';
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
+                            <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">POSIÇÃO DE ESTOQUE</h2>
+                        <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+                
+                ${tableHtml}
+                
+                <div class="mt-8 text-center text-xs text-gray-400">
+                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
                 </div>
             </div>
-            <div class="mt-4 text-right text-xs text-gray-500">Data: ${new Date().toLocaleDateString()}</div>
         `;
-        header.classList.remove('hidden');
         
-        footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
-        footer.classList.remove('hidden');
-
-        // --- CORREÇÃO DE ESTILOS PARA PDF ---
-        const style = document.createElement('style');
-        style.innerHTML = `
-            #print-area-estoque { width: 100%; background: white; margin: 0; padding: 0; }
-            #print-area-estoque table { width: 100% !important; border-collapse: collapse !important; }
-            #print-area-estoque th, #print-area-estoque td { 
-                font-size: 8px !important; 
-                padding: 4px 2px !important; 
-                border: 1px solid #ccc !important;
-            }
-            #print-area-estoque .shadow { box-shadow: none !important; }
-            #print-area-estoque .overflow-x-auto { overflow: visible !important; }
-        `;
-        document.head.appendChild(style);
-
-        const opt = {
-            margin: [10, 10, 10, 10],
-            filename: 'relatorio-estoque.pdf',
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden');
-            footer.classList.add('hidden');
-            document.head.removeChild(style);
-        });
+        EstoqueModule.printNative(html);
     },
 
     exportEntradasMesPDF: async () => {
@@ -776,29 +864,34 @@ const EstoqueModule = {
             // Ordena por data
             entradas.sort((a, b) => new Date(b.Data) - new Date(a.Data));
 
-            // Elementos para PDF
-            const element = document.createElement('div');
-            element.style.width = '100%';
-            element.style.background = 'white';
-            
             const inst = EstoqueModule.state.instituicao[0] || {};
             const user = Utils.getUser();
             const showLogo = inst.ExibirLogoRelatorios;
             const totalQtd = entradas.reduce((acc, m) => acc + Number(m.Quantidade), 0);
 
-            element.innerHTML = `
-                <div style="padding: 20px; font-family: sans-serif; color: #333;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #166534; padding-bottom: 10px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 50px; width: auto;">` : ''}
-                            <div><h1 style="font-size: 20px; font-weight: bold; margin: 0; color: #166534;">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p style="font-size: 12px; color: #666; margin: 0;">Relatório de Entradas de Estoque</p></div>
+            const html = `
+                <div class="p-8 font-sans text-gray-900 bg-white">
+                    <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                        <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                                <p class="text-sm text-gray-500">Relatório de Entradas de Estoque</p>
+                            </div>
                         </div>
-                        <div style="text-align: right;"><h2 style="font-size: 16px; font-weight: bold; margin: 0; text-transform: uppercase;">${monthName} / ${currentYear}</h2><p style="font-size: 10px; color: #666; margin: 0;">Gerado em: ${new Date().toLocaleDateString()}</p></div>
+                        <div class="text-right">
+                            <h2 class="text-xl font-bold uppercase">${monthName} / ${currentYear}</h2>
+                            <p class="text-sm text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
+                        </div>
                     </div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                    <table class="w-full text-sm border-collapse">
                         <thead>
-                            <tr style="background-color: #f0fdf4; color: #166534;">
-                                <th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Data</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Produto</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: center;">Qtd</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Responsável</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Fornecedor/Detalhes</th>
+                            <tr class="bg-green-50 text-green-800">
+                                <th class="p-2 border text-left">Data</th>
+                                <th class="p-2 border text-left">Produto</th>
+                                <th class="p-2 border text-center">Qtd</th>
+                                <th class="p-2 border text-left">Responsável</th>
+                                <th class="p-2 border text-left">Fornecedor/Detalhes</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -807,20 +900,27 @@ const EstoqueModule = {
                                 const nomeProd = prod ? prod.Nome : 'Item Desconhecido';
                                 const detalhes = m.DetalhesJSON || {};
                                 const fornecedor = detalhes.fornecedor || detalhes.Fornecedor || '-';
-                                return `<tr style="background-color: ${index % 2 === 0 ? 'white' : '#f9fafb'};"><td style="padding: 6px; border: 1px solid #e5e7eb;">${new Date(m.Data).toLocaleDateString()} ${new Date(m.Data).toLocaleTimeString().slice(0,5)}</td><td style="padding: 6px; border: 1px solid #e5e7eb; font-weight: bold;">${nomeProd}</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; color: #166534; font-weight: bold;">${m.Quantidade}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${m.Responsavel || '-'}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${fornecedor}</td></tr>`;
+                                return `<tr class="${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}">
+                                    <td class="p-2 border">${new Date(m.Data).toLocaleDateString()} ${new Date(m.Data).toLocaleTimeString().slice(0,5)}</td>
+                                    <td class="p-2 border font-bold">${nomeProd}</td>
+                                    <td class="p-2 border text-center font-bold text-green-700">${m.Quantidade}</td>
+                                    <td class="p-2 border">${m.Responsavel || '-'}</td>
+                                    <td class="p-2 border text-xs">${fornecedor}</td>
+                                </tr>`;
                             }).join('')}
                         </tbody>
                         <tfoot>
-                            <tr style="background-color: #f0fdf4; font-weight: bold;"><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0; text-align: right;">TOTAL DE ITENS:</td><td style="padding: 8px; border: 1px solid #bbf7d0; text-align: center; color: #166534;">${totalQtd.toFixed(2)}</td><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0;"></td></tr>
+                            <tr class="bg-green-50 font-bold">
+                                <td colspan="2" class="p-2 border text-right">TOTAL DE ITENS:</td>
+                                <td class="p-2 border text-center text-green-800">${totalQtd.toFixed(2)}</td>
+                                <td colspan="2" class="p-2 border"></td>
+                            </tr>
                         </tfoot>
                     </table>
-                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9px; color: #999;">Gerado por: ${user.Nome}</div>
+                    <div class="mt-8 text-center text-xs text-gray-400">Gerado por: ${user.Nome}</div>
                 </div>`;
 
-            element.style.position = 'fixed'; element.style.left = '-10000px'; document.body.appendChild(element);
-            const opt = { margin: 10, filename: `relatorio-entradas-${monthName}-${currentYear}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
-            await html2pdf().set(opt).from(element).save();
-            document.body.removeChild(element);
+            EstoqueModule.printNative(html);
             Utils.toast('Relatório gerado com sucesso!', 'success');
         } catch (e) {
             console.error(e);
@@ -830,138 +930,45 @@ const EstoqueModule = {
 
     setMovFilter: (subtipo) => {
         EstoqueModule.state.filterMovSubtipo = subtipo;
-        EstoqueModule.renderMovimentacoes();
+        EstoqueModule.state.pagination.page = 1; // Reseta para a primeira página
+        EstoqueModule.fetchMovimentacoes().then(EstoqueModule.renderMovimentacoes);
     },
 
     exportMovimentacoesPDF: () => {
-        const element = document.getElementById('print-area-movimentacoes');
-        const header = document.getElementById('pdf-header-mov');
-        const footer = document.getElementById('pdf-footer-mov');
         const inst = EstoqueModule.state.instituicao[0] || {};
         const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         const subtipo = EstoqueModule.state.filterMovSubtipo || 'Geral';
 
-        header.innerHTML = `
-            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Movimentações'}</h1>
-                    <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
-                    <p class="text-xs font-bold text-yellow-600 mt-1 uppercase">Filtro: ${subtipo}</p>
+        const table = document.querySelector('#print-area-movimentacoes table');
+        const tableHtml = table ? table.outerHTML : '<p>Sem dados</p>';
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Movimentações'}</h1>
+                            <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
+                            <p class="text-xs font-bold text-yellow-600 mt-1 uppercase">Filtro: ${subtipo}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">MOVIMENTAÇÕES</h2>
+                        <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+                
+                ${tableHtml}
+                
+                <div class="mt-8 text-center text-xs text-gray-400">
+                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
                 </div>
             </div>
-            <div class="mt-4 text-right text-xs text-gray-500">Data: ${new Date().toLocaleDateString()}</div>
         `;
-        header.classList.remove('hidden');
-        
-        footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
-        footer.classList.remove('hidden');
 
-        // --- CORREÇÃO DE ESTILOS PARA PDF ---
-        const style = document.createElement('style');
-        style.innerHTML = `
-            #print-area-movimentacoes { width: 100%; background: white; margin: 0; padding: 0; }
-            #print-area-movimentacoes table { width: 100% !important; border-collapse: collapse !important; }
-            #print-area-movimentacoes th, #print-area-movimentacoes td { 
-                font-size: 8px !important; 
-                padding: 4px 2px !important; 
-                border: 1px solid #ccc !important;
-            }
-            #print-area-movimentacoes .shadow { box-shadow: none !important; }
-            #print-area-movimentacoes .overflow-x-auto { overflow: visible !important; }
-        `;
-        document.head.appendChild(style);
-
-        const opt = {
-            margin: [10, 10, 10, 10],
-            filename: `movimentacoes-${subtipo.toLowerCase().replace(/\s+/g, '-')}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, scrollY: 0, x: 0, y: 0 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
-        };
-
-        html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden');
-            footer.classList.add('hidden');
-            document.head.removeChild(style);
-        });
-    },
-
-    exportEntradasMesPDF: async () => {
-        try {
-            Utils.toast('Baixando dados para o relatório...', 'info');
-            // Busca todas as movimentações (sem paginação) para filtrar no front
-            const allMovs = await Utils.api('getAll', 'MovimentacoesEstoque');
-            
-            const now = new Date();
-            const currentMonth = now.getMonth();
-            const currentYear = now.getFullYear();
-            const monthName = now.toLocaleString('pt-BR', { month: 'long' });
-
-            // Filtra apenas Entradas do mês atual
-            const entradas = allMovs.filter(m => {
-                if (m.Tipo !== 'Entrada') return false;
-                if (!m.Data) return false;
-                const d = new Date(m.Data);
-                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-            });
-
-            if (entradas.length === 0) return Utils.toast('Nenhuma entrada registrada neste mês.', 'warning');
-
-            // Ordena por data
-            entradas.sort((a, b) => new Date(b.Data) - new Date(a.Data));
-
-            // Elementos para PDF
-            const element = document.createElement('div');
-            element.style.width = '100%';
-            element.style.background = 'white';
-            
-            const inst = EstoqueModule.state.instituicao[0] || {};
-            const user = Utils.getUser();
-            const showLogo = inst.ExibirLogoRelatorios;
-            const totalQtd = entradas.reduce((acc, m) => acc + Number(m.Quantidade), 0);
-
-            element.innerHTML = `
-                <div style="padding: 20px; font-family: sans-serif; color: #333;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #166534; padding-bottom: 10px; margin-bottom: 20px;">
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height: 50px; width: auto;">` : ''}
-                            <div><h1 style="font-size: 20px; font-weight: bold; margin: 0; color: #166534;">${inst.NomeFantasia || 'Delícia da Cidade'}</h1><p style="font-size: 12px; color: #666; margin: 0;">Relatório de Entradas de Estoque</p></div>
-                        </div>
-                        <div style="text-align: right;"><h2 style="font-size: 16px; font-weight: bold; margin: 0; text-transform: uppercase;">${monthName} / ${currentYear}</h2><p style="font-size: 10px; color: #666; margin: 0;">Gerado em: ${new Date().toLocaleDateString()}</p></div>
-                    </div>
-                    <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
-                        <thead>
-                            <tr style="background-color: #f0fdf4; color: #166534;">
-                                <th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Data</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Produto</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: center;">Qtd</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Responsável</th><th style="padding: 8px; border: 1px solid #bbf7d0; text-align: left;">Fornecedor/Detalhes</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${entradas.map((m, index) => {
-                                const prod = EstoqueModule.state.items.find(i => i.ID === m.ProdutoID);
-                                const nomeProd = prod ? prod.Nome : 'Item Desconhecido';
-                                const detalhes = m.DetalhesJSON || {};
-                                const fornecedor = detalhes.fornecedor || detalhes.Fornecedor || '-';
-                                return `<tr style="background-color: ${index % 2 === 0 ? 'white' : '#f9fafb'};"><td style="padding: 6px; border: 1px solid #e5e7eb;">${new Date(m.Data).toLocaleDateString()} ${new Date(m.Data).toLocaleTimeString().slice(0,5)}</td><td style="padding: 6px; border: 1px solid #e5e7eb; font-weight: bold;">${nomeProd}</td><td style="padding: 6px; border: 1px solid #e5e7eb; text-align: center; color: #166534; font-weight: bold;">${m.Quantidade}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${m.Responsavel || '-'}</td><td style="padding: 6px; border: 1px solid #e5e7eb;">${fornecedor}</td></tr>`;
-                            }).join('')}
-                        </tbody>
-                        <tfoot>
-                            <tr style="background-color: #f0fdf4; font-weight: bold;"><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0; text-align: right;">TOTAL DE ITENS:</td><td style="padding: 8px; border: 1px solid #bbf7d0; text-align: center; color: #166534;">${totalQtd.toFixed(2)}</td><td colspan="2" style="padding: 8px; border: 1px solid #bbf7d0;"></td></tr>
-                        </tfoot>
-                    </table>
-                    <div style="margin-top: 20px; border-top: 1px solid #ccc; padding-top: 5px; text-align: center; font-size: 9px; color: #999;">Gerado por: ${user.Nome}</div>
-                </div>`;
-
-            element.style.position = 'fixed'; element.style.left = '-10000px'; document.body.appendChild(element);
-            const opt = { margin: 10, filename: `relatorio-entradas-${monthName}-${currentYear}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } };
-            await html2pdf().set(opt).from(element).save();
-            document.body.removeChild(element);
-            Utils.toast('Relatório gerado com sucesso!', 'success');
-        } catch (e) {
-            console.error(e);
-            Utils.toast('Erro ao gerar PDF: ' + e.message, 'error');
-        }
+        EstoqueModule.printNative(html);
     },
 
     // --- GESTÃO DE FORNECEDORES ---
@@ -1071,6 +1078,12 @@ const EstoqueModule = {
                     <button onclick="EstoqueModule.gerarRelatorioFornecedor()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">
                         <i class="fas fa-search"></i> Gerar
                     </button>
+                    <button onclick="EstoqueModule.renderCurvaABC()" class="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 ml-4">
+                        <i class="fas fa-chart-pie"></i> Curva ABC
+                    </button>
+                    <button onclick="EstoqueModule.renderPurchaseForecast()" class="bg-teal-600 text-white px-4 py-2 rounded shadow hover:bg-teal-700 ml-4">
+                        <i class="fas fa-shopping-cart"></i> Previsão Compras
+                    </button>
                 </div>
                 <div id="relatorio-fornecedor-resultado" class="mt-6"></div>
             </div>
@@ -1137,54 +1150,150 @@ const EstoqueModule = {
     },
 
     printRelatorioFornecedor: () => {
-        const element = document.getElementById('print-area-fornecedor');
-        const header = document.getElementById('pdf-header-fornecedor');
-        const footer = document.getElementById('pdf-footer-fornecedor');
         const inst = EstoqueModule.state.instituicao[0] || {};
         const user = Utils.getUser();
         const showLogo = inst.ExibirLogoRelatorios;
         const fornecedorNome = document.getElementById('relatorio-fornecedor-select').value;
 
-        header.innerHTML = `
-            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
-                    <p class="text-sm text-gray-500">Produtos do Fornecedor: <strong>${fornecedorNome}</strong></p>
+        const table = document.querySelector('#print-area-fornecedor table');
+        const tableHtml = table ? table.outerHTML : '<p>Sem dados</p>';
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Estoque'}</h1>
+                            <p class="text-sm text-gray-500">Produtos do Fornecedor: <strong>${fornecedorNome}</strong></p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">RELATÓRIO POR FORNECEDOR</h2>
+                        <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+                
+                ${tableHtml}
+                
+                <div class="mt-8 text-center text-xs text-gray-400">
+                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
                 </div>
             </div>
-            <div class="mt-4 text-right text-xs text-gray-500">Data: ${new Date().toLocaleDateString()}</div>
         `;
-        header.classList.remove('hidden');
-        
-        footer.innerHTML = `Gerado por ${user.Nome} em ${new Date().toLocaleString()}`;
-        footer.classList.remove('hidden');
 
-        const style = document.createElement('style');
-        style.innerHTML = `
-            #print-area-fornecedor { width: 100%; background: white; margin: 0; padding: 0; }
-            #print-area-fornecedor table { width: 100% !important; border-collapse: collapse !important; }
-            #print-area-fornecedor th, #print-area-fornecedor td { 
-                font-size: 9px !important; 
-                padding: 4px !important; 
-                border: 1px solid #ccc !important;
-            }
-        `;
-        document.head.appendChild(style);
+        EstoqueModule.printNative(html);
+    },
 
-        const opt = {
-            margin: [10, 10, 10, 10],
-            filename: `relatorio-produtos-fornecedor-${fornecedorNome}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
+    renderCurvaABC: async () => {
+        const container = document.getElementById('relatorio-fornecedor-resultado');
+        container.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin text-2xl text-purple-600"></i><p>Calculando Curva ABC...</p></div>';
 
-        html2pdf().set(opt).from(element).save().then(() => {
-            header.classList.add('hidden');
-            footer.classList.add('hidden');
-            document.head.removeChild(style);
-        });
+        try {
+            const { lista, valorTotalGeral } = await Utils.api('getABCCurve');
+            
+            const countA = lista.filter(i => i.classe === 'A').length;
+            const countB = lista.filter(i => i.classe === 'B').length;
+            const countC = lista.filter(i => i.classe === 'C').length;
+
+            container.innerHTML = `
+                <div class="mt-6 border-t pt-6">
+                    <h4 class="text-lg font-bold text-gray-800 mb-4">Curva ABC de Estoque (Consumo 90 dias)</h4>
+                    
+                    <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+                        <div class="p-3 bg-green-100 rounded border border-green-200">
+                            <div class="text-2xl font-bold text-green-700">Classe A</div>
+                            <div class="text-sm text-green-800">${countA} itens (80% do Valor)</div>
+                            <div class="text-xs text-gray-500">Alta Importância</div>
+                        </div>
+                        <div class="p-3 bg-blue-100 rounded border border-blue-200">
+                            <div class="text-2xl font-bold text-blue-700">Classe B</div>
+                            <div class="text-sm text-blue-800">${countB} itens (15% do Valor)</div>
+                            <div class="text-xs text-gray-500">Média Importância</div>
+                        </div>
+                        <div class="p-3 bg-gray-100 rounded border border-gray-200">
+                            <div class="text-2xl font-bold text-gray-700">Classe C</div>
+                            <div class="text-sm text-gray-800">${countC} itens (5% do Valor)</div>
+                            <div class="text-xs text-gray-500">Baixa Importância</div>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-96 custom-scrollbar border rounded">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="p-2">Classe</th>
+                                    <th class="p-2">Produto</th>
+                                    <th class="p-2 text-right">Consumo</th>
+                                    <th class="p-2 text-right">Valor Total</th>
+                                    <th class="p-2 text-right">% Acumulado</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y">
+                                ${lista.map(i => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="p-2 font-bold text-center ${i.classe === 'A' ? 'text-green-600 bg-green-50' : (i.classe === 'B' ? 'text-blue-600 bg-blue-50' : 'text-gray-500')}">${i.classe}</td>
+                                        <td class="p-2 font-medium">${i.Nome}</td>
+                                        <td class="p-2 text-right">${i.consumoQtd.toFixed(2)} ${i.Unidade}</td>
+                                        <td class="p-2 text-right font-bold">${Utils.formatCurrency(i.valorTotal)}</td>
+                                        <td class="p-2 text-right text-xs text-gray-500">${i.percentAcumulado.toFixed(1)}%</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao gerar Curva ABC.</p>'; }
+    },
+
+    renderPurchaseForecast: async () => {
+        const container = document.getElementById('relatorio-fornecedor-resultado');
+        container.innerHTML = '<div class="text-center p-4"><i class="fas fa-spinner fa-spin text-2xl text-teal-600"></i><p>Calculando previsão de compras...</p></div>';
+
+        try {
+            const forecast = await Utils.api('getPurchaseForecast');
+
+            container.innerHTML = `
+                <div class="mt-6 border-t pt-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="text-lg font-bold text-gray-800">Previsão de Compras (Baseado no Consumo Médio)</h4>
+                        <button onclick="EstoqueModule.printNative(document.getElementById('table-forecast').outerHTML)" class="text-gray-600 hover:text-gray-800"><i class="fas fa-print"></i></button>
+                    </div>
+                    
+                    <div class="bg-teal-50 border-l-4 border-teal-400 p-4 mb-4">
+                        <p class="text-sm text-teal-800">Sugestão de compra para itens com estoque abaixo de 15 dias de duração, visando cobrir 30 dias de operação.</p>
+                    </div>
+
+                    <div class="overflow-x-auto max-h-96 custom-scrollbar border rounded" id="table-forecast">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="p-2">Produto</th>
+                                    <th class="p-2 text-center">Estoque Atual</th>
+                                    <th class="p-2 text-center">Consumo Diário</th>
+                                    <th class="p-2 text-center">Duração Est.</th>
+                                    <th class="p-2 text-center bg-teal-100 text-teal-900">Sugestão Compra</th>
+                                    <th class="p-2">Fornecedor</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y">
+                                ${forecast.map(i => `
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="p-2 font-medium">${i.Nome}</td>
+                                        <td class="p-2 text-center">${i.Quantidade} ${i.Unidade}</td>
+                                        <td class="p-2 text-center text-gray-500">${i.avgDaily.toFixed(2)}</td>
+                                        <td class="p-2 text-center font-bold ${i.daysRemaining < 7 ? 'text-red-600' : 'text-yellow-600'}">${i.daysRemaining.toFixed(1)} dias</td>
+                                        <td class="p-2 text-center font-bold bg-teal-50 text-teal-700">${i.suggestedQty} ${i.Unidade}</td>
+                                        <td class="p-2 text-xs text-gray-500">${i.Fornecedor || '-'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao gerar previsão.</p>'; }
     }
 };
 

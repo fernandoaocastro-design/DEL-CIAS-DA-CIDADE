@@ -57,6 +57,98 @@ CREATE POLICY "Acesso API MLPain Areas" ON "MLPain_Areas" FOR ALL USING (true);
 DROP POLICY IF EXISTS "Acesso API MLPain Registros" ON "MLPain_Registros";
 CREATE POLICY "Acesso API MLPain Registros" ON "MLPain_Registros" FOR ALL USING (true);
 
+-- 1.3. Tabela de Perfis de Acesso (Novo Recurso)
+CREATE TABLE IF NOT EXISTS "PerfisAcesso" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(100) NOT NULL,
+    "Permissoes" JSONB,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "PerfisAcesso" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API Perfis" ON "PerfisAcesso";
+CREATE POLICY "Acesso API Perfis" ON "PerfisAcesso" FOR ALL USING (true);
+
+-- 1.4. Tabela de Chat Interno
+CREATE TABLE IF NOT EXISTS "ChatMessages" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "SenderID" UUID,
+    "SenderName" VARCHAR(255),
+    "Message" TEXT,
+    "Timestamp" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE "ChatMessages" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Chat" ON "ChatMessages" FOR ALL USING (true);
+
+-- 1.5. Atualização Chat (Anexos)
+ALTER TABLE "ChatMessages" ADD COLUMN IF NOT EXISTS "Attachment" TEXT;
+
+-- 1.6. Quadro de Avisos (Novo)
+CREATE TABLE IF NOT EXISTS "QuadroAvisos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Titulo" VARCHAR(255) NOT NULL,
+    "Mensagem" TEXT,
+    "Autor" VARCHAR(100),
+    "Prioridade" VARCHAR(20) DEFAULT 'Normal', -- Normal, Alta
+    "Anexo" TEXT,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "QuadroAvisos" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Avisos" ON "QuadroAvisos" FOR ALL USING (true);
+
+-- 1.7. Tarefas da Equipe (To-Do List)
+CREATE TABLE IF NOT EXISTS "Tarefas" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Titulo" VARCHAR(255) NOT NULL,
+    "Descricao" TEXT,
+    "Responsavel" VARCHAR(100),
+    "Prazo" DATE,
+    "Prioridade" VARCHAR(20) DEFAULT 'Média', -- Baixa, Média, Alta
+    "Status" VARCHAR(20) DEFAULT 'Pendente', -- Pendente, Em Andamento, Concluída
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "Tarefas" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Tarefas" ON "Tarefas" FOR ALL USING (true);
+
+-- Atualização Tabela Eventos (Valor para ABC)
+ALTER TABLE "Eventos" ADD COLUMN IF NOT EXISTS "Valor" DECIMAL(12,2) DEFAULT 0;
+
+-- 1.8. Checklist de Limpeza
+CREATE TABLE IF NOT EXISTS "ChecklistLimpeza" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Data" DATE NOT NULL,
+    "Turno" VARCHAR(50),
+    "Area" VARCHAR(100), -- Cozinha, Copa, Estoque
+    "Item" VARCHAR(255), -- O que limpar
+    "Status" VARCHAR(20) DEFAULT 'Pendente', -- Pendente, OK, Atenção, Não Realizado
+    "Responsavel" VARCHAR(100),
+    "Observacao" TEXT,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "ChecklistLimpeza" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Checklist" ON "ChecklistLimpeza" FOR ALL USING (true);
+
+-- Atualização Tabela Eventos (Responsável/Garçom para Comissões)
+ALTER TABLE "Eventos" ADD COLUMN IF NOT EXISTS "Responsavel" VARCHAR(100);
+
+-- 1.9. Fidelidade de Clientes
+CREATE TABLE IF NOT EXISTS "Clientes" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(255) NOT NULL,
+    "Telefone" VARCHAR(50),
+    "Email" VARCHAR(100),
+    "Pontos" INTEGER DEFAULT 0,
+    "TotalGasto" DECIMAL(12,2) DEFAULT 0,
+    "UltimaCompra" DATE,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "Clientes" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Clientes" ON "Clientes" FOR ALL USING (true);
 
 -- ==============================================================================
 -- PARTE 2: COMO FAZER CÓPIA DOS DADOS (BACKUP DE EMERGÊNCIA)

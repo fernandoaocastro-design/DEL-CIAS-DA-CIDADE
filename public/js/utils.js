@@ -372,6 +372,138 @@ const Utils = {
                 link.classList.add('hidden');
             }
         });
+    },
+
+    // --- CHAT INTERNO ---
+    initChat: () => {
+        const chatHTML = `
+            <div id="chat-widget" class="fixed bottom-4 right-4 z-50 flex flex-col items-end">
+                <div id="chat-window" class="hidden bg-white w-80 h-96 rounded-lg shadow-2xl border border-gray-200 flex flex-col mb-4 overflow-hidden">
+                    <div class="bg-indigo-600 text-white p-3 flex justify-between items-center">
+                        <h4 class="font-bold text-sm"><i class="fas fa-comments mr-2"></i>Chat da Equipe</h4>
+                        <button onclick="Utils.toggleChat()" class="text-white hover:text-gray-200"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div id="chat-messages" class="flex-1 p-3 overflow-y-auto bg-gray-50 space-y-2 text-sm">
+                        <!-- Mensagens aqui -->
+                    </div>
+                    <form onsubmit="Utils.sendChatMessage(event)" class="p-2 border-t bg-white flex gap-2 items-center">
+                        <input type="file" id="chat-file-input" class="hidden" accept="image/*,application/pdf">
+                        <button type="button" onclick="document.getElementById('chat-file-input').click()" class="text-gray-500 hover:text-gray-700 px-1"><i class="fas fa-paperclip"></i></button>
+                        <input name="message" class="flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:border-indigo-500" placeholder="Digite..." autocomplete="off">
+                        <button type="submit" class="bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700"><i class="fas fa-paper-plane"></i></button>
+                    </form>
+                </div>
+                <button onclick="Utils.toggleChat()" class="bg-indigo-600 text-white w-12 h-12 rounded-full shadow-lg hover:bg-indigo-700 flex items-center justify-center transition transform hover:scale-110 relative">
+                    <i class="fas fa-comment-dots text-xl"></i>
+                    <span id="chat-badge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs w-4 h-4 rounded-full flex items-center justify-center">!</span>
+                </button>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', chatHTML);
+        
+        // Polling de mensagens
+        setInterval(Utils.loadChatMessages, 5000);
+    },
+
+    toggleChat: () => {
+        const win = document.getElementById('chat-window');
+        win.classList.toggle('hidden');
+        if (!win.classList.contains('hidden')) {
+            Utils.loadChatMessages();
+            document.getElementById('chat-badge').classList.add('hidden');
+            // Scroll to bottom
+            const container = document.getElementById('chat-messages');
+            container.scrollTop = container.scrollHeight;
+        }
+    },
+
+    loadChatMessages: async () => {
+        try {
+            const msgs = await Utils.api('getChatMessages');
+            const container = document.getElementById('chat-messages');
+            const user = Utils.getUser();
+            
+            // Verifica se há novas mensagens para notificar (Badge)
+            const lastMsg = msgs[0];
+            const currentLastId = container.getAttribute('data-last-id');
+            const isChatOpen = !document.getElementById('chat-window').classList.contains('hidden');
+            
+            if (lastMsg && lastMsg.ID !== currentLastId) {
+                container.setAttribute('data-last-id', lastMsg.ID);
+                if (!isChatOpen) document.getElementById('chat-badge').classList.remove('hidden');
+            }
+
+            // Renderiza apenas se a janela estiver aberta para economizar recursos
+            if (isChatOpen) {
+                const html = msgs.sort((a,b) => new Date(a.Timestamp) - new Date(b.Timestamp)).map(m => {
+                    const isMe = m.SenderID === user.ID;
+                    
+                    let attachmentHtml = '';
+                    if (m.Attachment) {
+                        if (m.Attachment.startsWith('data:image')) {
+                            attachmentHtml = `<img src="${m.Attachment}" class="mt-2 rounded max-w-full max-h-32 border cursor-pointer" onclick="Utils.openModal('Imagem', '<img src=\\'${m.Attachment}\\' class=\\'max-w-full\\'>')">`;
+                        } else {
+                            attachmentHtml = `<a href="${m.Attachment}" download="anexo" class="block mt-2 text-xs underline text-blue-200"><i class="fas fa-file-download"></i> Baixar Anexo</a>`;
+                        }
+                    }
+
+                    return `
+                        <div class="flex flex-col ${isMe ? 'items-end' : 'items-start'}">
+                            <div class="text-[10px] text-gray-500 mb-0.5 ${isMe ? 'text-right' : ''}">${isMe ? 'Você' : m.SenderName}</div>
+                            <div class="px-3 py-2 rounded-lg max-w-[85%] break-words ${isMe ? 'bg-indigo-100 text-indigo-900 rounded-tr-none' : 'bg-white border text-gray-800 rounded-tl-none shadow-sm'}">
+                                ${m.Message} ${attachmentHtml}
+                            </div>
+                            <div class="text-[9px] text-gray-400 mt-0.5">${new Date(m.Timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                        </div>
+                    `;
+                }).join('');
+                
+                container.innerHTML = html;
+                // Auto-scroll se estiver perto do fim
+                if (container.scrollTop + container.clientHeight >= container.scrollHeight - 100) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            }
+        } catch (e) { console.error('Erro no chat', e); }
+    },
+
+    sendChatMessage: async (e) => {
+        e.preventDefault();
+        const input = e.target.message;
+        const fileInput = document.getElementById('chat-file-input');
+        const text = input.value.trim();
+        
+        if (!text && (!fileInput.files || fileInput.files.length === 0)) return;
+
+        const user = Utils.getUser();
+        const payload = {
+            SenderID: user.ID,
+            SenderName: user.Nome,
+            Message: text
+        };
+
+        const send = async () => {
+            try {
+                await Utils.api('sendChatMessage', null, payload);
+                input.value = '';
+                fileInput.value = ''; // Limpa o anexo
+                Utils.loadChatMessages();
+            } catch (err) { Utils.toast('Erro ao enviar.', 'error'); }
+        };
+
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            if (file.size > 2 * 1024 * 1024) return Utils.toast('Arquivo muito grande (Max 2MB)', 'error');
+            
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => {
+                payload.Attachment = reader.result;
+                send();
+            };
+        } else {
+            send();
+        }
     }
 };
 
@@ -399,4 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Restaura estado do menu lateral
     Utils.initSidebar();
+
+    // Inicializa Chat
+    if (localStorage.getItem('user')) Utils.initChat();
 });

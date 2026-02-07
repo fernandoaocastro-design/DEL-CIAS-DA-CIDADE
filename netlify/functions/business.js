@@ -42,22 +42,43 @@ exports.handler = async (event) => {
         }
 
         if (action === 'getAll') {
-            const { page, limit } = data || {};
-            
-            if (page && limit) {
-                const from = (page - 1) * limit;
-                const to = from + limit - 1;
-                
-                // Correção: MovimentacoesEstoque usa 'Data' em vez de 'CriadoEm'
-                let sortCol = 'CriadoEm';
-                if (table === 'MovimentacoesEstoque') sortCol = 'Data';
+            // getAll genérico mantido para tabelas simples
+            ({ data: result, error } = await supabase.from(table).select('*'));
 
-                const { data: rows, count, error: err } = await supabase.from(table).select('*', { count: 'exact' }).range(from, to).order(sortCol, { ascending: false });
-                error = err;
-                result = { data: rows, total: count };
-            } else {
-                ({ data: result, error } = await supabase.from(table).select('*'));
+        } else if (action === 'getMovimentacoesEstoque') {
+            // PAGINAÇÃO OTIMIZADA COM FILTRO DE SUBTIPO (JOIN)
+            const { page, limit, subtipo } = data;
+            const from = (page - 1) * limit;
+            const to = from + limit - 1;
+
+            let query = supabase
+                .from('MovimentacoesEstoque')
+                .select('*, Estoque!inner(Nome, Subtipo)', { count: 'exact' })
+                .order('Data', { ascending: false })
+                .range(from, to);
+
+            // Aplica filtro no lado do servidor (Performance)
+            if (subtipo) {
+                query = query.eq('Estoque.Subtipo', subtipo);
             }
+
+            const { data: rows, count, error: err } = await query;
+            if (err) throw err;
+            result = { data: rows, total: count };
+
+        } else if (action === 'getMovimentacoesStats') {
+            // DADOS LEVES PARA O GRÁFICO (Últimos 6 meses)
+            const sixMonthsAgo = new Date();
+            sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+            
+            const { data: stats, error: err } = await supabase
+                .from('MovimentacoesEstoque')
+                .select('Tipo, Quantidade, Data')
+                .gte('Data', sixMonthsAgo.toISOString());
+                
+            if (err) throw err;
+            result = stats;
+
         } else if (action === 'login') {
             const email = data.email ? data.email.trim() : '';
             const password = data.password ? data.password.trim() : '';
@@ -140,26 +161,21 @@ exports.handler = async (event) => {
                         Mensagem: `⚠️ Estoque Baixo: ${item.Nome} atingiu ${item.Quantidade} ${item.Unidade} (Mínimo: ${item.Minimo})`
                     });
                 }
+                
+                // Validade Crítica (Ao Salvar/Editar)
+                if (item.Validade) {
+                    const val = new Date(item.Validade);
+                    const now = new Date();
+                    const diff = Math.ceil((val - now) / (1000 * 60 * 60 * 24));
+                    if (diff <= 30) {
+                         await supabase.from('Notificacoes').insert({
+                            Mensagem: `📅 Validade: ${item.Nome} vence em ${diff} dias (${item.Validade.split('T')[0]}).`,
+                            Lida: false,
+                            CriadoEm: new Date()
+                        });
+                    }
+                }
             }
-        } else if (action === 'calculatePayroll') {
-            const { SalarioBase, Bonus, QtdHoraExtra, ValorHoraExtra, OutrosVencimentos, INSS, IRT, Faltas, OutrosDescontos } = data;
-            
-            const base = Number(SalarioBase || 0);
-            const totalVencimentos = base 
-                + Number(Bonus || 0) 
-                + (Number(QtdHoraExtra || 0) * Number(ValorHoraExtra || 0)) 
-                + Number(OutrosVencimentos || 0);
-            
-            const totalDescontos = Number(INSS || 0) 
-                + Number(IRT || 0) 
-                + Number(Faltas || 0) 
-                + Number(OutrosDescontos || 0);
-            
-            result = {
-                TotalVencimentos: totalVencimentos,
-                TotalDescontos: totalDescontos,
-                SalarioLiquido: totalVencimentos - totalDescontos
-            };
         } else if (action === 'registerStockMovement') {
             const { produtoId, tipo, quantidade, custo, responsavel, observacoes, detalhes } = data;
             
@@ -199,6 +215,15 @@ exports.handler = async (event) => {
                 Data: new Date()
             });
             if (errMov) throw new Error('Erro ao registrar histórico.');
+
+            // --- NOTIFICAÇÃO DE ESTOQUE BAIXO (REAL-TIME) ---
+            if (novaQtd <= Number(produto.Minimo)) {
+                await supabase.from('Notificacoes').insert({
+                    Mensagem: `⚠️ Estoque Baixo: ${produto.Nome} atingiu ${novaQtd} ${produto.Unidade} (Mínimo: ${produto.Minimo})`,
+                    Lida: false,
+                    CriadoEm: new Date()
+                });
+            }
 
             result = { success: true };
         } else if (action === 'settleAccount') {
@@ -290,126 +315,14 @@ exports.handler = async (event) => {
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());
 
-        } else if (action === 'backupDatabase') {
-            // Lista de todas as tabelas do sistema para backup
-            const tables = [
-                'Usuarios', 'Funcionarios', 'Frequencia', 'Ferias', 'Avaliacoes', 'Treinamentos', 'Licencas', 'Folha',
-                'Financas', 'ContasReceber', 'ContasPagar', 'Estoque', 'Fornecedores', 'MovimentacoesEstoque',
-                'FichasTecnicas', 'PlanejamentoProducao', 'OrdensProducao', 'ConsumoIngredientes', 'ControleDesperdicio', 'PedidosCompra', 'ItensPedidoCompra', 'Notificacoes', 'MLPain_Areas', 'MLPain_Registros', 'Inventario', 'HistoricoInventario',
-                'InstituicaoConfig', 'Departamentos', 'Cargos', 'ParametrosRH', 'ParametrosCozinha',
-                'ParametrosEstoque', 'ParametrosPatrimonio', 'ParametrosFinanceiro', 'LogsAuditoria',
-                'production_plans'
-            ];
-
-            const backupData = {};
-            
-            // Busca dados de todas as tabelas em paralelo
-            await Promise.all(tables.map(async (t) => {
-                const { data: tableData } = await supabase.from(t).select('*');
-                if (tableData) backupData[t] = tableData;
-            }));
-
-            result = { generatedAt: new Date(), version: '1.0', data: backupData };
-
-        } else if (action === 'restoreDatabase') {
-            // ATENÇÃO: Esta ação deve ser usada com cuidado em produção
-            const backupData = data; // O payload é o JSON completo
-            
-            if (!backupData || typeof backupData !== 'object') throw new Error('Arquivo de backup inválido.');
-
-            // Itera sobre as tabelas do backup e insere/atualiza os dados
-            const tables = Object.keys(backupData);
-            
-            for (const t of tables) {
-                const rows = backupData[t];
-                if (Array.isArray(rows) && rows.length > 0) {
-                    // Upsert (Insere ou Atualiza se o ID já existir)
-                    const { error } = await supabase.from(t).upsert(rows);
-                    if (error) console.error(`Erro ao restaurar tabela ${t}:`, error.message);
-                }
-            }
-
-            result = { success: true, message: 'Restauração concluída.' };
-
         } else if (action === 'completeProductionOrder') {
             const { id } = data; // ID da Ordem
-
-            // 1. Buscar Ordem
-            const { data: ordem, error: errOrdem } = await supabase.from('OrdensProducao').select('*').eq('ID', id).single();
-            if (errOrdem || !ordem) throw new Error('Ordem de produção não encontrada.');
             
-            if (ordem.Status === 'Concluída') throw new Error('Esta ordem já foi concluída.');
-
-            // 2. Buscar Planejamento para pegar a Receita
-            const { data: plan, error: errPlan } = await supabase.from('PlanejamentoProducao').select('*').eq('ID', ordem.PlanejamentoID).single();
-            if (errPlan || !plan) throw new Error('Planejamento não encontrado.');
-
-            // 3. Buscar Ficha Técnica
-            const { data: ficha, error: errFicha } = await supabase.from('FichasTecnicas').select('*').eq('ID', plan.ReceitaID).single();
-            if (errFicha || !ficha) throw new Error('Ficha técnica não encontrada.');
-
-            const ingredientes = ficha.IngredientesJSON || [];
-            // Validação: Exige ingredientes para garantir a baixa de estoque
-            if (ingredientes.length === 0) throw new Error('Ficha técnica sem ingredientes definidos. Edite a ficha e adicione ingredientes antes de concluir.');
-
-            // 4. Calcular Fator de Proporção
-            const rendimentoFicha = Number(ficha.Rendimento) || 1;
-            const qtdProduzida = Number(ordem.QtdProduzida) || 0;
+            // OTIMIZAÇÃO: Chama a Stored Procedure no banco para processar tudo de uma vez (Performance N+1 resolvida)
+            // Isso substitui as dezenas de chamadas de leitura e escrita por uma única transação atômica.
+            const { error } = await supabase.rpc('complete_production_order', { p_order_id: id });
             
-            if (qtdProduzida <= 0) throw new Error('Quantidade produzida inválida. Atualize a ordem com a quantidade real antes de concluir.');
-
-            const factor = qtdProduzida / rendimentoFicha;
-
-            // 5. Validação de Estoque (Pré-check para evitar estoque negativo)
-            for (const ing of ingredientes) {
-                const qtdConsumo = Number(ing.quantidade) * factor;
-                const { data: itemEstoque } = await supabase.from('Estoque').select('Quantidade, Nome').eq('ID', ing.id).single();
-                
-                if (itemEstoque) {
-                    if (Number(itemEstoque.Quantidade) < qtdConsumo) {
-                        throw new Error(`Estoque insuficiente para "${itemEstoque.Nome}". Necessário: ${qtdConsumo.toFixed(2)}, Atual: ${itemEstoque.Quantidade}`);
-                    }
-                }
-            }
-
-            // 6. Processar Baixa (Agora seguro)
-            for (const ing of ingredientes) {
-                const qtdConsumo = Number(ing.quantidade) * factor;
-                
-                // Buscar item atual no estoque
-                const { data: itemEstoque } = await supabase.from('Estoque').select('*').eq('ID', ing.id).single();
-                
-                if (itemEstoque) {
-                    // Baixar Estoque
-                    const novaQtd = Number(itemEstoque.Quantidade) - qtdConsumo;
-                    
-                    await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', ing.id);
-
-                    // Registrar Movimentação
-                    await supabase.from('MovimentacoesEstoque').insert({
-                        ProdutoID: ing.id,
-                        Tipo: 'Saida',
-                        Quantidade: qtdConsumo,
-                        Responsavel: ordem.Responsavel || 'Sistema',
-                        Observacoes: `Produção Ordem #${ordem.Codigo}`,
-                        DetalhesJSON: { OrdemID: ordem.ID },
-                        Data: new Date()
-                    });
-
-                    // Registrar Consumo Específico da Ordem
-                    await supabase.from('ConsumoIngredientes').insert({
-                        OrdemID: ordem.ID,
-                        ProdutoID: ing.id,
-                        ProdutoNome: itemEstoque.Nome,
-                        Quantidade: qtdConsumo,
-                        Responsavel: ordem.Responsavel || 'Sistema'
-                    });
-                }
-            }
-
-            // 6. Atualizar Status da Ordem
-            const { error: errUpdate } = await supabase.from('OrdensProducao').update({ Status: 'Concluída' }).eq('ID', id);
-            if (errUpdate) throw errUpdate;
+            if (error) throw new Error(error.message);
 
             result = { success: true };
 
@@ -519,6 +432,541 @@ exports.handler = async (event) => {
             if (err) throw err;
             result = stats;
 
+        } else if (action === 'getProductHistory') {
+            const { id } = data;
+            
+            // 1. Movimentações de Estoque (Físico: Entradas/Saídas)
+            const { data: movs, error: errMov } = await supabase
+                .from('MovimentacoesEstoque')
+                .select('*')
+                .eq('ProdutoID', id)
+                .order('Data', { ascending: false })
+                .limit(50);
+                
+            if (errMov) throw errMov;
+
+            // 2. Logs de Auditoria (Sistema: Edições de Cadastro)
+            const { data: logs, error: errLog } = await supabase
+                .from('LogsAuditoria')
+                .select('*')
+                .eq('Modulo', 'Estoque')
+                .contains('DetalhesJSON', { ID: id }) // Filtra logs onde o JSON contém o ID do produto
+                .order('CriadoEm', { ascending: false })
+                .limit(20);
+
+            if (errLog) throw errLog;
+
+            result = { movs, logs };
+
+        } else if (action === 'checkExpirationAlerts') {
+            // AÇÃO AUTOMÁTICA: Verifica produtos vencendo em 30 dias
+            const today = new Date();
+            const thirtyDaysFromNow = new Date();
+            thirtyDaysFromNow.setDate(today.getDate() + 30);
+            
+            // Busca itens com validade definida e próxima
+            const { data: items, error } = await supabase
+                .from('Estoque')
+                .select('ID, Nome, Validade, Lote')
+                .not('Validade', 'is', null)
+                .lte('Validade', thirtyDaysFromNow.toISOString());
+
+            if (error) throw error;
+
+            let count = 0;
+            for (const item of items) {
+                // Verifica se já existe notificação NÃO LIDA para este item (evita spam)
+                const { data: existing } = await supabase
+                    .from('Notificacoes')
+                    .select('ID')
+                    .ilike('Mensagem', `%${item.Nome}%`)
+                    .ilike('Mensagem', '%validade%')
+                    .eq('Lida', false)
+                    .limit(1);
+
+                if (!existing || existing.length === 0) {
+                    const days = Math.ceil((new Date(item.Validade) - today) / (1000 * 60 * 60 * 24));
+                    const status = days < 0 ? 'VENCIDO' : 'Vencendo';
+                    
+                    await supabase.from('Notificacoes').insert({
+                        Mensagem: `📅 Validade: ${item.Nome} (Lote: ${item.Lote || '-'}) está ${status} em ${days} dias.`,
+                        Lida: false,
+                        CriadoEm: new Date()
+                    });
+                    count++;
+                }
+            }
+            result = { success: true, alertsGenerated: count };
+
+        } else if (action === 'getFinancialDashboard') {
+            const { startDate, endDate } = data || {};
+            
+            // Define período (Padrão: Mês atual)
+            const now = new Date();
+            const start = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+            const end = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+
+            // 1. Buscar Transações (Receitas e Despesas)
+            const { data: financas, error: errFin } = await supabase
+                .from('Financas')
+                .select('*')
+                .gte('Data', start)
+                .lte('Data', end)
+                .order('Data', { ascending: true });
+
+            if (errFin) throw errFin;
+
+            // 2. Buscar Contas Pendentes (Global, para análise de fluxo futuro/atrasado)
+            const { data: contasPagar, error: errCP } = await supabase.from('ContasPagar').select('*').neq('Status', 'Pago');
+            const { data: contasReceber, error: errCR } = await supabase.from('ContasReceber').select('*').neq('Status', 'Recebido');
+
+            // 3. Buscar Metas do Mês
+            const monthKey = start.substring(0, 7); // Extrai YYYY-MM
+            const { data: meta } = await supabase.from('MetasFinanceiras').select('*').eq('Mes', monthKey).maybeSingle();
+
+            if (errCP || errCR) throw new Error('Erro ao buscar contas pendentes.');
+
+            // Processamento dos Dados
+            let receitaTotal = 0;
+            let despesaTotal = 0;
+            const despesasPorCategoria = {};
+            const fluxoDiario = {};
+
+            financas.forEach(f => {
+                const val = Number(f.Valor || 0);
+                const dia = f.Data.split('T')[0];
+
+                if (!fluxoDiario[dia]) fluxoDiario[dia] = { receita: 0, despesa: 0, saldo: 0 };
+
+                if (f.Tipo === 'Receita') {
+                    receitaTotal += val;
+                    fluxoDiario[dia].receita += val;
+                } else {
+                    despesaTotal += val;
+                    fluxoDiario[dia].despesa += val;
+                    
+                    // Categorização
+                    const cat = f.Categoria || 'Outros';
+                    despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + val;
+                }
+                fluxoDiario[dia].saldo = fluxoDiario[dia].receita - fluxoDiario[dia].despesa;
+            });
+
+            // Processamento de Contas (KPIs de Liquidez)
+            const hoje = new Date().toISOString().split('T')[0];
+            const aPagarTotal = contasPagar.reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+            const aReceberTotal = contasReceber.reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+            
+            const aPagarAtrasado = contasPagar.filter(c => c.Vencimento < hoje).reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+            const aReceberAtrasado = contasReceber.filter(c => c.Vencimento < hoje).reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+
+            result = {
+                periodo: { start, end },
+                resumo: {
+                    receita: receitaTotal,
+                    despesa: despesaTotal,
+                    saldo: receitaTotal - despesaTotal,
+                    lucratividade: receitaTotal > 0 ? ((receitaTotal - despesaTotal) / receitaTotal) * 100 : 0,
+                    meta: {
+                        receitaEsperada: meta ? Number(meta.ReceitaEsperada) : 0,
+                        despesaMaxima: meta ? Number(meta.DespesaMaxima) : 0,
+                        atingido: meta && Number(meta.ReceitaEsperada) > 0 ? (receitaTotal / Number(meta.ReceitaEsperada)) * 100 : 0
+                    }
+                },
+                pendencias: {
+                    aPagar: aPagarTotal,
+                    aReceber: aReceberTotal,
+                    aPagarAtrasado,
+                    aReceberAtrasado
+                },
+                graficos: {
+                    fluxoDiario: Object.entries(fluxoDiario).map(([date, vals]) => ({ date, ...vals })).sort((a, b) => a.date.localeCompare(b.date)),
+                    despesasCategoria: Object.entries(despesasPorCategoria).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+                }
+            };
+
+        } else if (action === 'getDRE') {
+            const { startDate, endDate } = data;
+            
+            // Busca todas as transações do período
+            const { data: financas, error } = await supabase
+                .from('Financas')
+                .select('*')
+                .gte('Data', startDate)
+                .lte('Data', endDate);
+            
+            if (error) throw error;
+
+            // Estrutura do DRE
+            const dre = {
+                receitaBruta: 0,
+                impostos: 0, // Deduções
+                custosVariaveis: 0, // CMV / Insumos
+                despesasPessoal: 0,
+                despesasAdministrativas: 0,
+                despesasFinanceiras: 0,
+                outrasReceitas: 0
+            };
+
+            financas.forEach(f => {
+                const val = Number(f.Valor || 0);
+                const cat = (f.Categoria || '').toLowerCase();
+                const tipo = f.Tipo;
+
+                if (tipo === 'Receita') {
+                    // Classificação simples baseada em palavras-chave se não houver plano de contas estrito
+                    if (cat.includes('venda') || cat.includes('serviço') || cat.includes('evento')) dre.receitaBruta += val;
+                    else dre.outrasReceitas += val;
+                } else {
+                    // Despesas
+                    if (cat.includes('imposto') || cat.includes('taxa') || cat.includes('tributo')) dre.impostos += val;
+                    else if (cat.includes('fornecedor') || cat.includes('estoque') || cat.includes('insumo') || cat.includes('cmv') || cat.includes('compra')) dre.custosVariaveis += val;
+                    else if (cat.includes('salário') || cat.includes('folha') || cat.includes('pessoal') || cat.includes('benefício') || cat.includes('funcionário')) dre.despesasPessoal += val;
+                    else if (cat.includes('juros') || cat.includes('banco') || cat.includes('multa') || cat.includes('financeir')) dre.despesasFinanceiras += val;
+                    else dre.despesasAdministrativas += val; // Restante (Aluguel, Energia, Água, etc)
+                }
+            });
+            
+            result = dre;
+
+        } else if (action === 'getProjectedCashFlow') {
+            const { startDate, endDate } = data;
+            
+            // 1. Saldo Atual Real (Caixa + Bancos)
+            const { data: allFinancas, error: errFin } = await supabase.from('Financas').select('Tipo, Valor');
+            if (errFin) throw errFin;
+
+            let saldoAtual = 0;
+            allFinancas.forEach(f => {
+                saldoAtual += f.Tipo === 'Receita' ? Number(f.Valor) : -Number(f.Valor);
+            });
+
+            // 2. Buscar Previsões (Contas Abertas)
+            const { data: aReceber } = await supabase.from('ContasReceber')
+                .select('DataVencimento, ValorTotal, Cliente')
+                .neq('Status', 'Recebido')
+                .gte('DataVencimento', startDate)
+                .lte('DataVencimento', endDate);
+
+            const { data: aPagar } = await supabase.from('ContasPagar')
+                .select('DataVencimento, ValorTotal, Fornecedor')
+                .neq('Status', 'Pago')
+                .gte('DataVencimento', startDate)
+                .lte('DataVencimento', endDate);
+
+            // 3. Construir Projeção
+            const mapDia = {};
+            const add = (date, val, type) => {
+                const d = date.split('T')[0];
+                if (!mapDia[d]) mapDia[d] = { entradas: 0, saidas: 0 };
+                if (type === 'R') mapDia[d].entradas += val;
+                else mapDia[d].saidas += val;
+            };
+
+            (aReceber || []).forEach(r => add(r.DataVencimento, Number(r.ValorTotal), 'R'));
+            (aPagar || []).forEach(p => add(p.DataVencimento, Number(p.ValorTotal), 'P'));
+
+            const sortedDates = Object.keys(mapDia).sort();
+            const projection = [];
+            let saldoAcumulado = saldoAtual;
+
+            // Adiciona o dia inicial (hoje)
+            projection.push({ data: new Date().toISOString().split('T')[0], saldo: saldoAtual, entradas: 0, saidas: 0 });
+
+            sortedDates.forEach(date => {
+                const day = mapDia[date];
+                saldoAcumulado += (day.entradas - day.saidas);
+                projection.push({ data: date, saldo: saldoAcumulado, entradas: day.entradas, saidas: day.saidas });
+            });
+
+            result = { saldoAtual, projection };
+
+        } else if (action === 'getABCCurve') {
+            // 1. Buscar Movimentações de Saída (Consumo) dos últimos 90 dias
+            const ninetyDaysAgo = new Date();
+            ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+            
+            const { data: movs, error: errMov } = await supabase
+                .from('MovimentacoesEstoque')
+                .select('ProdutoID, Quantidade')
+                .eq('Tipo', 'Saida')
+                .gte('Data', ninetyDaysAgo.toISOString());
+            
+            if (errMov) throw errMov;
+
+            // 2. Buscar Dados Atuais dos Produtos (Custo)
+            const { data: produtos, error: errProd } = await supabase
+                .from('Estoque')
+                .select('ID, Nome, CustoUnitario, Unidade');
+            
+            if (errProd) throw errProd;
+
+            // 3. Calcular Consumo Total por Produto
+            const consumoMap = {};
+            movs.forEach(m => {
+                if (!consumoMap[m.ProdutoID]) consumoMap[m.ProdutoID] = 0;
+                consumoMap[m.ProdutoID] += Number(m.Quantidade);
+            });
+
+            // 4. Calcular Valor Total e Classificar
+            let lista = [];
+            let valorTotalGeral = 0;
+
+            produtos.forEach(p => {
+                const qtd = consumoMap[p.ID] || 0;
+                const valor = qtd * Number(p.CustoUnitario || 0);
+                if (valor > 0) {
+                    lista.push({ ...p, consumoQtd: qtd, valorTotal: valor });
+                    valorTotalGeral += valor;
+                }
+            });
+
+            // Ordenar do maior valor para o menor
+            lista.sort((a, b) => b.valorTotal - a.valorTotal);
+
+            // Classificação ABC
+            let acumulado = 0;
+            lista = lista.map(item => {
+                acumulado += item.valorTotal;
+                const percent = (acumulado / valorTotalGeral) * 100;
+                let classe = 'C';
+                if (percent <= 80) classe = 'A';
+                else if (percent <= 95) classe = 'B';
+                
+                return { ...item, classe, percentAcumulado: percent };
+            });
+
+            result = { lista, valorTotalGeral };
+
+        } else if (action === 'getDeadStock') {
+            // RELATÓRIO DE ESTOQUE PARADO (SEM GIRO)
+            const days = data.days || 90;
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - days);
+
+            // 1. Buscar itens com saldo em estoque
+            const { data: items, error: errItems } = await supabase
+                .from('Estoque')
+                .select('ID, Nome, Quantidade, Unidade, CustoUnitario, UltimaAtualizacao')
+                .gt('Quantidade', 0);
+
+            if (errItems) throw errItems;
+
+            // 2. Buscar movimentações de SAÍDA no período
+            const { data: movs, error: errMovs } = await supabase
+                .from('MovimentacoesEstoque')
+                .select('ProdutoID')
+                .eq('Tipo', 'Saida')
+                .gte('Data', cutoffDate.toISOString());
+
+            if (errMovs) throw errMovs;
+
+            const activeProductIds = new Set(movs.map(m => m.ProdutoID));
+
+            // 3. Filtrar itens que NÃO tiveram saída
+            const deadStock = items.filter(i => !activeProductIds.has(i.ID));
+            const totalValue = deadStock.reduce((acc, i) => acc + (Number(i.Quantidade) * Number(i.CustoUnitario)), 0);
+
+            result = { items: deadStock, totalValue, count: deadStock.length, days };
+
+        } else if (action === 'getPurchaseForecast') {
+            // PREVISÃO DE COMPRAS (Baseada em Consumo Médio)
+            const daysAnalysis = 30; // Analisa últimos 30 dias
+            const daysSafety = 15;   // Margem de segurança desejada (dias de estoque)
+            
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - daysAnalysis);
+
+            // 1. Buscar Estoque Atual
+            const { data: items, error: errItems } = await supabase.from('Estoque').select('ID, Nome, Quantidade, Unidade, Minimo, Fornecedor');
+            if (errItems) throw errItems;
+
+            // 2. Buscar Consumo (Saídas)
+            const { data: movs, error: errMovs } = await supabase
+                .from('MovimentacoesEstoque')
+                .select('ProdutoID, Quantidade')
+                .eq('Tipo', 'Saida')
+                .gte('Data', cutoffDate.toISOString());
+            if (errMovs) throw errMovs;
+
+            // 3. Calcular Médias e Sugestões
+            const consumptionMap = {};
+            movs.forEach(m => consumptionMap[m.ProdutoID] = (consumptionMap[m.ProdutoID] || 0) + Number(m.Quantidade));
+
+            const forecast = items.map(item => {
+                const totalConsumed = consumptionMap[item.ID] || 0;
+                const avgDaily = totalConsumed / daysAnalysis;
+                const currentStock = Number(item.Quantidade || 0);
+                
+                // Dias que o estoque atual dura
+                const daysRemaining = avgDaily > 0 ? currentStock / avgDaily : (currentStock > 0 ? 999 : 0);
+                
+                // Sugestão: Se durar menos que a margem de segurança, sugere compra para completar 30 dias
+                let suggestedQty = 0;
+                if (daysRemaining < daysSafety || currentStock <= Number(item.Minimo)) {
+                    suggestedQty = (avgDaily * 30) - currentStock;
+                    if (suggestedQty < 0) suggestedQty = 0;
+                }
+
+                return {
+                    ...item,
+                    avgDaily,
+                    daysRemaining,
+                    suggestedQty: Math.ceil(suggestedQty)
+                };
+            }).filter(i => i.suggestedQty > 0).sort((a,b) => a.daysRemaining - b.daysRemaining);
+
+            result = forecast;
+
+        } else if (action === 'getClientABC') {
+            // CURVA ABC DE CLIENTES (Baseado em Eventos)
+            const { data: eventos, error } = await supabase
+                .from('Eventos')
+                .select('Cliente, Valor')
+                .neq('Status', 'Cancelado')
+                .not('Cliente', 'is', null);
+
+            if (error) throw error;
+
+            // Agrupar por Cliente
+            const clientMap = {};
+            let totalRevenue = 0;
+
+            eventos.forEach(e => {
+                const name = e.Cliente.trim();
+                if (!name) return;
+                if (!clientMap[name]) clientMap[name] = 0;
+                const val = Number(e.Valor || 0);
+                clientMap[name] += val;
+                totalRevenue += val;
+            });
+
+            // Converter para Array e Ordenar
+            let clients = Object.entries(clientMap).map(([name, value]) => ({ name, value }));
+            clients.sort((a, b) => b.value - a.value);
+
+            // Classificação ABC
+            let accumulated = 0;
+            clients = clients.map(c => {
+                accumulated += c.value;
+                const percent = totalRevenue > 0 ? (accumulated / totalRevenue) * 100 : 0;
+                let classe = 'C';
+                if (percent <= 80) classe = 'A';
+                else if (percent <= 95) classe = 'B';
+                return { ...c, classe, percent: (c.value / totalRevenue) * 100 };
+            });
+
+            result = { clients, totalRevenue };
+
+        } else if (action === 'getSalesByDayOfWeek') {
+            // VENDAS POR DIA DA SEMANA (Baseado em Eventos)
+            const { data: eventos, error } = await supabase
+                .from('Eventos')
+                .select('Data, Valor')
+                .neq('Status', 'Cancelado');
+
+            if (error) throw error;
+
+            const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+            const totals = new Array(7).fill(0);
+            const counts = new Array(7).fill(0);
+
+            eventos.forEach(e => {
+                if (e.Data) {
+                    const d = new Date(e.Data);
+                    const dayIdx = d.getUTCDay(); // 0 (Domingo) - 6 (Sábado)
+                    totals[dayIdx] += Number(e.Valor || 0);
+                    counts[dayIdx]++;
+                }
+            });
+
+            result = days.map((name, i) => ({ day: name, total: totals[i], count: counts[i] }));
+
+        } else if (action === 'getWaiterSales') {
+            // RELATÓRIO DE VENDAS POR GARÇOM (COMISSÕES)
+            const { startDate, endDate } = data;
+            
+            const { data: eventos, error } = await supabase
+                .from('Eventos')
+                .select('Responsavel, Valor, Data, Titulo')
+                .neq('Status', 'Cancelado')
+                .gte('Data', startDate)
+                .lte('Data', endDate)
+                .not('Responsavel', 'is', null);
+
+            if (error) throw error;
+
+            const salesMap = {};
+            eventos.forEach(e => {
+                const resp = e.Responsavel;
+                if (!salesMap[resp]) salesMap[resp] = { total: 0, count: 0, events: [] };
+                salesMap[resp].total += Number(e.Valor || 0);
+                salesMap[resp].count++;
+                salesMap[resp].events.push(e);
+            });
+
+            result = Object.entries(salesMap).map(([name, stats]) => ({
+                name,
+                total: stats.total,
+                count: stats.count,
+                commission: stats.total * 0.10 // 10% padrão (pode ser parametrizado depois)
+            })).sort((a, b) => b.total - a.total);
+
+        } else if (action === 'getChecklist') {
+            const { date } = data;
+            const { data: items, error } = await supabase
+                .from('ChecklistLimpeza')
+                .select('*')
+                .eq('Data', date);
+            if (error) throw error;
+            result = items;
+
+        } else if (action === 'saveChecklist') {
+            // Salva múltiplos itens de uma vez
+            const { items } = data;
+            if (items && items.length > 0) {
+                const { error } = await supabase.from('ChecklistLimpeza').upsert(items);
+                if (error) throw error;
+            }
+            result = { success: true };
+
+        } else if (action === 'recalculateLoyalty') {
+            // 1. Buscar todos os clientes
+            const { data: clients, error: errClients } = await supabase.from('Clientes').select('*');
+            if (errClients) throw errClients;
+
+            // 2. Buscar todos os eventos (vendas)
+            const { data: events, error: errEvents } = await supabase.from('Eventos').select('Cliente, Valor, Data').neq('Status', 'Cancelado');
+            if (errEvents) throw errEvents;
+
+            // 3. Processar Pontos (1 Ponto a cada 1000 Kz)
+            for (const client of clients) {
+                const clientEvents = events.filter(e => e.Cliente && e.Cliente.toLowerCase().trim() === client.Nome.toLowerCase().trim());
+                
+                const totalGasto = clientEvents.reduce((acc, e) => acc + Number(e.Valor || 0), 0);
+                const pontos = Math.floor(totalGasto / 1000); 
+                
+                // Encontrar última compra
+                let lastDate = null;
+                if (clientEvents.length > 0) {
+                    clientEvents.sort((a,b) => new Date(b.Data) - new Date(a.Data));
+                    lastDate = clientEvents[0].Data;
+                }
+
+                await supabase.from('Clientes').update({
+                    Pontos: pontos,
+                    TotalGasto: totalGasto,
+                    UltimaCompra: lastDate
+                }).eq('ID', client.ID);
+            }
+            result = { success: true };
+
+        } else if (action === 'getTasks') {
+            ({ data: result, error } = await supabase.from('Tarefas').select('*').order('Status', { ascending: false }).order('Prazo', { ascending: true }));
+        } else if (action === 'getChatMessages') {
+            ({ data: result, error } = await supabase.from('ChatMessages').select('*').order('Timestamp', { ascending: false }).limit(50));
+        } else if (action === 'sendChatMessage') {
+            ({ data: result, error } = await supabase.from('ChatMessages').insert(data));
         } else if (action === 'getDashboardStats') {
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];
@@ -559,7 +1007,8 @@ exports.handler = async (event) => {
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
                 supabase.rpc('get_refeicoes_grafico', { data_inicio: strSevenDaysAgo }),
                 supabase.rpc('get_total_refeicoes_mes', { data_inicio: startOfMonth }),
-                supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída')
+                supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída'),
+                supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5)
             ]);
 
             // Extração segura de dados (evita crash se houver erro no banco)
@@ -576,6 +1025,8 @@ exports.handler = async (event) => {
             const eventosProximos = resEventos.data || [];
             const refeicoesData = resRefeicoes.data || [];
             const ordensPendentes = resOrdensAbertas.data || [];
+            const avisos = resOrdensAbertas.data ? (await resOrdensAbertas) : []; // Correção: O Promise.all retorna array, o índice 12 é o novo
+            const quadroAvisos = (await supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5)).data || [];
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
@@ -691,7 +1142,8 @@ exports.handler = async (event) => {
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
                     estoqueBaixo: estoqueCritico,
                     eventos: eventosProximos,
-                    ordensProducao: ordensPendentes // Alerta de Ordens Paradas/Abertas
+                    ordensProducao: ordensPendentes,
+                    avisos: quadroAvisos
                 },
                 charts: {
                     financeiro: chartFin,
