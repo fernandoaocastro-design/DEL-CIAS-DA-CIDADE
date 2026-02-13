@@ -1,32 +1,40 @@
-const { supabase } = require('./supabase');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+import { supabase } from './supabase.js';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 const SECRET = process.env.JWT_SECRET || 'segredo-super-secreto-dev-change-me';
 
-exports.handler = async (event) => {
-    // Se o Supabase não foi iniciado, retorna erro amigável em vez de crashar (502)
-    if (!supabase) {
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ success: false, message: 'Erro de Configuração do Banco de Dados.' })
-        };
+export const handler = async (event) => {
+    // Headers para CORS (Permitir acesso do frontend) - Definidos no início para usar em todos os retornos
+    const headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+    };
+
+    // 1. TRATAMENTO DE PREFLIGHT (OPTIONS)
+    // O navegador pergunta "posso conectar?" antes de enviar dados. Precisamos responder SIM (200).
+    if (event.httpMethod === 'OPTIONS') {
+        return { statusCode: 200, headers, body: '' };
     }
 
     if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method Not Allowed' };
+        return { statusCode: 405, headers, body: 'Method Not Allowed' };
     }
 
     try {
-        // Headers para CORS (Permitir acesso do frontend)
-        const headers = {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        };
-
         const { action, table, data, id } = JSON.parse(event.body);
         let result;
         let error;
         let userSession = null;
+
+        // Agora verifica se o banco está conectado (para todas as outras ações)
+        if (!supabase) {
+            return {
+                statusCode: 500,
+                headers,
+                body: JSON.stringify({ success: false, message: 'Erro Crítico: Banco de Dados desconectado (Verifique SUPABASE_URL).' })
+            };
+        }
 
         // --- 1. VERIFICAÇÃO DE SEGURANÇA (JWT) ---
         if (action !== 'login') {
@@ -45,21 +53,38 @@ exports.handler = async (event) => {
             // getAll genérico mantido para tabelas simples
             ({ data: result, error } = await supabase.from(table).select('*'));
 
+        } else if (action === 'searchEmployees') {
+            // BUSCA AVANÇADA DE FUNCIONÁRIOS (RH)
+            const { term } = data;
+            const searchTerm = term ? term.trim() : '';
+
+            let query = supabase.from('Funcionarios').select('*').order('Nome');
+
+            if (searchTerm) {
+                // Busca por Nome, Cargo ou Email (Case Insensitive)
+                query = query.or(`Nome.ilike.%${searchTerm}%,Cargo.ilike.%${searchTerm}%,Email.ilike.%${searchTerm}%`);
+            }
+
+            ({ data: result, error } = await query);
+
         } else if (action === 'getMovimentacoesEstoque') {
             // PAGINAÇÃO OTIMIZADA COM FILTRO DE SUBTIPO (JOIN)
-            const { page, limit, subtipo } = data;
+            const { page, limit, subtipo, term } = data;
             const from = (page - 1) * limit;
             const to = from + limit - 1;
 
             let query = supabase
                 .from('MovimentacoesEstoque')
-                .select('*, Estoque!inner(Nome, Subtipo)', { count: 'exact' })
+                .select('*, Estoque!inner(Nome, Subtipo, CustoUnitario)', { count: 'exact' })
                 .order('Data', { ascending: false })
                 .range(from, to);
 
             // Aplica filtro no lado do servidor (Performance)
             if (subtipo) {
                 query = query.eq('Estoque.Subtipo', subtipo);
+            }
+            if (term) {
+                query = query.ilike('Estoque.Nome', `%${term}%`);
             }
 
             const { data: rows, count, error: err } = await query;
@@ -115,6 +140,24 @@ exports.handler = async (event) => {
             Object.keys(payload).forEach(key => {
                 if (payload[key] === '') payload[key] = null;
             });
+
+            // --- VALIDAÇÃO DE DUPLICIDADE (CLIENTES) ---
+            if (table === 'Clientes') {
+                const nome = payload.Nome ? payload.Nome.trim() : '';
+                if (nome) {
+                    // Verifica se já existe alguém com esse nome (Case Insensitive)
+                    let query = supabase
+                        .from('Clientes')
+                        .select('ID')
+                        .ilike('Nome', nome);
+                    
+                    // Se for edição, exclui o próprio ID da verificação
+                    if (payload.ID) query = query.neq('ID', payload.ID);
+                    
+                    const { data: existing } = await query.maybeSingle();
+                    if (existing) throw new Error(`O cliente "${nome}" já está cadastrado.`);
+                }
+            }
             
             // --- CÁLCULO AUTOMÁTICO DE FOLHA ---
             if (table === 'Folha') {
@@ -254,7 +297,7 @@ exports.handler = async (event) => {
                 Tipo: isReceber ? 'Receita' : 'Despesa',
                 Valor: valorPago || conta.ValorTotal,
                 Categoria: conta.Categoria, // Herda a categoria
-                Subcategoria: 'Baixa de Conta',
+                Subcategoria: conta.Subcategoria || 'Baixa de Conta', // Herda subcategoria se existir
                 Descricao: `${isReceber ? 'Recebimento' : 'Pagamento'}: ${conta.Descricao} (${conta.Cliente || conta.Fornecedor})`,
                 Status: 'Pago', // No fluxo de caixa já entra como realizado
                 MetodoPagamento: metodo || conta.FormaPagamento,
@@ -303,15 +346,27 @@ exports.handler = async (event) => {
             }
             result = { success: true };
         } else if (action === 'updateProfile') {
-            const { id, nome, email, senhaAtual, novaSenha, assinatura } = data;
+            const { id, nome, email, senhaAtual, novaSenha, assinatura, fotoURL } = data;
             
             // Verifica senha atual
             const { data: user, error: errUser } = await supabase.from('Usuarios').select('*').eq('ID', id).single();
             if (errUser || !user) throw new Error('Usuário não encontrado.');
             if (user.Senha !== senhaAtual) throw new Error('Senha atual incorreta.');
 
+            // VERIFICAÇÃO DE E-MAIL DUPLICADO
+            if (email && email.trim().toLowerCase() !== user.Email.trim().toLowerCase()) {
+                const { data: existing } = await supabase
+                    .from('Usuarios')
+                    .select('ID')
+                    .ilike('Email', email.trim())
+                    .maybeSingle();
+                
+                if (existing) throw new Error('Este e-mail já está sendo usado por outro usuário.');
+            }
+
             const updates = { Nome: nome, Email: email, Assinatura: assinatura, Permissoes: user.Permissoes }; // Mantém permissões antigas ao editar perfil próprio
             if (novaSenha) updates.Senha = novaSenha;
+            if (fotoURL !== undefined) updates.FotoURL = fotoURL;
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());
 
@@ -368,10 +423,56 @@ exports.handler = async (event) => {
 
             result = { success: true };
 
+        } else if (action === 'updateProductionStatus') {
+            // 7. CONTROLE DE ESTOQUE AUTOMÁTICO
+            const { id, status, detalhes } = data;
+            
+            // 1. Atualizar Status da Ordem
+            const { error: errOp } = await supabase.from('OrdensProducao').update({ Status: status, DetalhesProducao: detalhes }).eq('ID', id);
+            if (errOp) throw new Error('Erro ao atualizar ordem: ' + errOp.message);
+
+            // 2. Lógica de Estoque
+            if (status === 'Em Produção') {
+                // ✅ RESERVAR INGREDIENTES
+                if (detalhes && detalhes.ingredientes) {
+                    for (const ing of detalhes.ingredientes) {
+                        if (!ing.id) continue;
+                        // Incrementa reserva (opcional, para visualização futura)
+                        const { data: item } = await supabase.from('Estoque').select('QuantidadeReservada').eq('ID', ing.id).single();
+                        if (item) {
+                            const novaReserva = Number(item.QuantidadeReservada || 0) + Number(ing.qtdNecessaria);
+                            await supabase.from('Estoque').update({ QuantidadeReservada: novaReserva }).eq('ID', ing.id);
+                        }
+                    }
+                }
+            } else if (status === 'Concluída') {
+                // ✅ BAIXAR ESTOQUE (Consumo Real)
+                if (detalhes && detalhes.ingredientes) {
+                    for (const ing of detalhes.ingredientes) {
+                        if (!ing.id) continue;
+                        
+                        const { data: item } = await supabase.from('Estoque').select('Quantidade, QuantidadeReservada').eq('ID', ing.id).single();
+                        if (item) {
+                            const novaQtd = Number(item.Quantidade) - Number(ing.qtdNecessaria);
+                            const novaReserva = Math.max(0, Number(item.QuantidadeReservada || 0) - Number(ing.qtdNecessaria)); // Libera reserva
+                            
+                            await supabase.from('Estoque').update({ Quantidade: novaQtd, QuantidadeReservada: novaReserva }).eq('ID', ing.id);
+                            
+                            // Registrar Movimentação
+                            await supabase.from('MovimentacoesEstoque').insert({
+                                ProdutoID: ing.id, Tipo: 'Saida', Quantidade: Number(ing.qtdNecessaria),
+                                Responsavel: 'Sistema (Produção)', Observacoes: `Consumo Automático OP #${id}`, Data: new Date()
+                            });
+                        }
+                    }
+                }
+            }
+            result = { success: true };
+
         } else if (action === 'savePurchaseOrder') {
             const { Solicitante, ValorTotal, Status, Itens } = data;
 
-            // 1. Criar o Pedido
+            // 1. Criar Pedido
             const { data: pedido, error: errPedido } = await supabase.from('PedidosCompra').insert({
                 Solicitante, ValorTotal, Status
             }).select().single();
@@ -379,20 +480,19 @@ exports.handler = async (event) => {
             if (errPedido) throw new Error('Erro ao criar pedido: ' + errPedido.message);
 
             // 2. Inserir Itens
-            const itensParaInserir = Itens.map(item => ({
-                PedidoID: pedido.ID,
-                ProdutoNome: item.name,
-                Quantidade: item.qty,
-                CustoUnitario: item.price,
-                Subtotal: item.total,
-                Observacao: item.obs
-            }));
-
-            const { error: errItens } = await supabase.from('ItensPedidoCompra').insert(itensParaInserir);
-            if (errItens) throw new Error('Erro ao salvar itens do pedido: ' + errItens.message);
-
+            if (Itens && Itens.length > 0) {
+                const itensParaInserir = Itens.map(item => ({
+                    PedidoID: pedido.ID,
+                    ProdutoNome: item.name,
+                    Quantidade: item.qty,
+                    CustoUnitario: item.price,
+                    Subtotal: item.total,
+                    Observacao: item.obs
+                }));
+                const { error: errItens } = await supabase.from('ItensPedidoCompra').insert(itensParaInserir);
+                if (errItens) throw new Error('Erro ao salvar itens: ' + errItens.message);
+            }
             result = { success: true, pedidoId: pedido.ID };
-
         } else if (action === 'getPurchaseOrderDetails') {
             const { id } = data;
             const { data: itens, error } = await supabase.from('ItensPedidoCompra').select('*').eq('PedidoID', id);
@@ -407,7 +507,9 @@ exports.handler = async (event) => {
             if (month) { // Formato 'YYYY-MM'
                 start = `${month}-01`;
                 const [y, m] = month.split('-');
-                end = new Date(y, m, 0).toISOString().split('T')[0]; // Último dia do mês
+                // FIX: Calcular último dia usando getDate() para evitar problemas de fuso horário com toISOString()
+                const lastDay = new Date(y, m, 0).getDate();
+                end = `${month}-${String(lastDay).padStart(2, '0')}`;
             } else if (startDate && endDate) {
                 start = startDate;
                 end = endDate;
@@ -415,11 +517,14 @@ exports.handler = async (event) => {
                 throw new Error('Parâmetros insuficientes para getMLPainRecords. Forneça "month" ou "startDate" e "endDate".');
             }
             
+            // FIX: Garantir que o filtro pegue até o último milissegundo do dia final
+            const endDateTime = `${end} 23:59:59.999`;
+
             ({ data: result, error } = await supabase
                 .from('MLPain_Registros')
                 .select('*')
                 .gte('Data', start)
-                .lte('Data', end)
+                .lte('Data', endDateTime)
                 .order('Data', { ascending: true }));
 
         } else if (action === 'getDietStats') {
@@ -531,25 +636,34 @@ exports.handler = async (event) => {
             let despesaTotal = 0;
             const despesasPorCategoria = {};
             const fluxoDiario = {};
+            
+            // Inicializa todos os dias do período com 0
+            let currDate = new Date(start);
+            const lastDate = new Date(end);
+            while (currDate <= lastDate) {
+                const dayStr = currDate.toISOString().split('T')[0];
+                fluxoDiario[dayStr] = { receita: 0, despesa: 0, saldo: 0 };
+                currDate.setDate(currDate.getDate() + 1);
+            }
 
             financas.forEach(f => {
                 const val = Number(f.Valor || 0);
                 const dia = f.Data.split('T')[0];
 
-                if (!fluxoDiario[dia]) fluxoDiario[dia] = { receita: 0, despesa: 0, saldo: 0 };
-
-                if (f.Tipo === 'Receita') {
-                    receitaTotal += val;
-                    fluxoDiario[dia].receita += val;
-                } else {
-                    despesaTotal += val;
-                    fluxoDiario[dia].despesa += val;
-                    
-                    // Categorização
-                    const cat = f.Categoria || 'Outros';
-                    despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + val;
+                if (fluxoDiario[dia]) {
+                    if (f.Tipo === 'Receita') {
+                        receitaTotal += val;
+                        fluxoDiario[dia].receita += val;
+                    } else {
+                        despesaTotal += val;
+                        fluxoDiario[dia].despesa += val;
+                        
+                        // Categorização
+                        const cat = f.Categoria || 'Outros';
+                        despesasPorCategoria[cat] = (despesasPorCategoria[cat] || 0) + val;
+                    }
+                    fluxoDiario[dia].saldo = fluxoDiario[dia].receita - fluxoDiario[dia].despesa;
                 }
-                fluxoDiario[dia].saldo = fluxoDiario[dia].receita - fluxoDiario[dia].despesa;
             });
 
             // Processamento de Contas (KPIs de Liquidez)
@@ -562,6 +676,8 @@ exports.handler = async (event) => {
 
             result = {
                 periodo: { start, end },
+                transacoes: financas,
+                listas: { contasPagar, contasReceber },
                 resumo: {
                     receita: receitaTotal,
                     despesa: despesaTotal,
@@ -741,31 +857,13 @@ exports.handler = async (event) => {
         } else if (action === 'getDeadStock') {
             // RELATÓRIO DE ESTOQUE PARADO (SEM GIRO)
             const days = data.days || 90;
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - days);
+            
+            // OTIMIZAÇÃO: Lógica movida para o Banco de Dados (RPC)
+            const { data: deadStock, error } = await supabase.rpc('get_estoque_parado', { dias_param: days });
+            
+            if (error) throw error;
 
-            // 1. Buscar itens com saldo em estoque
-            const { data: items, error: errItems } = await supabase
-                .from('Estoque')
-                .select('ID, Nome, Quantidade, Unidade, CustoUnitario, UltimaAtualizacao')
-                .gt('Quantidade', 0);
-
-            if (errItems) throw errItems;
-
-            // 2. Buscar movimentações de SAÍDA no período
-            const { data: movs, error: errMovs } = await supabase
-                .from('MovimentacoesEstoque')
-                .select('ProdutoID')
-                .eq('Tipo', 'Saida')
-                .gte('Data', cutoffDate.toISOString());
-
-            if (errMovs) throw errMovs;
-
-            const activeProductIds = new Set(movs.map(m => m.ProdutoID));
-
-            // 3. Filtrar itens que NÃO tiveram saída
-            const deadStock = items.filter(i => !activeProductIds.has(i.ID));
-            const totalValue = deadStock.reduce((acc, i) => acc + (Number(i.Quantidade) * Number(i.CustoUnitario)), 0);
+            const totalValue = deadStock.reduce((acc, i) => acc + Number(i.ValorTotal || 0), 0);
 
             result = { items: deadStock, totalValue, count: deadStock.length, days };
 
@@ -828,12 +926,11 @@ exports.handler = async (event) => {
 
             if (error) throw error;
 
-            // Agrupar por Cliente
             const clientMap = {};
             let totalRevenue = 0;
 
             eventos.forEach(e => {
-                const name = e.Cliente.trim();
+                const name = e.Cliente ? e.Cliente.trim() : 'Desconhecido';
                 if (!name) return;
                 if (!clientMap[name]) clientMap[name] = 0;
                 const val = Number(e.Valor || 0);
@@ -841,7 +938,6 @@ exports.handler = async (event) => {
                 totalRevenue += val;
             });
 
-            // Converter para Array e Ordenar
             let clients = Object.entries(clientMap).map(([name, value]) => ({ name, value }));
             clients.sort((a, b) => b.value - a.value);
 
@@ -874,7 +970,7 @@ exports.handler = async (event) => {
             eventos.forEach(e => {
                 if (e.Data) {
                     const d = new Date(e.Data);
-                    const dayIdx = d.getUTCDay(); // 0 (Domingo) - 6 (Sábado)
+                    const dayIdx = d.getDay();
                     totals[dayIdx] += Number(e.Valor || 0);
                     counts[dayIdx]++;
                 }
@@ -931,34 +1027,10 @@ exports.handler = async (event) => {
             result = { success: true };
 
         } else if (action === 'recalculateLoyalty') {
-            // 1. Buscar todos os clientes
-            const { data: clients, error: errClients } = await supabase.from('Clientes').select('*');
-            if (errClients) throw errClients;
-
-            // 2. Buscar todos os eventos (vendas)
-            const { data: events, error: errEvents } = await supabase.from('Eventos').select('Cliente, Valor, Data').neq('Status', 'Cancelado');
-            if (errEvents) throw errEvents;
-
-            // 3. Processar Pontos (1 Ponto a cada 1000 Kz)
-            for (const client of clients) {
-                const clientEvents = events.filter(e => e.Cliente && e.Cliente.toLowerCase().trim() === client.Nome.toLowerCase().trim());
-                
-                const totalGasto = clientEvents.reduce((acc, e) => acc + Number(e.Valor || 0), 0);
-                const pontos = Math.floor(totalGasto / 1000); 
-                
-                // Encontrar última compra
-                let lastDate = null;
-                if (clientEvents.length > 0) {
-                    clientEvents.sort((a,b) => new Date(b.Data) - new Date(a.Data));
-                    lastDate = clientEvents[0].Data;
-                }
-
-                await supabase.from('Clientes').update({
-                    Pontos: pontos,
-                    TotalGasto: totalGasto,
-                    UltimaCompra: lastDate
-                }).eq('ID', client.ID);
-            }
+            // OTIMIZAÇÃO: Processamento em lote via SQL
+            const { error } = await supabase.rpc('recalcular_fidelidade');
+            if (error) throw error;
+            
             result = { success: true };
 
         } else if (action === 'getTasks') {
@@ -968,74 +1040,105 @@ exports.handler = async (event) => {
         } else if (action === 'sendChatMessage') {
             ({ data: result, error } = await supabase.from('ChatMessages').insert(data));
         } else if (action === 'getDashboardStats') {
+            const { filterDate } = data || {}; // Formato: 'YYYY-MM' ou 'all'
+
             // Agregação de dados para o Dashboard Principal
             const today = new Date().toISOString().split('T')[0];
-            const startOfMonth = new Date().toISOString().slice(0, 7) + '-01';
+            
+            // Definição do Período de Análise
+            let startOfPeriod, endOfPeriod;
+            
+            if (filterDate && filterDate === 'all') {
+                startOfPeriod = '2000-01-01'; // Início dos tempos
+                endOfPeriod = '2099-12-31';
+            } else if (filterDate) {
+                startOfPeriod = filterDate + '-01';
+                const [y, m] = filterDate.split('-');
+                endOfPeriod = new Date(y, m, 0).toISOString().split('T')[0]; // Último dia do mês selecionado
+            } else {
+                // Padrão: Mês Atual
+                startOfPeriod = new Date().toISOString().slice(0, 7) + '-01';
+                endOfPeriod = today;
+            }
+
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
             const strSevenDaysAgo = sevenDaysAgo.toISOString().split('T')[0];
             
             // Otimização: Buscar apenas finanças dos últimos 12 meses para não pesar o sistema
+            // Se o filtro for 'all' ou um mês antigo, precisamos garantir que a busca pegue esses dados
             const d = new Date();
             d.setMonth(d.getMonth() - 11);
             d.setDate(1);
-            const startOfFinanceData = d.toISOString().split('T')[0];
+            let startOfFinanceData = d.toISOString().split('T')[0];
+            
+            if (startOfPeriod < startOfFinanceData) {
+                startOfFinanceData = startOfPeriod; // Estende a busca se o filtro for antigo
+            }
 
             // Consultas Paralelas
-            const [
-                resClientes,
-                resPratosData,
-                resFuncionarios,
-                resFornecedores,
-                resFinancas,
-                resAniversariantes,
-                resFerias,
-                resEstoque,
-                resEventos,
-                resRefeicoes,
-                resRefeicoesMes,
-                resOrdensAbertas
-            ] = await Promise.all([
+            // Usa Promise.allSettled para que uma falha não derrube todo o dashboard
+            const queries = [
                 supabase.from('Usuarios').select('*', { count: 'exact', head: true }), // Simulando Clientes com Usuarios por enquanto ou criar tabela Clientes
                 supabase.from('FichasTecnicas').select('Categoria', { count: 'exact' }),
                 supabase.from('Funcionarios').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
                 supabase.from('Fornecedores').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
                 supabase.from('Financas').select('*').gte('Data', startOfFinanceData),
-                supabase.from('Funcionarios').select('Nome, Nascimento, Admissao'), // Para filtrar aniversariantes e jubileu
+                supabase.from('Funcionarios').select('Nome, Nascimento, Admissao, ValidadeBI, Departamento').eq('Status', 'Ativo'), // Adicionado Departamento
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
                 supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
                 supabase.rpc('get_refeicoes_grafico', { data_inicio: strSevenDaysAgo }),
-                supabase.rpc('get_total_refeicoes_mes', { data_inicio: startOfMonth }),
+                supabase.rpc('get_total_refeicoes_mes', { data_inicio: startOfPeriod }), // Usa o filtro
                 supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída'),
                 supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5)
-            ]);
+            ];
 
-            // Extração segura de dados (evita crash se houver erro no banco)
-            const totalClientes = resClientes.count || 0;
-            const totalProdutos = resPratosData.count || 0;
-            const totalFuncionarios = resFuncionarios.count || 0;
-            const totalFornecedores = resFornecedores.count || 0;
-            const totalRefeicoes = resRefeicoesMes.data || 0;
-            const financas = resFinancas.data || [];
-            const aniversariantes = resAniversariantes.data || [];
-            const ferias = resFerias.data || [];
-            const estoqueBaixo = resEstoque.data || [];
-            const pratos = resPratosData.data || [];
-            const eventosProximos = resEventos.data || [];
-            const refeicoesData = resRefeicoes.data || [];
-            const ordensPendentes = resOrdensAbertas.data || [];
-            const avisos = resOrdensAbertas.data ? (await resOrdensAbertas) : []; // Correção: O Promise.all retorna array, o índice 12 é o novo
-            const quadroAvisos = (await supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5)).data || [];
+            const results = await Promise.allSettled(queries);
+
+            // Helper para extrair dados com segurança (Ignora erros e retorna padrão)
+            const getVal = (idx, defaultVal = []) => {
+                const res = results[idx];
+                if (res.status === 'fulfilled' && !res.value.error) return res.value.data || defaultVal;
+                return defaultVal;
+            };
+            
+            const getCount = (idx) => {
+                const res = results[idx];
+                return (res.status === 'fulfilled' && !res.value.error) ? (res.value.count || 0) : 0;
+            };
+
+            const totalClientes = getCount(0);
+            const totalProdutos = getCount(1);
+            const totalFuncionarios = getCount(2);
+            const totalFornecedores = getCount(3);
+            const financas = getVal(4);
+            const aniversariantes = getVal(5);
+            const ferias = getVal(6);
+            const estoqueBaixo = getVal(7);
+            const eventosProximos = getVal(8);
+            const refeicoesData = getVal(9);
+            // RPC retorna valor escalar em 'data', não array
+            const totalRefeicoes = (results[10].status === 'fulfilled' && !results[10].value.error) ? (results[10].value.data || 0) : 0;
+            const ordensPendentes = getVal(11);
+            const quadroAvisos = getVal(12);
+            const pratos = getVal(1); // CORREÇÃO: Definindo a variável pratos que estava faltando
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
             let receitaBruta = 0, impostos = 0, cmv = 0, despOp = 0;
+            const despesasMap = {};
 
             financas.forEach(f => {
                 const val = Number(f.Valor);
-                const isMonth = f.Data >= startOfMonth;
-                const isToday = f.Data === today;
+                // Correção: Compara apenas a data (YYYY-MM-DD) ignorando hora
+                let dataTransacao = '';
+                try { 
+                    if(f.Data) dataTransacao = new Date(f.Data).toISOString().split('T')[0]; 
+                } catch(e) {}
+                
+                const isMonth = dataTransacao >= startOfPeriod && dataTransacao <= endOfPeriod;
+                const isToday = dataTransacao === today;
 
                 if (f.Tipo === 'Receita') {
                     if (isMonth) { receitaMensal += val; receitaBruta += val; }
@@ -1043,6 +1146,11 @@ exports.handler = async (event) => {
                 } else if (f.Tipo === 'Despesa') {
                     if (isMonth) { despesaMensal += val; }
                     if (isToday && f.Status === 'Pendente') aPagarHoje += val;
+                    
+                    if (isMonth) {
+                        const cat = f.Categoria || 'Outros';
+                        despesasMap[cat] = (despesasMap[cat] || 0) + val;
+                    }
                     
                     // Categorização simplificada para DRE
                     if (f.Categoria === 'Impostos') impostos += val;
@@ -1067,7 +1175,22 @@ exports.handler = async (event) => {
                 return (d.getMonth() + 1) === month && (d.getDate()) === day && d.getFullYear() < new Date().getFullYear();
             }).map(f => ({ ...f, Anos: new Date().getFullYear() - new Date(f.Admissao).getFullYear() }));
 
+            const validadeBI = aniversariantes.filter(f => {
+                if(!f.ValidadeBI) return false;
+                const val = new Date(f.ValidadeBI);
+                const now = new Date();
+                const diff = Math.ceil((val - now) / (1000 * 60 * 60 * 24));
+                return diff <= 30; // Vencendo em 30 dias ou vencido
+            }).map(f => ({ ...f, Dias: Math.ceil((new Date(f.ValidadeBI) - new Date()) / (1000 * 60 * 60 * 24)) }));
+
             const estoqueCritico = estoqueBaixo.filter(e => e.Quantidade <= e.Minimo);
+
+            // Dados para Gráfico de Departamentos (RH)
+            const deptMap = {};
+            aniversariantes.forEach(f => { // 'aniversariantes' contém a lista completa de ativos buscada acima
+                const dept = f.Departamento || 'Sem Departamento';
+                deptMap[dept] = (deptMap[dept] || 0) + 1;
+            });
 
             // Dados para Gráficos
             // 1. Tendência Financeira (Últimos 6 meses)
@@ -1082,14 +1205,30 @@ exports.handler = async (event) => {
                 else finMap[key].d += Number(f.Valor);
             });
 
-            // 1.1 Fluxo de Caixa Diário (Mês Atual)
+            // 1.1 Fluxo de Caixa Diário (Mês Selecionado ou Atual)
             const dailyFlow = {};
-            const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-            for(let i=1; i<=daysInMonth; i++) dailyFlow[i] = { r: 0, d: 0 };
+            let targetYear, targetMonth, daysInTargetMonth;
+
+            if (filterDate && filterDate !== 'all') {
+                const [y, m] = filterDate.split('-').map(Number);
+                targetYear = y;
+                targetMonth = m - 1;
+                daysInTargetMonth = new Date(y, m, 0).getDate();
+            } else {
+                const now = new Date();
+                targetYear = now.getFullYear();
+                targetMonth = now.getMonth();
+                daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+            }
+
+            // Inicializa todos os dias com 0
+            for(let i=1; i<=daysInTargetMonth; i++) dailyFlow[i] = { r: 0, d: 0 };
 
             financas.forEach(f => {
-                if (f.Data >= startOfMonth && f.Data <= today) {
-                    const d = new Date(f.Data).getDate();
+                if (!f.Data) return;
+                const [y, m, d] = f.Data.split('T')[0].split('-').map(Number);
+                
+                if (y === targetYear && (m - 1) === targetMonth) {
                     if(dailyFlow[d]) {
                         if(f.Tipo === 'Receita') dailyFlow[d].r += Number(f.Valor);
                         else dailyFlow[d].d += Number(f.Valor);
@@ -1097,11 +1236,28 @@ exports.handler = async (event) => {
                 }
             });
             
-            const sortedKeys = Object.keys(finMap).sort().slice(-6);
-            const chartFin = {
-                labels: sortedKeys.map(k => months[parseInt(k.split('-')[1]) - 1]),
-                receitas: sortedKeys.map(k => finMap[k].r),
-                despesas: sortedKeys.map(k => finMap[k].d)
+            // Decisão do Gráfico Principal: Diário (se mês selecionado) ou Mensal (se Geral)
+            let chartFin;
+            if (filterDate && filterDate !== 'all') {
+                chartFin = {
+                    labels: Object.keys(dailyFlow),
+                    receitas: Object.values(dailyFlow).map(v => v.r),
+                    despesas: Object.values(dailyFlow).map(v => v.d)
+                };
+            } else {
+                const sortedKeys = Object.keys(finMap).sort().slice(-6);
+                chartFin = {
+                    labels: sortedKeys.map(k => months[parseInt(k.split('-')[1]) - 1]),
+                    receitas: sortedKeys.map(k => finMap[k].r),
+                    despesas: sortedKeys.map(k => finMap[k].d)
+                };
+            }
+
+            // 1.2 Lucratividade Anual (Últimos 12 meses)
+            const sortedKeys12 = Object.keys(finMap).sort().slice(-12);
+            const chartLucratividade = {
+                labels: sortedKeys12.map(k => months[parseInt(k.split('-')[1]) - 1]),
+                data: sortedKeys12.map(k => finMap[k].r - finMap[k].d)
             };
 
             // 2. Pratos por Categoria
@@ -1139,6 +1295,7 @@ exports.handler = async (event) => {
                 monitoramento: {
                     aniversariantes: aniversariantesDia,
                     jubileu: jubileuDia,
+                    validadeBI: validadeBI,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
                     estoqueBaixo: estoqueCritico,
                     eventos: eventosProximos,
@@ -1147,6 +1304,7 @@ exports.handler = async (event) => {
                 },
                 charts: {
                     financeiro: chartFin,
+                    lucratividade: chartLucratividade,
                     fluxoDiario: {
                         labels: Object.keys(dailyFlow),
                         receitas: Object.values(dailyFlow).map(v => v.r),
@@ -1156,9 +1314,17 @@ exports.handler = async (event) => {
                         labels: Object.keys(catMap),
                         data: Object.values(catMap)
                     },
+                    despesas: {
+                        labels: Object.keys(despesasMap),
+                        data: Object.values(despesasMap)
+                    },
                     refeicoes: {
                         labels: Object.keys(refMap).map(d => d.split('-').slice(1).reverse().join('/')), // DD/MM
                         data: Object.values(refMap)
+                    },
+                    departamentos: {
+                        labels: Object.keys(deptMap),
+                        data: Object.values(deptMap)
                     }
                 }
             };
@@ -1168,11 +1334,103 @@ exports.handler = async (event) => {
                 .select('*')
                 .order('CriadoEm', { ascending: false })
                 .limit(10));
+        } else if (action === 'checkBirthdayEmails') {
+            // --- ROTINA DE E-MAILS DE ANIVERSÁRIO ---
+            const today = new Date();
+            const month = today.getMonth() + 1;
+            const day = today.getDate();
+            const year = today.getFullYear();
+
+            // 1. Buscar aniversariantes do dia
+            const { data: employees } = await supabase.from('Funcionarios').select('ID, Nome, Email, Nascimento').eq('Status', 'Ativo');
+            
+            const birthdays = employees.filter(e => {
+                if(!e.Nascimento) return false;
+                const d = new Date(e.Nascimento);
+                return (d.getMonth() + 1) === month && (d.getDate()) === day;
+            });
+
+            let sentCount = 0;
+
+            for (const emp of birthdays) {
+                if (!emp.Email) continue; // Pula se não tiver e-mail
+
+                // 2. Verificar se já enviou este ano (Evita duplicidade)
+                const { data: logs } = await supabase.from('EmailLogs').select('*').eq('DestinatarioID', emp.ID).eq('Tipo', 'Aniversario').eq('Ano', year);
+                if (logs && logs.length > 0) continue;
+
+                // 3. Enviar E-mail (Simulação - Aqui entraria o Nodemailer/SendGrid)
+                console.log(`📧 [EMAIL AUTOMÁTICO] Enviando parabéns para: ${emp.Nome} (${emp.Email})`);
+                // TODO: Integrar API de e-mail real aqui.
+                
+                // 4. Registrar envio
+                await supabase.from('EmailLogs').insert({
+                    DestinatarioID: emp.ID, Tipo: 'Aniversario', Ano: year
+                });
+                sentCount++;
+            }
+            result = { sent: sentCount };
         } else if (action === 'markNotificationRead') {
              ({ data: result, error } = await supabase
                 .from('Notificacoes')
                 .update({ Lida: true })
                 .eq('ID', data.id));
+
+        } else if (action === 'saveFinancialGoal') {
+            const { Mes, ReceitaEsperada, DespesaMaxima } = data;
+            const { error } = await supabase
+                .from('MetasFinanceiras')
+                .upsert({ Mes, ReceitaEsperada, DespesaMaxima }, { onConflict: 'Mes' });
+            
+            if (error) throw error;
+            result = { success: true };
+
+        } else if (action === 'getSystemBackups') {
+            // Lista todos os backups disponíveis
+            const { data: backups, error } = await supabase.rpc('get_system_backups');
+            if (error) throw error;
+            result = backups;
+
+        } else if (action === 'cleanOldBackups') {
+            // Limpa backups antigos manualmente (mantém últimos 30 dias por padrão)
+            const { error } = await supabase.rpc('limpar_backups_antigos', { dias_retencao: 30 });
+            if (error) throw error;
+            result = { success: true };
+
+        } else if (action === 'getBackupData') {
+            // Busca dados de um backup para exportação
+            // Nota: Limitado a 5000 linhas para não estourar memória no browser/lambda
+            const { data: rows, error } = await supabase.from(data.tableName).select('*').limit(5000);
+            if (error) throw error;
+            result = rows;
+
+        } else if (action === 'getAuditLogs') {
+            // Busca logs de auditoria com filtros
+            const { startDate, endDate, module, user } = data || {};
+            
+            let query = supabase
+                .from('LogsAuditoria')
+                .select('*')
+                .order('DataHora', { ascending: false })
+                .limit(200); // Limite de segurança
+
+            if (startDate) query = query.gte('DataHora', startDate);
+            if (endDate) query = query.lte('DataHora', endDate + ' 23:59:59');
+            if (module) query = query.eq('Modulo', module);
+            if (user) query = query.ilike('UsuarioNome', `%${user}%`);
+
+            ({ data: result, error } = await query);
+
+        } else if (action === 'restoreSystemBackup') {
+            // Restaura um backup específico
+            const { table, backupTable } = data;
+            const { error } = await supabase.rpc('admin_restaurar_backup', {
+                tabela_destino: table,
+                tabela_backup: backupTable
+            });
+            if (error) throw error;
+            result = { success: true };
+
         } else if (action === 'delete') {
             ({ data: result, error } = await supabase.from(table).delete().eq('ID', id));
             
@@ -1186,6 +1444,69 @@ exports.handler = async (event) => {
                     Descricao: `Registro ID ${id} excluído da tabela ${table}`
                 });
             }
+
+        } else if (action === 'getDailyProductionLists') {
+            // Busca as 4 listas de um dia específico
+            const { date } = data;
+            const { data: lists, error } = await supabase.from('ListasProducaoDia').select('*').eq('Data', date);
+            if (error) throw error;
+            result = lists;
+
+        } else if (action === 'saveDailyProductionList') {
+            // Salva ou Atualiza uma lista (Rascunho)
+            const { Data, Categoria, ItensJSON } = data;
+            const { data: saved, error } = await supabase
+                .from('ListasProducaoDia')
+                .upsert({ Data, Categoria, ItensJSON, Status: 'Rascunho' }, { onConflict: 'Data,Categoria' })
+                .select();
+            if (error) throw error;
+            result = saved;
+
+        } else if (action === 'finalizeDailyProductionList') {
+            // Envia para produção e dá baixa no estoque
+            const { id } = data;
+            
+            // 1. Buscar a lista
+            const { data: list, error: errList } = await supabase.from('ListasProducaoDia').select('*').eq('ID', id).single();
+            if (errList || !list) throw new Error('Lista não encontrada.');
+            if (list.Status === 'Enviado') throw new Error('Esta lista já foi enviada para produção.');
+
+            const itens = list.ItensJSON || [];
+            
+            // 1.1 VALIDAÇÃO DE ESTOQUE (Antes de baixar qualquer coisa)
+            for (const item of itens) {
+                if (!item.id) continue;
+                const { data: stockItem } = await supabase.from('Estoque').select('Quantidade, Nome, Unidade').eq('ID', item.id).single();
+                
+                if (!stockItem) throw new Error(`Produto não encontrado no estoque: ${item.nome}`);
+                
+                if (Number(stockItem.Quantidade) < Number(item.qtd)) {
+                    throw new Error(`Estoque insuficiente para "${stockItem.Nome}". Disponível: ${stockItem.Quantidade} ${stockItem.Unidade}. Solicitado: ${item.qtd}`);
+                }
+            }
+
+            // 2. Processar Baixa de Estoque
+            for (const item of itens) {
+                if (!item.id) continue;
+                
+                const qtdBaixa = Number(item.qtd);
+                
+                // Chama a procedure de baixa ou atualiza direto (aqui atualizando direto para manter padrão do arquivo)
+                // Nota: Em produção ideal, usar RPC para atomicidade. Aqui segue o padrão do registerStockMovement.
+                const { data: stockItem } = await supabase.from('Estoque').select('Quantidade').eq('ID', item.id).single();
+                
+                if (stockItem) {
+                    const novaQtd = Number(stockItem.Quantidade) - qtdBaixa;
+                    await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', item.id);
+                    await supabase.from('MovimentacoesEstoque').insert({ ProdutoID: item.id, Tipo: 'Saida', Quantidade: qtdBaixa, Responsavel: userSession ? userSession.nome : 'Sistema', Observacoes: `Envio Produção: ${list.Categoria}`, Data: new Date() });
+                }
+            }
+
+            // 3. Atualizar Status
+            const { error: errUpdate } = await supabase.from('ListasProducaoDia').update({ Status: 'Enviado' }).eq('ID', id);
+            if (errUpdate) throw errUpdate;
+            result = { success: true };
+
         } else {
             return { statusCode: 400, body: JSON.stringify({ success: false, message: 'Ação inválida' }) };
         }
@@ -1201,6 +1522,7 @@ exports.handler = async (event) => {
         console.error('Erro na Function:', err);
         return {
             statusCode: 500,
+            headers, // Garante que o erro chegue ao frontend sem bloqueio de CORS
             body: JSON.stringify({ success: false, message: err.message || 'Erro interno' })
         };
     }

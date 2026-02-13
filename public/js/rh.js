@@ -1,7 +1,7 @@
 const RHModule = {
     state: {
-        cache: { funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
-        filterTerm: '',
+        cache: { allFuncionarios: [], funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
+ filterTerm: '',
         filterVencidas: false,
         filterFrequenciaStart: '',
         filterFrequenciaEnd: '',
@@ -29,6 +29,7 @@ const RHModule = {
             ]);
             
             RHModule.state.cache = {
+                allFuncionarios: funcs || [],
                 funcionarios: funcs || [],
                 ferias: ferias || [],
                 parametros: params || [],
@@ -53,26 +54,34 @@ const RHModule = {
     },
 
     renderLayout: () => {
-        // Menu de Abas
+        // Menu de Abas - Estilo Enterprise Minimalista (Underline)
         document.getElementById('rh-content').innerHTML = `
-            <div class="flex gap-2 mb-6 border-b pb-2 overflow-x-auto">
-                <button id="tab-funcionarios" onclick="RHModule.renderFuncionarios()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">👥 Funcionários</button>
-                <button id="tab-frequencia" onclick="RHModule.renderFrequencia()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">⏱️ Frequência</button>
-                <button id="tab-ferias" onclick="RHModule.renderFerias()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">🏖️ Férias</button>
-                <button id="tab-avaliacoes" onclick="RHModule.renderAvaliacoes()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">⭐ Avaliação</button>
-                <button id="tab-treinamento" onclick="RHModule.renderTreinamento()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">🎓 Treinamento</button>
-                <button id="tab-folha" onclick="RHModule.renderFolha()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">💰 Folha</button>
-                <button id="tab-licencas" onclick="RHModule.renderLicencas()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">🏥 Licenças</button>
-                <button id="tab-relatorios" onclick="RHModule.renderRelatorios()" class="tab-btn px-4 py-2 rounded transition whitespace-nowrap">📊 Relatórios</button>
+            <div class="border-b border-gray-200 mb-8">
+                <nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+                    <button id="tab-funcionarios" onclick="RHModule.renderFuncionarios()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Equipe</button>
+                    <button id="tab-frequencia" onclick="RHModule.renderFrequencia()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Frequência</button>
+                    <button id="tab-ferias" onclick="RHModule.renderFerias()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Férias</button>
+                    <button id="tab-avaliacoes" onclick="RHModule.renderAvaliacoes()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Avaliação</button>
+                    <button id="tab-treinamento" onclick="RHModule.renderTreinamento()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Treinamento</button>
+                    <button id="tab-folha" onclick="RHModule.renderFolha()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Folha</button>
+                    <button id="tab-licencas" onclick="RHModule.renderLicencas()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Licenças</button>
+                    <button id="tab-relatorios" onclick="RHModule.renderRelatorios()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Relatórios</button>
+                </nav>
             </div>
             <div id="tab-content"></div>
         `;
     },
 
     highlightTab: (id) => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.className = 'tab-btn px-4 py-2 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition');
+        document.querySelectorAll('.tab-btn').forEach(b => {
+            b.classList.remove('border-orange-500', 'text-orange-600');
+            b.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+        });
         const btn = document.getElementById(id);
-        if(btn) btn.className = 'tab-btn px-4 py-2 bg-blue-100 text-blue-700 rounded font-bold hover:bg-blue-200 transition';
+        if(btn) {
+            btn.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+            btn.classList.add('border-orange-500', 'text-orange-600');
+        }
     },
 
     // --- 1. ABA FUNCIONÁRIOS ---
@@ -88,15 +97,8 @@ const RHModule = {
         const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
 
-        // Filtro de Busca
-        if (RHModule.state.filterTerm) {
-            const term = RHModule.state.filterTerm.toLowerCase();
-            filteredData = filteredData.filter(f => 
-                (f.Nome && f.Nome.toLowerCase().includes(term)) || 
-                (f.BI && f.BI.toLowerCase().includes(term)) ||
-                (f.Departamento && f.Departamento.toLowerCase().includes(term))
-            );
-        }
+        // Filtro de Busca (Agora realizado no Backend via updateFilter)
+        // A variável filteredData já contém os resultados da busca vindos do cache
 
         // Filtro de Férias Vencidas
         if (RHModule.state.filterVencidas) {
@@ -106,13 +108,13 @@ const RHModule = {
                 const adm = new Date(f.Admissao);
                 const diffTime = Math.abs(hoje - adm);
                 const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25);
-                const direito = Math.floor(diffYears) * 30;
+                const direito = Math.floor(diffYears) * 22; // Base: 22 dias úteis
                 
                 const taken = ferias
                     .filter(r => r.FuncionarioID === f.ID && r.Status === 'Aprovado')
                     .reduce((acc, r) => acc + (Number(r.Dias) || 0), 0);
                 
-                return (direito - taken) > 30;
+                return (direito - taken) > 22;
             });
         }
 
@@ -124,36 +126,35 @@ const RHModule = {
         const endIndex = startIndex + rowsPerPage;
         const paginatedData = filteredData.slice(startIndex, endIndex);
 
-        document.getElementById('tab-content').innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold">Equipe (${filteredData.length})</h3>
-                <div class="flex gap-2">
-                    <input type="text" placeholder="🔍 Buscar por nome, BI ou depto..." class="border p-2 rounded text-sm w-64" value="${RHModule.state.filterTerm}" oninput="RHModule.updateFilter(this.value)">
-                    <label class="flex items-center gap-2 text-sm cursor-pointer bg-white px-3 border rounded hover:bg-gray-50">
-                        <input type="checkbox" ${RHModule.state.filterVencidas ? 'checked' : ''} onchange="RHModule.toggleVencidas(this.checked)">
-                        <span class="text-red-600 font-bold">Férias Vencidas</span>
-                    </label>
-                    <button onclick="RHModule.printTabPDF('funcionarios')" class="bg-red-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Exportar lista para PDF"><i class="fas fa-file-pdf"></i> Exportar PDF</button>
-                    <button onclick="RHModule.printEscalaGeral()" class="bg-purple-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Imprimir Escala de Trabalho"><i class="fas fa-calendar-week"></i> Escala</button>
-                    <button onclick="RHModule.shareEscalaGeral()" class="bg-green-500 text-white px-4 py-2 rounded text-sm flex items-center gap-2" title="Enviar Escala por WhatsApp"><i class="fab fa-whatsapp"></i> WhatsApp</button>
-                    ${canCreate ? `<button onclick="RHModule.modalFuncionario()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Novo</button>` : ''}
-                </div>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full bg-white rounded shadow text-sm" data-total-rows="${totalRows}">
-                    <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Salário</th><th>Telefone</th><th>Saldo Férias</th><th>Admissão</th><th>Ações</th></tr></thead>
-                    <tbody>
+        // Gera o HTML da tabela separadamente
+        const tableHTML = `
+            <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden" id="rh-table-container">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse" data-total-rows="${totalRows}">
+                        <thead class="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Colaborador</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Cargo / Depto</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Salário Base</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Contato</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status Férias</th>
+                                <th scope="col" class="px-6 py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 bg-white">
                         ${paginatedData.map(f => {
                             // Cálculo de Saldo de Férias
                             let saldo = '-';
-                            let saldoClass = 'text-gray-500';
+                            let badgeClass = 'bg-gray-100 text-gray-600';
+                            let statusText = 'Regular';
                             
                             if (f.Admissao) {
                                 const adm = new Date(f.Admissao);
                                 const hoje = new Date();
                                 const diffTime = Math.abs(hoje - adm);
                                 const diffYears = diffTime / (1000 * 60 * 60 * 24 * 365.25); 
-                                const direito = Math.floor(diffYears) * 30; // 30 dias por ano completo
+                                const direito = Math.floor(diffYears) * 22; // Base: 22 dias úteis
                                 
                                 const taken = ferias
                                     .filter(r => r.FuncionarioID === f.ID && r.Status === 'Aprovado')
@@ -163,53 +164,161 @@ const RHModule = {
                                 
                                 // Se houver saldo manual cadastrado, usa ele. Senão, usa o calculado.
                                 if (f.SaldoFerias !== null && f.SaldoFerias !== undefined && f.SaldoFerias !== '') {
-                                    saldo = f.SaldoFerias + ' dias (Manual)';
+                                    saldo = f.SaldoFerias;
                                 } else {
-                                    saldo = valSaldo + ' dias';
+                                    saldo = valSaldo;
                                 }
                                 
-                                if (valSaldo > 30) saldoClass = 'text-red-600 font-bold'; // Vencidas
-                                else if (valSaldo > 0) saldoClass = 'text-green-600 font-bold';
+                                if (valSaldo > 22) {
+                                    badgeClass = 'bg-red-100 text-red-700';
+                                    statusText = 'Vencidas';
+                                } else if (valSaldo > 0) {
+                                    badgeClass = 'bg-green-100 text-green-700';
+                                    statusText = 'Disponível';
+                                }
                             }
 
                             return `
-                            <tr class="border-t hover:bg-gray-50">
-                                <td class="p-3 font-mono text-xs">${f.ID}</td>
-                                <td class="p-3 font-bold">${f.Nome}</td>
-                                <td class="p-3">${f.Cargo}</td>
-                                <td class="p-3">${f.Departamento || '-'}</td>
-                                <td class="p-3 text-green-600 font-bold">${Utils.formatCurrency(f.Salario)}</td>
-                                <td class="p-3">${f.Telefone || '-'}</td>
-                                <td class="p-3 ${saldoClass}">${saldo}</td>
-                                <td class="p-3">${Utils.formatDate(f.Admissao)}</td>
-                                <td class="p-3">
-                                    <button onclick="RHModule.printFuncionarioProfile('${f.ID}')" class="text-gray-600 mr-2" title="Imprimir Ficha de Perfil"><i class="fas fa-id-card"></i></button>
-                                    <button onclick="RHModule.modalEscala('${f.ID}')" class="text-purple-600 mr-2" title="Configurar Escala"><i class="fas fa-calendar-alt"></i></button>
-                                    ${canEdit ? `<button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
-                                    ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
+                            <tr class="group hover:bg-gray-50 transition-colors duration-150">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="font-mono text-xs text-gray-400">...${f.ID.slice(-4)}</span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div class="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold overflow-hidden border border-gray-300">
+                                            ${f.FotoURL ? `<img src="${f.FotoURL}" class="h-full w-full object-cover">` : f.Nome.charAt(0)}
+ 
+                                        </div>
+                                        <div class="ml-4">
+                                            <div class="text-sm font-medium text-gray-900">${f.Nome}</div>
+                                            <div class="text-xs text-gray-500">Admissão: ${Utils.formatDate(f.Admissao)}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">${f.Cargo}</div>
+                                    <div class="text-xs text-gray-500">${f.Departamento || 'Geral'}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-700">
+                                    ${Utils.formatCurrency(f.Salario)}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <div>${f.Telefone || '-'}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2.5 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeClass}">
+                                        ${saldo} dias (${statusText})
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <div class="flex justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                                        <button onclick="RHModule.printFuncionarioProfile('${f.ID}')" class="text-gray-400 hover:text-gray-600 transition-colors" title="Perfil">
+                                            <i class="fas fa-id-card"></i>
+                                        </button>
+                                        <button onclick="RHModule.modalEscala('${f.ID}')" class="text-gray-400 hover:text-purple-600 transition-colors" title="Escala">
+                                            <i class="fas fa-calendar-alt"></i>
+                                        </button>
+                                        ${canEdit ? `<button onclick="RHModule.modalFuncionario('${f.ID}')" class="text-gray-400 hover:text-blue-600 transition-colors" title="Editar">
+                                            <i class="fas fa-pen"></i>
+                                        </button>` : ''}
+                                        ${canDelete ? `<button onclick="RHModule.delete('Funcionarios', '${f.ID}')" class="text-gray-400 hover:text-red-600 transition-colors" title="Excluir">
+                                            <i class="fas fa-trash"></i>
+                                        </button>` : ''}
+                                    </div>
                                 </td>
                             </tr>
                         `}).join('')}
                     </tbody>
                 </table>
-            </div>
-            <!-- Controles de Paginação -->
-            <div class="flex justify-between items-center mt-4 text-sm text-gray-600">
-                <span>Mostrando ${Math.min(startIndex + 1, totalRows)} a ${Math.min(endIndex, totalRows)} de ${totalRows}</span>
-                <div class="flex gap-1">
-                    <button onclick="RHModule.changePage(1)" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Primeira</button>
-                    <button onclick="RHModule.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
-                    <span class="px-3 py-1 font-bold">Página ${currentPage} de ${totalPages}</span>
-                    <button onclick="RHModule.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Próxima</button>
-                    <button onclick="RHModule.changePage(${totalPages})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 border rounded bg-white disabled:opacity-50 disabled:cursor-not-allowed">Última</button>
+                </div>
+                
+                <!-- Footer da Tabela / Paginação -->
+                <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+                    <span class="text-sm text-gray-500">
+                        Mostrando <span class="font-medium">${Math.min(startIndex + 1, totalRows)}</span> a <span class="font-medium">${Math.min(endIndex, totalRows)}</span> de <span class="font-medium">${totalRows}</span> resultados
+                    </span>
+                    <div class="flex gap-1">
+                        <button onclick="RHModule.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="px-3 py-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Anterior
+                        </button>
+                        <button onclick="RHModule.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="px-3 py-1 border border-gray-300 rounded-md bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                            Próxima
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
+
+        // Verifica se a tabela já existe para atualizar apenas ela (preservando o foco do input)
+        const existingTable = document.getElementById('rh-table-container');
+        if (existingTable) {
+            existingTable.outerHTML = tableHTML;
+        } else {
+            // Se não existe, renderiza tudo (Header + Tabela)
+            document.getElementById('tab-content').innerHTML = `
+            <!-- Header da Seção -->
+            <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                <div>
+                    <h3 class="text-2xl font-bold text-gray-900 tracking-tight">Gestão de Equipe</h3>
+                    <p class="text-sm text-gray-500 mt-1">Gerencie colaboradores, cargos e departamentos.</p>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- Busca Moderna -->
+                    <div class="relative group">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="fas fa-search text-gray-400 group-focus-within:text-orange-500 transition-colors"></i>
+                        </div>
+                        <input type="text" 
+                            class="bg-gray-50 border border-gray-200 text-gray-700 text-sm rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent block w-64 pl-10 p-2.5 transition-all" 
+                            placeholder="Buscar colaborador..." 
+                            value="${RHModule.state.filterTerm}" 
+                            oninput="RHModule.updateFilter(this.value)">
+                    </div>
+
+                    <!-- Filtro Toggle -->
+                    <label class="flex items-center gap-2 text-sm cursor-pointer bg-white px-3 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors select-none">
+                        <input type="checkbox" class="rounded text-orange-600 focus:ring-orange-500 border-gray-300" ${RHModule.state.filterVencidas ? 'checked' : ''} onchange="RHModule.toggleVencidas(this.checked)">
+                        <span class="text-gray-600 font-medium">Férias Vencidas</span>
+                    </label>
+
+                    <!-- Botões Secundários -->
+                    <div class="flex items-center border-l border-gray-300 pl-3 gap-2">
+                        <button onclick="RHModule.printTabPDF('funcionarios')" class="text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:text-gray-800 font-medium rounded-lg text-sm px-4 py-2.5 text-center inline-flex items-center transition-all">
+                            <i class="fas fa-file-export mr-2"></i> Exportar
+                        </button>
+                        <button onclick="RHModule.printEscalaGeral()" class="text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 hover:text-gray-800 font-medium rounded-lg text-sm px-4 py-2.5 text-center inline-flex items-center transition-all">
+                            <i class="fas fa-calendar-alt mr-2"></i> Escala
+                        </button>
+                    </div>
+
+                    <!-- Botão Primário -->
+                    ${canCreate ? `<button onclick="RHModule.modalFuncionario()" class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center inline-flex items-center shadow-md transition-all transform hover:-translate-y-0.5">
+                        <i class="fas fa-plus mr-2"></i> Novo Colaborador
+                    </button>` : ''}
+                </div>
+            </div>
+            ${tableHTML}
+            `;
+        }
     },
 
     updateFilter: (term) => {
         RHModule.state.filterTerm = term;
         RHModule.state.pagination.currentPage = 1; // Reseta para a primeira página ao filtrar
+        
+        // Filtro Local (Instantâneo)
+        const lower = term.toLowerCase();
+        if (!lower) {
+            RHModule.state.cache.funcionarios = [...RHModule.state.cache.allFuncionarios];
+        } else {
+            RHModule.state.cache.funcionarios = RHModule.state.cache.allFuncionarios.filter(f => 
+                (f.Nome && f.Nome.toLowerCase().includes(lower)) ||
+                (f.Cargo && f.Cargo.toLowerCase().includes(lower)) ||
+                (f.Departamento && f.Departamento.toLowerCase().includes(lower)) ||
+                (f.Email && f.Email.toLowerCase().includes(lower))
+            );
+        }
         RHModule.renderFuncionarios();
     },
 
@@ -227,6 +336,27 @@ const RHModule = {
 
         RHModule.state.pagination.currentPage = page;
         RHModule.renderFuncionarios();
+    },
+
+    // --- MÁSCARAS DE INPUT ---
+    maskPhone: (el) => {
+        let v = el.value.replace(/\D/g, ""); // Remove tudo que não é dígito
+        if (v.startsWith("244")) v = v.substring(3); // Remove prefixo se já existir para evitar duplicação
+        if (v.length > 9) v = v.substring(0, 9); // Limita a 9 dígitos locais
+        
+        // Formata: 9XX XXX XXX
+        if (v.length > 6) v = v.replace(/^(\d{3})(\d{3})(\d{0,3})/, "$1 $2 $3");
+        else if (v.length > 3) v = v.replace(/^(\d{3})(\d{0,3})/, "$1 $2");
+        
+        el.value = "+244 " + v;
+    },
+
+    maskCurrency: (el) => {
+        let v = el.value.replace(/\D/g, "");
+        v = (Number(v) / 100).toFixed(2) + ""; // Divide por 100 para centavos
+        v = v.replace(".", ",");
+        v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1."); // Milhares
+        el.value = "Kz " + v;
     },
 
     modalFuncionario: (id = null) => {
@@ -265,49 +395,232 @@ const RHModule = {
             <form onsubmit="RHModule.save(event, 'Funcionarios')">
                 <input type="hidden" name="ID" value="${f.ID || ''}" id="func-id">
                 
-                <h4 class="font-bold text-gray-700 mb-2 border-b">1️⃣ Informações Pessoais</h4>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <input name="Nome" value="${f.Nome || ''}" placeholder="Nome Completo" class="border p-2 rounded w-full col-span-2" required>
-                    <div><label class="text-xs">Nascimento</label><input type="date" name="Nascimento" value="${f.Nascimento || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs">BI / Identidade</label><input name="BI" value="${f.BI || ''}" placeholder="000123LA012" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs">Telefone</label><input name="Telefone" value="${f.Telefone || '+244 '}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs">E-mail</label><input type="email" name="Email" value="${f.Email || ''}" placeholder="email@exemplo.com" class="border p-2 rounded w-full"></div>
+                <!-- WIZARD STEPPER -->
+                <div class="flex items-center justify-between mb-8 px-4">
+                    <div class="flex flex-col items-center cursor-pointer" onclick="RHModule.setWizardStep(1)">
+                        <div id="step-indicator-1" class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-orange-600 text-white transition-colors">1</div>
+                        <span class="text-xs mt-1 font-medium text-gray-700">Pessoal</span>
+                    </div>
+                    <div class="flex-1 h-1 bg-gray-200 mx-2 rounded"><div id="progress-1" class="h-full bg-orange-600 rounded w-full transition-all duration-500"></div></div>
+                    
+                    <div class="flex flex-col items-center cursor-pointer" onclick="RHModule.setWizardStep(2)">
+                        <div id="step-indicator-2" class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-500 transition-colors">2</div>
+                        <span class="text-xs mt-1 font-medium text-gray-500">Contrato</span>
+                    </div>
+                    <div class="flex-1 h-1 bg-gray-200 mx-2 rounded"><div id="progress-2" class="h-full bg-orange-600 rounded w-0 transition-all duration-500"></div></div>
+                    
+                    <div class="flex flex-col items-center cursor-pointer" onclick="RHModule.setWizardStep(3)">
+                        <div id="step-indicator-3" class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold bg-gray-200 text-gray-500 transition-colors">3</div>
+                        <span class="text-xs mt-1 font-medium text-gray-500">Financeiro</span>
+                    </div>
                 </div>
 
-                <h4 class="font-bold text-gray-700 mb-2 border-b mt-4">2️⃣ Área de Trabalho</h4>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <select name="Cargo" class="border p-2 rounded w-full" onchange="(${updateDept})(this)" required>
-                        <option value="">Selecione o Cargo...</option>
-                        ${optionsCargos}
-                    </select>
-                    <input id="input-dept" name="Departamento" value="${f.Departamento || ''}" placeholder="Departamento (Auto)" class="border p-2 rounded w-full bg-gray-100" readonly>
-                    <select name="Turno" class="border p-2 rounded w-full">
-                        <option ${f.Turno==='Diarista'?'selected':''}>Diarista</option>
-                        <option ${f.Turno==='Regime de Turno'?'selected':''}>Regime de Turno</option>
-                    </select>
-                    <input name="Salario" type="number" value="${f.Salario || ''}" placeholder="Salário Base (Kz)" class="border p-2 rounded w-full" required>
+                <!-- STEP 1: DADOS PESSOAIS -->
+                <div id="step-content-1" class="wizard-step space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Nome Completo</label>
+                        <input name="Nome" value="${f.Nome || ''}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" required>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
+                            <input type="date" name="Nascimento" value="${f.Nascimento || ''}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">BI / Identidade</label>
+                            <input name="BI" value="${f.BI || ''}" placeholder="000123LA012" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                            </div>
+                            <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Validade BI</label>
+                            <input type="date" name="ValidadeBI" value="${f.ValidadeBI || ''}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                            <input name="Telefone" value="${f.Telefone || '+244 '}" oninput="RHModule.maskPhone(this)" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" placeholder="+244 9XX XXX XXX">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                            <input type="email" name="Email" value="${f.Email || ''}" placeholder="nome@exemplo.com" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Foto do Perfil</label>
+                        <div class="flex gap-2 items-center">
+                            <input type="file" id="foto-file" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100">
+                            <span class="text-xs text-gray-400">OU</span>
+                            <input name="FotoURL" value="${f.FotoURL || ''}" placeholder="Cole uma URL..." class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-1/3 p-2.5">
+                        </div>
+                    </div>
                 </div>
 
-                <h4 class="font-bold text-gray-700 mb-2 border-b mt-4">3️⃣ Informações Administrativas</h4>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <select name="TipoContrato" class="border p-2 rounded w-full">
-                        ${tiposContrato.length 
-                            ? tiposContrato.map(t => `<option ${f.TipoContrato===t.Valor?'selected':''}>${t.Valor}</option>`).join('')
-                            : '<option>CLT</option><option>Temporário</option><option>Estagiário</option>'}
-                    </select>
-                    <div><label class="text-xs">Admissão</label><input type="date" name="Admissao" value="${f.Admissao || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold text-blue-600">Saldo Férias (Manual)</label><input type="number" name="SaldoFerias" value="${f.SaldoFerias || ''}" placeholder="Opcional" class="border p-2 rounded w-full"></div>
-                    <input name="Iban" value="${f.Iban || 'AO06 '}" placeholder="IBAN (AO06...)" class="border p-2 rounded w-full col-span-2">
-                    <select name="Status" class="border p-2 rounded w-full col-span-2">
-                        <option ${f.Status==='Ativo'?'selected':''}>Ativo</option>
-                        <option ${f.Status==='Afastado'?'selected':''}>Afastado</option>
-                        <option ${f.Status==='Demitido'?'selected':''}>Demitido</option>
-                    </select>
+                <!-- STEP 2: CONTRATO & CARGO -->
+                <div id="step-content-2" class="wizard-step hidden space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Cargo</label>
+                            <select name="Cargo" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" onchange="(${updateDept})(this)" required>
+                                <option value="">Selecione...</option>
+                                ${optionsCargos}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Departamento</label>
+                            <input id="input-dept" name="Departamento" value="${f.Departamento || ''}" class="bg-gray-100 border border-gray-300 text-gray-500 text-sm rounded-lg block w-full p-2.5 cursor-not-allowed" readonly>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Salário Base (Kz)</label>
+                            <input name="Salario" type="text" value="${f.Salario ? Utils.formatCurrency(f.Salario) : ''}" oninput="RHModule.maskCurrency(this)" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5" required placeholder="Kz 0,00">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Data de Admissão</label>
+                            <input type="date" name="Admissao" value="${f.Admissao || ''}" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Contrato</label>
+                            <select name="TipoContrato" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                                ${tiposContrato.length 
+                                    ? tiposContrato.map(t => `<option ${f.TipoContrato===t.Valor?'selected':''}>${t.Valor}</option>`).join('')
+                                    : '<option>CLT</option><option>Temporário</option><option>Estagiário</option>'}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Regime de Turno</label>
+                            <select name="Turno" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                                <option ${f.Turno==='Diarista'?'selected':''}>Diarista</option>
+                                <option ${f.Turno==='Regime de Turno'?'selected':''}>Regime de Turno</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
-                <button class="w-full bg-blue-600 text-white py-2 rounded">Salvar</button>
+                <!-- STEP 3: FINANCEIRO & STATUS -->
+                <div id="step-content-3" class="wizard-step hidden space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">IBAN</label>
+                        <input name="Iban" value="${f.Iban || 'AO06 '}" placeholder="AO06..." class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                            <select name="Status" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                                <option ${f.Status==='Ativo'?'selected':''}>Ativo</option>
+                                <option ${f.Status==='Afastado'?'selected':''}>Afastado</option>
+                                <option ${f.Status==='Demitido'?'selected':''}>Demitido</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Saldo Férias (Manual)</label>
+                            <input type="number" name="SaldoFerias" value="${f.SaldoFerias || ''}" placeholder="Auto" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FOOTER NAVIGATION -->
+                <div class="flex justify-between mt-8 pt-4 border-t border-gray-100">
+                    <button type="button" id="btn-prev" onclick="RHModule.setWizardStep(currentStep - 1)" class="hidden px-5 py-2.5 text-sm font-medium text-gray-900 bg-white rounded-lg border border-gray-200 hover:bg-gray-100 hover:text-blue-700 focus:z-10 focus:ring-2 focus:ring-blue-700 focus:text-blue-700">
+                        <i class="fas fa-arrow-left mr-2"></i> Anterior
+                    </button>
+                    <div class="flex-1"></div> <!-- Spacer -->
+                    <button type="button" id="btn-next" onclick="RHModule.setWizardStep(currentStep + 1)" class="text-white bg-orange-600 hover:bg-orange-700 focus:ring-4 focus:ring-orange-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
+                        Próximo <i class="fas fa-arrow-right ml-2"></i>
+                    </button>
+                    <button type="submit" id="btn-save" class="hidden text-white bg-green-600 hover:bg-green-700 focus:ring-4 focus:ring-green-300 font-medium rounded-lg text-sm px-5 py-2.5 text-center">
+                        <i class="fas fa-check mr-2"></i> Salvar Colaborador
+                    </button>
+                </div>
             </form>
+            <script>
+                var currentStep = 1;
+            </script>
         `);
+    },
+
+    setWizardStep: (step) => {
+        if (step < 1 || step > 3) return;
+        
+        // --- VALIDAÇÃO ANTES DE AVANÇAR ---
+        let currentVisible = 1;
+        for(let i=1; i<=3; i++) {
+            const el = document.getElementById(`step-content-${i}`);
+            if (el && !el.classList.contains('hidden')) {
+                currentVisible = i;
+                break;
+            }
+        }
+
+        // Se estiver avançando (step > currentVisible), valida os campos do passo atual
+        if (step > currentVisible) {
+            const container = document.getElementById(`step-content-${currentVisible}`);
+            if (container) {
+                const requireds = container.querySelectorAll('[required]');
+                let invalid = false;
+                requireds.forEach(el => {
+                    if (!el.value || el.value.trim() === '') {
+                        invalid = true;
+                        el.classList.add('border-red-500', 'ring-1', 'ring-red-500');
+                        el.addEventListener('input', function() {
+                            this.classList.remove('border-red-500', 'ring-1', 'ring-red-500');
+                        }, {once: true});
+                    }
+                });
+                if (invalid) return Utils.toast('⚠️ Preencha os campos obrigatórios para continuar.', 'warning');
+            }
+        }
+
+        // Atualiza variável global do script injetado
+        // Nota: Como o script roda no escopo global após injeção, precisamos acessar a variável ou passar o estado.
+        // Uma abordagem melhor é controlar o estado visualmente aqui.
+        const form = document.querySelector('#modal-body form');
+        if(!form) return;
+        
+        // Esconde todos os passos
+        document.querySelectorAll('.wizard-step').forEach(el => el.classList.add('hidden'));
+        // Mostra o passo atual
+        document.getElementById(`step-content-${step}`).classList.remove('hidden');
+        
+        // Atualiza Stepper (Bolinhas e Barras)
+        for(let i=1; i<=3; i++) {
+            const indicator = document.getElementById(`step-indicator-${i}`);
+            const progress = document.getElementById(`progress-${i-1}`); // Barra anterior
+            
+            if (i <= step) {
+                indicator.classList.remove('bg-gray-200', 'text-gray-500');
+                indicator.classList.add('bg-orange-600', 'text-white');
+                if(progress) progress.classList.replace('w-0', 'w-full');
+            } else {
+                indicator.classList.remove('bg-orange-600', 'text-white');
+                indicator.classList.add('bg-gray-200', 'text-gray-500');
+                if(progress) progress.classList.replace('w-full', 'w-0');
+            }
+        }
+
+        // Atualiza Botões
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
+        const btnSave = document.getElementById('btn-save');
+
+        if (step === 1) btnPrev.classList.add('hidden');
+        else btnPrev.classList.remove('hidden');
+
+        if (step === 3) {
+            btnNext.classList.add('hidden');
+            btnSave.classList.remove('hidden');
+        } else {
+            btnNext.classList.remove('hidden');
+            btnSave.classList.add('hidden');
+        }
+        
+        // Atualiza variável de controle para os botões inline onclick
+        // Hack: Atualiza a variável global criada dentro do modal
+        try { window.currentStep = step; } catch(e){}
     },
 
     modalEscala: async (id) => {
@@ -401,54 +714,6 @@ const RHModule = {
         }
     },
 
-    // --- FUNÇÃO DE IMPRESSÃO NATIVA (SUBSTITUI HTML2PDF) ---
-    printNative: (htmlContent) => {
-        let iframe = document.getElementById('print-iframe');
-        if (!iframe) {
-            iframe = document.createElement('iframe');
-            iframe.id = 'print-iframe';
-            iframe.style.position = 'fixed';
-            iframe.style.right = '0';
-            iframe.style.bottom = '0';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
-            iframe.style.border = '0';
-            document.body.appendChild(iframe);
-        }
-        
-        const doc = iframe.contentWindow.document;
-        doc.open();
-        doc.write(`
-            <html>
-            <head>
-                <title>Imprimir Relatório</title>
-                <script src="https://cdn.tailwindcss.com"></script>
-                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-                <style>
-                    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: sans-serif; }
-                    @page { margin: 10mm; size: auto; }
-                    table { width: 100%; border-collapse: collapse; }
-                    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-                    th { background-color: #f3f4f6; }
-                </style>
-            </head>
-            <body>
-                ${htmlContent}
-                <script>
-                    // Aguarda o carregamento de estilos e imagens antes de imprimir
-                    window.onload = () => {
-                        setTimeout(() => {
-                            window.print();
-                        }, 1000);
-                    };
-                </script>
-            </body>
-            </html>
-        `);
-        doc.close();
-    },
-
     printEscalaGeral: async () => {
         // Carrega escalas sob demanda se ainda não carregou
         if (!RHModule.state.cache.escala) {
@@ -509,7 +774,7 @@ const RHModule = {
 
         html += `</tbody></table><div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
         
-        RHModule.printNative(html);
+        Utils.printNative(html);
     },
 
     shareEscalaGeral: async () => {
@@ -682,7 +947,7 @@ const RHModule = {
             `;
         }
 
-        RHModule.printNative(html);
+        Utils.printNative(html);
     },
 
     // --- 2. ABA FREQUÊNCIA ---
@@ -739,41 +1004,50 @@ const RHModule = {
                 </div>
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Data</th><th>Entrada</th><th>Saída</th><th>Total Horas</th><th>Status</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100">
+                    <tr>
+                        <th class="p-3 text-left">Data</th>
+                        <th class="p-3 text-left">Funcionário</th>
+                        <th class="p-3 text-center">Entrada</th>
+                        <th class="p-3 text-center">Saída</th>
+                        <th class="p-3 text-center">Status</th>
+                        <th class="p-3 text-left">Observação</th>
+                        <th class="p-3 text-center">Ações</th>
+                    </tr>
+                </thead>
                 <tbody>
                     ${data.map(r => {
                         // Busca funcionário para saber o turno
                         const func = RHModule.state.cache.funcionarios.find(f => f.ID === r.FuncionarioID);
-                        const is24h = func && func.Turno === 'Regime de Turno';
-                        const refHours = is24h ? 24 : 8;
-
-                        const total = calcHours(r.Entrada, r.Saida, is24h);
-                        const diff = total - refHours;
                         
-                        let statusClass = 'text-gray-500';
-                        let statusText = 'Normal';
-
-                        if (total === 0) {
-                            statusClass = 'text-red-600 font-bold';
-                            statusText = '1 Falta';
-                        } else if (diff < 0) {
-                            statusClass = 'text-orange-500 font-bold';
-                            statusText = `Meia Falta (${diff.toFixed(1)}h)`;
-                        } else if (diff > 0) {
-                            statusClass = 'text-green-500 font-bold';
-                            statusText = `Extra: +${diff.toFixed(1)}h`;
+                        // Lógica de Status (Prioridade: Manual > Calculado)
+                        let status = r.Status || 'Presente';
+                        let statusClass = 'bg-green-100 text-green-800';
+                        
+                        // Cores baseadas no status
+                        if (status.includes('Falta') || status === 'Suspensão') statusClass = 'bg-red-100 text-red-800';
+                        else if (status === 'Atraso' || status === 'Saída Antecipada') statusClass = 'bg-yellow-100 text-yellow-800';
+                        else if (status === 'Licença' || status === 'Férias') statusClass = 'bg-blue-100 text-blue-800';
+                        
+                        // Se não tiver status manual mas não tiver horários, sugere Falta (visual apenas)
+                        if (!r.Status && !r.Entrada && !r.Saida) {
+                             status = 'Falta (Sem registro)';
+                             statusClass = 'bg-red-50 text-red-500 border border-red-200';
                         }
                         
                         return `
                         <tr class="border-t">
-                            <td class="p-3">${r.ID}</td>
-                            <td class="p-3">${r.FuncionarioNome}</td>
-                            <td class="p-3 text-center">${Utils.formatDate(r.Data)}</td>
-                            <td class="p-3 text-center">${r.Entrada}</td>
-                            <td class="p-3 text-center">${r.Saida}</td>
-                            <td class="p-3 text-center font-bold">${total.toFixed(2)}h</td>
-                            <td class="p-3 text-center font-bold ${statusClass}">${statusText}</td>
+                            <td class="p-3">${Utils.formatDate(r.Data)}</td>
+                            <td class="p-3 font-medium">
+                                ${r.FuncionarioNome}
+                                <div class="text-xs text-gray-500">${func ? func.Turno : ''}</div>
+                            </td>
+                            <td class="p-3 text-center">${r.Entrada || '—'}</td>
+                            <td class="p-3 text-center">${r.Saida || '—'}</td>
+                            <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs font-bold ${statusClass}">${status}</span></td>
+                            <td class="p-3 text-sm text-gray-600">${r.Observacoes || '—'}</td>
                             <td class="p-3 text-center">
+                                <button onclick="RHModule.printIndividualFrequency('${r.FuncionarioID}')" class="text-gray-600 hover:text-gray-900 mr-2" title="Imprimir Folha Mensal"><i class="fas fa-print"></i></button>
                                 ${canEdit ? `<button onclick="RHModule.modalFrequencia('${r.ID}')" class="text-blue-500 mr-2"><i class="fas fa-edit"></i></button>` : ''}
                                 ${canDelete ? `<button onclick="RHModule.delete('Frequencia', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}
                             </td>
@@ -806,12 +1080,25 @@ const RHModule = {
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="text-xs">Entrada</label>
-                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full"><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
                     </div>
                     <div>
                         <label class="text-xs">Saída</label>
-                        <div class="flex gap-1"><input type="time" name="Saida" value="${record.Saida || ''}" class="border p-2 rounded w-full" required><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <div class="flex gap-1"><input type="time" name="Saida" value="${record.Saida || ''}" class="border p-2 rounded w-full"><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
                     </div>
+                </div>
+                <div class="mb-4">
+                    <label class="text-xs font-bold">Status do Dia</label>
+                    <select name="Status" class="border p-2 rounded w-full bg-gray-50">
+                        <option value="Presente" ${record.Status === 'Presente' ? 'selected' : ''}>Presente</option>
+                        <option value="Atraso" ${record.Status === 'Atraso' ? 'selected' : ''}>Atraso</option>
+                        <option value="Saída Antecipada" ${record.Status === 'Saída Antecipada' ? 'selected' : ''}>Saída Antecipada</option>
+                        <option value="Falta" ${record.Status === 'Falta' ? 'selected' : ''}>Falta</option>
+                        <option value="Falta Justificada" ${record.Status === 'Falta Justificada' ? 'selected' : ''}>Falta Justificada</option>
+                        <option value="Licença" ${record.Status === 'Licença' ? 'selected' : ''}>Licença</option>
+                        <option value="Férias" ${record.Status === 'Férias' ? 'selected' : ''}>Férias</option>
+                        <option value="Suspensão" ${record.Status === 'Suspensão' ? 'selected' : ''}>Suspensão</option>
+                    </select>
                 </div>
                 <div class="mb-4">
                     <input name="Assinatura" value="${record.Assinatura || ''}" placeholder="Assinatura Digital (Texto)" class="border p-2 rounded w-full bg-gray-50">
@@ -992,7 +1279,7 @@ const RHModule = {
             new Date(f.DataInicio).getFullYear() === anoAtual
         );
         const diasGozados = feriasAno.reduce((acc, cur) => acc + Number(cur.Dias), 0);
-        const saldoRestante = 30 - diasGozados; // Assumindo direito a 30 dias/ano
+        const saldoRestante = 22 - diasGozados; // Base: 22 dias úteis
 
         const html = `
             <div class="border-2 border-gray-800 p-8 max-w-3xl mx-auto font-serif text-gray-900">
@@ -1054,7 +1341,7 @@ const RHModule = {
             </div>
         `;
 
-        RHModule.printNative(html);
+        Utils.printNative(html);
     },
 
     shareGuiaFerias: (id) => {
@@ -1133,6 +1420,7 @@ const RHModule = {
 
         const data = RHModule.state.cache.avaliacoes || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
+        const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
             <div class="flex justify-end gap-2 mb-4">
@@ -1149,7 +1437,12 @@ const RHModule = {
                             <td class="p-3 text-center">${Utils.formatDate(r.DataAvaliacao)}</td>
                             <td class="p-3 text-center font-bold">${r.MediaFinal}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded bg-gray-100 text-xs">${r.Conclusao || '-'}</span></td>
-                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Avaliacoes', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
+                            <td class="p-3 text-center flex justify-center gap-2">
+                                <button onclick="RHModule.printAvaliacaoIndividual('${r.ID}')" class="text-gray-600 hover:text-gray-900" title="Imprimir"><i class="fas fa-print"></i></button>
+                                <button onclick="RHModule.shareAvaliacao('${r.ID}')" class="text-blue-600 hover:text-blue-800" title="Compartilhar"><i class="fas fa-share-alt"></i></button>
+                                ${canEdit ? `<button onclick="RHModule.modalAvaliacao('${r.ID}')" class="text-blue-600 hover:text-blue-800" title="Editar"><i class="fas fa-edit"></i></button>` : ''}
+                                ${canDelete ? `<button onclick="RHModule.delete('Avaliacoes', '${r.ID}')" class="text-red-500 hover:text-red-700" title="Excluir"><i class="fas fa-trash"></i></button>` : ''}
+                            </td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -1157,8 +1450,11 @@ const RHModule = {
         `;
     },
 
-    modalAvaliacao: () => {
+    modalAvaliacao: (id = null) => {
         const funcs = RHModule.state.cache.funcionarios;
+        const av = id ? RHModule.state.cache.avaliacoes.find(a => a.ID === id) : {};
+        const details = av.DetalhesJSON || {};
+        const title = id ? 'Editar Avaliação' : 'Avaliação de Desempenho';
         
         // Script para preencher dados
         const fillData = (select) => {
@@ -1185,56 +1481,190 @@ const RHModule = {
             document.getElementById('conclusao').value = conc;
         };
 
-        Utils.openModal('Avaliação de Desempenho', `
+        // Helper para pegar valor (do nível superior ou detalhes)
+        const getVal = (key) => av[key] !== undefined ? av[key] : (details[key] || '');
+
+        // Preencher cargo/dept se editando
+        let initialCargo = '', initialDept = '';
+        if (av.FuncionarioID) {
+            const f = funcs.find(x => x.ID === av.FuncionarioID);
+            if(f) { initialCargo = f.Cargo; initialDept = f.Departamento; }
+        }
+
+        Utils.openModal(title, `
             <form onsubmit="RHModule.save(event, 'Avaliacoes')">
+                <input type="hidden" name="ID" value="${av.ID || ''}">
                 <h4 class="font-bold text-gray-700 mb-2 border-b">1 AVALIAÇÃO DE DESEMPENHO</h4>
                 <div class="mb-3">
                     <label class="block text-xs font-bold">NOME DO FUNCIONARIO</label>
                     <select name="FuncionarioID" class="border p-2 rounded w-full mb-2" onchange="(${fillData})(this)" required>
                         <option value="">Selecione...</option>
-                        ${funcs.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
+                        ${funcs.map(f => `<option value="${f.ID}" ${av.FuncionarioID === f.ID ? 'selected' : ''}>${f.Nome}</option>`).join('')}
                     </select>
                     <input type="hidden" name="FuncionarioNome">
                     <div class="grid grid-cols-2 gap-2 text-xs mb-2">
-                        <input id="av-cargo" placeholder="CARGO/FUNÇÃO" class="border p-2 bg-gray-100 rounded" readonly>
-                        <input id="av-dept" placeholder="DEPARTAMENTO/SETOR" class="border p-2 bg-gray-100 rounded" readonly>
+                        <input id="av-cargo" placeholder="CARGO/FUNÇÃO" class="border p-2 bg-gray-100 rounded" readonly value="${initialCargo}">
+                        <input id="av-dept" placeholder="DEPARTAMENTO/SETOR" class="border p-2 bg-gray-100 rounded" readonly value="${initialDept}">
                     </div>
                     <div class="grid grid-cols-2 gap-2">
-                        <div><label class="text-xs font-bold">DATA DE AVALIAÇÃO</label><input type="date" name="DataAvaliacao" class="border p-2 rounded w-full" required></div>
-                        <div><label class="text-xs font-bold">NOME DO AVALIADOR</label><input name="Avaliador" class="border p-2 rounded w-full"></div>
+                        <div><label class="text-xs font-bold">DATA DE AVALIAÇÃO</label><input type="date" name="DataAvaliacao" class="border p-2 rounded w-full" required value="${av.DataAvaliacao || ''}"></div>
+                        <div><label class="text-xs font-bold">NOME DO AVALIADOR</label><input name="Avaliador" class="border p-2 rounded w-full" value="${av.Avaliador || ''}"></div>
                     </div>
                 </div>
                 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">2 CRITERIOS DE AVALIAÇÃO (ESCALA 1-10)</h4>
                 <div class="grid grid-cols-3 gap-2 mb-3 text-sm" oninput="(${calcMedia})()">
-                    <input type="number" name="N1" placeholder="PONTUALIDADE" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N2" placeholder="ASSIDUIDADE" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N3" placeholder="CUMPRIMENTO DE TAREFAS" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N4" placeholder="PRODUTIVIDADE" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N5" placeholder="QUALIDADE DO TRABALHO" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N6" placeholder="TRABALHO EM EQUIPE" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N7" placeholder="RESPONSABILIDADE" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N8" placeholder="COMPROMETIMENTO" min="0" max="10" class="nota-input border p-2 rounded">
-                    <input type="number" name="N9" placeholder="COMUNICAÇÃO" min="0" max="10" class="nota-input border p-2 rounded">
+                    <input type="number" name="N1" placeholder="PONTUALIDADE" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N1')}">
+                    <input type="number" name="N2" placeholder="ASSIDUIDADE" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N2')}">
+                    <input type="number" name="N3" placeholder="CUMPRIMENTO DE TAREFAS" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N3')}">
+                    <input type="number" name="N4" placeholder="PRODUTIVIDADE" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N4')}">
+                    <input type="number" name="N5" placeholder="QUALIDADE DO TRABALHO" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N5')}">
+                    <input type="number" name="N6" placeholder="TRABALHO EM EQUIPE" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N6')}">
+                    <input type="number" name="N7" placeholder="RESPONSABILIDADE" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N7')}">
+                    <input type="number" name="N8" placeholder="COMPROMETIMENTO" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N8')}">
+                    <input type="number" name="N9" placeholder="COMUNICAÇÃO" min="0" max="10" class="nota-input border p-2 rounded" value="${getVal('N9')}">
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">3 AVALIAÇÃO QUALITATIVA</h4>
                 <div class="grid grid-cols-2 gap-2 mb-3">
-                    <textarea name="PontosFortes" placeholder="PONTOS FORTES" class="border p-2 rounded h-16 text-xs"></textarea>
-                    <textarea name="PontosMelhorar" placeholder="PONTOS A MELHORAR" class="border p-2 rounded h-16 text-xs"></textarea>
+                    <textarea name="PontosFortes" placeholder="PONTOS FORTES" class="border p-2 rounded h-16 text-xs">${getVal('PontosFortes')}</textarea>
+                    <textarea name="PontosMelhorar" placeholder="PONTOS A MELHORAR" class="border p-2 rounded h-16 text-xs">${getVal('PontosMelhorar')}</textarea>
                 </div>
                 <div class="mb-3">
-                    <textarea name="Comentarios" placeholder="COMENTARIOS DO AVALIADOR" class="border p-2 rounded w-full h-16 text-xs"></textarea>
+                    <textarea name="Comentarios" placeholder="COMENTARIOS DO AVALIADOR" class="border p-2 rounded w-full h-16 text-xs">${getVal('Comentarios')}</textarea>
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">4 RESULTADO</h4>
                 <div class="flex gap-2 mb-4">
-                    <input id="media-final" name="MediaFinal" placeholder="NOTA FINAL/MÉDIA GERAL" class="border p-2 rounded w-1/2 font-bold text-center bg-gray-100" readonly>
-                    <input id="conclusao" name="Conclusao" placeholder="CONCLUSÃO" class="border p-2 rounded w-1/2 font-bold bg-gray-100" readonly>
+                    <input id="media-final" name="MediaFinal" placeholder="NOTA FINAL/MÉDIA GERAL" class="border p-2 rounded w-1/2 font-bold text-center bg-gray-100" readonly value="${av.MediaFinal || ''}">
+                    <input id="conclusao" name="Conclusao" placeholder="CONCLUSÃO" class="border p-2 rounded w-1/2 font-bold bg-gray-100" readonly value="${av.Conclusao || ''}">
                 </div>
 
                 <button class="w-full bg-blue-600 text-white py-2 rounded">Calcular & Salvar</button>
             </form>
+        `);
+    },
+
+    printAvaliacaoIndividual: (id) => {
+        const av = RHModule.state.cache.avaliacoes.find(a => a.ID === id);
+        if (!av) return Utils.toast('Avaliação não encontrada.', 'error');
+        
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === av.FuncionarioID) || {};
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+        const details = av.DetalhesJSON || {};
+        const getVal = (key) => av[key] !== undefined ? av[key] : (details[key] || '-');
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white max-w-4xl mx-auto border border-gray-200">
+                <!-- CABEÇALHO -->
+                <div class="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
+                    <div class="flex items-center gap-4">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-20 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold text-gray-800 uppercase">Avaliação de Desempenho</h2>
+                        <p class="text-sm text-gray-500">Data: ${Utils.formatDate(av.DataAvaliacao)}</p>
+                    </div>
+                </div>
+
+                <!-- DADOS -->
+                <div class="bg-gray-50 p-4 rounded border border-gray-200 mb-6">
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><span class="font-bold">Funcionário:</span> ${func.Nome || av.FuncionarioNome}</div>
+                        <div><span class="font-bold">Cargo:</span> ${func.Cargo || '-'}</div>
+                        <div><span class="font-bold">Departamento:</span> ${func.Departamento || '-'}</div>
+                        <div><span class="font-bold">Avaliador:</span> ${av.Avaliador || '-'}</div>
+                    </div>
+                </div>
+
+                <!-- NOTAS -->
+                <div class="mb-6">
+                    <h3 class="font-bold border-b border-gray-300 mb-2 uppercase text-sm">Critérios de Avaliação</h3>
+                    <table class="w-full text-sm border-collapse border border-gray-300">
+                        <tr class="bg-gray-100"><th class="border p-2 text-left">Critério</th><th class="border p-2 text-center w-20">Nota</th></tr>
+                        <tr><td class="border p-2">Pontualidade</td><td class="border p-2 text-center">${getVal('N1')}</td></tr>
+                        <tr><td class="border p-2">Assiduidade</td><td class="border p-2 text-center">${getVal('N2')}</td></tr>
+                        <tr><td class="border p-2">Cumprimento de Tarefas</td><td class="border p-2 text-center">${getVal('N3')}</td></tr>
+                        <tr><td class="border p-2">Produtividade</td><td class="border p-2 text-center">${getVal('N4')}</td></tr>
+                        <tr><td class="border p-2">Qualidade do Trabalho</td><td class="border p-2 text-center">${getVal('N5')}</td></tr>
+                        <tr><td class="border p-2">Trabalho em Equipe</td><td class="border p-2 text-center">${getVal('N6')}</td></tr>
+                        <tr><td class="border p-2">Responsabilidade</td><td class="border p-2 text-center">${getVal('N7')}</td></tr>
+                        <tr><td class="border p-2">Comprometimento</td><td class="border p-2 text-center">${getVal('N8')}</td></tr>
+                        <tr><td class="border p-2">Comunicação</td><td class="border p-2 text-center">${getVal('N9')}</td></tr>
+                        <tr class="bg-gray-100 font-bold"><td class="border p-2 text-right">MÉDIA FINAL</td><td class="border p-2 text-center text-lg">${av.MediaFinal}</td></tr>
+                    </table>
+                </div>
+
+                <!-- QUALITATIVO -->
+                <div class="grid grid-cols-2 gap-6 mb-6">
+                    <div class="border p-3 rounded">
+                        <h4 class="font-bold text-green-700 text-sm mb-2">Pontos Fortes</h4>
+                        <p class="text-sm text-gray-700">${getVal('PontosFortes') || '-'}</p>
+                    </div>
+                    <div class="border p-3 rounded">
+                        <h4 class="font-bold text-red-700 text-sm mb-2">Pontos a Melhorar</h4>
+                        <p class="text-sm text-gray-700">${getVal('PontosMelhorar') || '-'}</p>
+                    </div>
+                </div>
+                <div class="mb-6 border p-3 rounded">
+                    <h4 class="font-bold text-gray-700 text-sm mb-2">Comentários Gerais</h4>
+                    <p class="text-sm text-gray-700">${getVal('Comentarios') || '-'}</p>
+                </div>
+
+                <!-- RESULTADO -->
+                <div class="text-center mb-12">
+                    <span class="text-sm font-bold uppercase text-gray-500">Conclusão Final</span>
+                    <div class="text-2xl font-bold text-blue-800 border-2 border-blue-800 inline-block px-6 py-2 rounded mt-1">${av.Conclusao}</div>
+                </div>
+
+                <!-- ASSINATURAS -->
+                <div class="grid grid-cols-2 gap-16 text-center">
+                    <div class="border-t border-gray-400 pt-2"><p class="font-bold text-sm">Avaliador</p></div>
+                    <div class="border-t border-gray-400 pt-2"><p class="font-bold text-sm">Funcionário (Ciente)</p></div>
+                </div>
+                
+                <div class="mt-8 text-center text-xs text-gray-400 border-t pt-2">
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+                </div>
+            </div>
+        `;
+        Utils.printNative(html);
+    },
+
+    shareAvaliacao: (id) => {
+        const av = RHModule.state.cache.avaliacoes.find(a => a.ID === id);
+        if (!av) return Utils.toast('Avaliação não encontrada.', 'error');
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === av.FuncionarioID) || {};
+        
+        const msg = `*AVALIAÇÃO DE DESEMPENHO*\n` +
+            `Funcionário: ${func.Nome}\n` +
+            `Data: ${Utils.formatDate(av.DataAvaliacao)}\n` +
+            `Média Final: *${av.MediaFinal}*\n` +
+            `Conclusão: *${av.Conclusao}*\n\n` +
+            `Acesse o sistema para ver os detalhes completos.`;
+            
+        const encodedMsg = encodeURIComponent(msg);
+        let phone = func.Telefone || '';
+        phone = phone.replace(/\D/g, '');
+        const email = func.Email || '';
+
+        Utils.openModal('Compartilhar Avaliação', `
+            <div class="text-center space-y-4">
+                <p class="text-gray-600">Enviar resumo para <b>${func.Nome}</b>:</p>
+                <div class="grid grid-cols-1 gap-3">
+                    <a href="https://wa.me/${phone}?text=${encodedMsg}" target="_blank" class="block w-full bg-green-500 text-white py-3 rounded font-bold hover:bg-green-600 flex items-center justify-center gap-2 transition">
+                        <i class="fab fa-whatsapp text-xl"></i> WhatsApp
+                    </a>
+                    <a href="mailto:${email}?subject=Avaliação de Desempenho&body=${encodedMsg}" class="block w-full bg-blue-600 text-white py-3 rounded font-bold hover:bg-blue-700 flex items-center justify-center gap-2 transition">
+                        <i class="fas fa-envelope text-xl"></i> E-mail
+                    </a>
+                </div>
+            </div>
         `);
     },
 
@@ -1328,6 +1758,7 @@ const RHModule = {
 
         const data = RHModule.state.cache.folha || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
+        const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         
         document.getElementById('tab-content').innerHTML = `
@@ -1347,7 +1778,11 @@ const RHModule = {
                             <td class="p-3 text-right text-red-500">${Utils.formatCurrency(r.TotalDescontos)}</td>
                             <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(r.SalarioLiquido)}</td>
                             <td class="p-3 text-xs">${r.Banco || '-'} <br> ${r.Iban || '-'}</td>
-                            <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Folha', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
+                            <td class="p-3 text-center flex justify-center gap-2">
+                                <button onclick="RHModule.printPayslip('${r.ID}')" class="text-gray-600 hover:text-gray-900" title="Imprimir Recibo"><i class="fas fa-print"></i></button>
+                                ${canEdit ? `<button onclick="RHModule.modalFolha('${r.ID}')" class="text-blue-600 hover:text-blue-800" title="Editar"><i class="fas fa-edit"></i></button>` : ''}
+                                ${canDelete ? `<button onclick="RHModule.delete('Folha', '${r.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
+                            </td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -1355,8 +1790,10 @@ const RHModule = {
         `;
     },
 
-    modalFolha: () => {
+    modalFolha: (id = null) => {
         const funcs = RHModule.state.cache.funcionarios;
+        const folha = id ? RHModule.state.cache.folha.find(f => f.ID === id) : {};
+        const title = id ? 'Editar Folha' : 'Lançamento de Folha';
         
         // Preencher dados e Salário Base
         const fillData = (select) => {
@@ -1366,12 +1803,18 @@ const RHModule = {
                 document.getElementById('folha-cargo').value = f.Cargo;
                 document.getElementById('folha-base').value = f.Salario;
                 document.getElementById('folha-iban').value = f.Iban || 'AO06';
+                
+                // Sugestão de valor por dia (Salário / 30)
+                const valDia = f.Salario ? (f.Salario / 30).toFixed(2) : '';
+                const inputValFalta = document.getElementById('val-falta');
+                if(inputValFalta) inputValFalta.value = valDia;
+
                 calcFolha();
             }
         };
 
         // Cálculo em tempo real
-        const calcFolha = () => {
+        const calcFolha = (event) => {
             const base = Number(document.getElementById('folha-base').value || 0);
             
             // Vencimentos
@@ -1381,10 +1824,21 @@ const RHModule = {
             const outrosV = Number(document.querySelector('[name="OutrosVencimentos"]').value || 0);
             const totalV = base + (heVal * heQtd) + bonus + outrosV;
 
+            // Cálculo de Faltas (Novo)
+            const qtdFaltas = Number(document.getElementById('qtd-faltas').value || 0);
+            const valFalta = Number(document.getElementById('val-falta').value || 0);
+            const inputFaltas = document.getElementById('total-faltas');
+            
+            // Atualiza total se estiver editando os componentes
+            // FIX: Usa event.target para garantir que o cálculo só ocorre ao mexer nestes campos
+            if (inputFaltas && event && event.target && (event.target.id === 'qtd-faltas' || event.target.id === 'val-falta')) {
+                 inputFaltas.value = (qtdFaltas * valFalta);
+            }
+
             // Descontos
             const inss = Number(document.querySelector('[name="INSS"]').value || 0);
             const irt = Number(document.querySelector('[name="IRT"]').value || 0);
-            const faltas = Number(document.querySelector('[name="Faltas"]').value || 0);
+            const faltas = inputFaltas ? Number(inputFaltas.value || 0) : 0;
             const outrosD = Number(document.querySelector('[name="OutrosDescontos"]').value || 0);
             const totalD = inss + irt + faltas + outrosD;
 
@@ -1393,52 +1847,193 @@ const RHModule = {
             document.getElementById('liquido').value = totalV - totalD;
         };
 
-        Utils.openModal('Lançamento de Folha', `
-            <form onsubmit="RHModule.save(event, 'Folha')" oninput="(${calcFolha})()">
+        // Obter cargo para exibição inicial se estiver editando
+        let initialCargo = '';
+        if (id && folha.FuncionarioID) {
+            const f = funcs.find(x => x.ID === folha.FuncionarioID);
+            if (f) initialCargo = f.Cargo;
+        }
+
+        Utils.openModal(title, `
+            <form onsubmit="RHModule.save(event, 'Folha')" oninput="(${calcFolha})(event)">
+                <input type="hidden" name="ID" value="${folha.ID || ''}">
                 <h4 class="font-bold text-gray-700 mb-2 border-b">1. Identificação</h4>
                 <div class="grid grid-cols-2 gap-3 mb-3">
                     <select name="FuncionarioID" class="border p-2 rounded w-full col-span-2" onchange="(${fillData})(this)" required>
                         <option value="">Selecione...</option>
-                        ${funcs.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
+                        ${funcs.map(f => `<option value="${f.ID}" ${folha.FuncionarioID === f.ID ? 'selected' : ''}>${f.Nome}</option>`).join('')}
                     </select>
-                    <input type="hidden" name="FuncionarioNome">
-                    <input id="folha-cargo" placeholder="Cargo" class="border p-2 bg-gray-100" readonly>
-                    <input type="month" name="Periodo" class="border p-2 rounded w-full" required>
+                    <input type="hidden" name="FuncionarioNome" value="${folha.FuncionarioNome || ''}">
+                    <input id="folha-cargo" placeholder="Cargo" class="border p-2 bg-gray-100" readonly value="${initialCargo}">
+                    <input type="month" name="Periodo" class="border p-2 rounded w-full" required value="${folha.Periodo || ''}">
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b text-green-700">2. Vencimentos (Créditos)</h4>
                 <div class="grid grid-cols-2 gap-2 mb-3 text-sm">
-                    <input id="folha-base" name="SalarioBase" placeholder="Salário Base" class="border p-2 bg-gray-50" readonly>
-                    <input name="Bonus" placeholder="Bônus/Prêmios" type="number" class="border p-2">
+                    <input id="folha-base" name="SalarioBase" placeholder="Salário Base" class="border p-2 bg-gray-50" readonly value="${folha.SalarioBase || ''}">
+                    <input name="Bonus" placeholder="Bônus/Prêmios" type="number" class="border p-2" value="${folha.Bonus || ''}">
                     <div class="flex gap-1">
-                        <input name="QtdHoraExtra" placeholder="Qtd HE" type="number" class="border p-2 w-1/2">
-                        <input name="ValorHoraExtra" placeholder="Vlr HE" type="number" class="border p-2 w-1/2">
+                        <input name="QtdHoraExtra" placeholder="Qtd HE" type="number" class="border p-2 w-1/2" value="${folha.QtdHoraExtra || ''}">
+                        <input name="ValorHoraExtra" placeholder="Vlr HE" type="number" class="border p-2 w-1/2" value="${folha.ValorHoraExtra || ''}">
                     </div>
-                    <input name="OutrosVencimentos" placeholder="Outros (Comissões...)" type="number" class="border p-2">
+                    <input name="OutrosVencimentos" placeholder="Outros (Comissões...)" type="number" class="border p-2" value="${folha.OutrosVencimentos || ''}">
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b text-red-700">3. Descontos</h4>
                 <div class="grid grid-cols-2 gap-2 mb-3 text-sm">
-                    <input name="INSS" placeholder="INSS (3%)" type="number" class="border p-2">
-                    <input name="IRT" placeholder="IRT" type="number" class="border p-2">
-                    <input name="Faltas" placeholder="Faltas/Atrasos" type="number" class="border p-2">
-                    <input name="OutrosDescontos" placeholder="Outros (Vales...)" type="number" class="border p-2">
+                    <input name="INSS" placeholder="INSS (3%)" type="number" class="border p-2" value="${folha.INSS || ''}">
+                    <input name="IRT" placeholder="IRT" type="number" class="border p-2" value="${folha.IRT || ''}">
+                    
+                    <div class="col-span-2 grid grid-cols-3 gap-2 bg-red-50 p-2 rounded border border-red-100">
+                        <div>
+                            <label class="text-[10px] font-bold text-red-800 block mb-1">Qtd. Faltas</label>
+                            <input type="number" id="qtd-faltas" placeholder="Dias/Horas" class="border p-2 w-full bg-white text-xs">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-red-800 block mb-1">Valor Unit.</label>
+                            <input type="number" id="val-falta" placeholder="Kz" class="border p-2 w-full bg-white text-xs">
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-bold text-red-800 block mb-1">Total Desconto</label>
+                            <input id="total-faltas" name="Faltas" placeholder="Total" type="number" class="border p-2 w-full bg-white font-bold text-red-600 text-xs" value="${folha.Faltas || ''}">
+                        </div>
+                    </div>
+
+                    <input name="OutrosDescontos" placeholder="Outros (Vales...)" type="number" class="border p-2 col-span-2" value="${folha.OutrosDescontos || ''}">
                 </div>
 
                 <h4 class="font-bold text-gray-700 mb-2 border-b">4. Totais & Banco</h4>
                 <div class="grid grid-cols-3 gap-2 mb-3 font-bold">
-                    <input id="total-venc" name="TotalVencimentos" class="border p-2 bg-green-50 text-green-700" readonly>
-                    <input id="total-desc" name="TotalDescontos" class="border p-2 bg-red-50 text-red-700" readonly>
-                    <input id="liquido" name="SalarioLiquido" class="border p-2 bg-blue-50 text-blue-700" readonly>
+                    <input id="total-venc" name="TotalVencimentos" class="border p-2 bg-green-50 text-green-700" readonly value="${folha.TotalVencimentos || ''}">
+                    <input id="total-desc" name="TotalDescontos" class="border p-2 bg-red-50 text-red-700" readonly value="${folha.TotalDescontos || ''}">
+                    <input id="liquido" name="SalarioLiquido" class="border p-2 bg-blue-50 text-blue-700" readonly value="${folha.SalarioLiquido || ''}">
                 </div>
                 <div class="grid grid-cols-2 gap-2 mb-4 text-sm">
-                    <input name="Banco" placeholder="Banco" class="border p-2">
-                    <input id="folha-iban" name="Iban" placeholder="IBAN" class="border p-2">
+                    <input name="Banco" placeholder="Banco" class="border p-2" value="${folha.Banco || ''}">
+                    <input id="folha-iban" name="Iban" placeholder="IBAN" class="border p-2" value="${folha.Iban || ''}">
                 </div>
 
                 <button class="w-full bg-green-600 text-white py-2 rounded">Confirmar Pagamento</button>
             </form>
         `);
+    },
+
+    printPayslip: (id) => {
+        const folha = RHModule.state.cache.folha.find(f => f.ID === id);
+        if (!folha) return Utils.toast('Recibo não encontrado.', 'error');
+
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === folha.FuncionarioID) || {};
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        // Helper for currency
+        const kz = (val) => Utils.formatCurrency(val);
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white max-w-4xl mx-auto border border-gray-200">
+                <!-- 1. CABEÇALHO EMPRESA -->
+                <div class="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
+                    <div class="flex items-center gap-4">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-20 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-600">${inst.NomeCompleto || ''}</p>
+                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
+                            <p class="text-sm text-gray-600">Tel: ${inst.Telefone || '-'} | Email: ${inst.Email || '-'}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold text-gray-800 uppercase">Recibo de Vencimento</h2>
+                        <p class="text-sm text-gray-500">Ref: ${folha.Periodo}</p>
+                    </div>
+                </div>
+
+                <!-- 2. DADOS DO FUNCIONÁRIO & 3. PERÍODO -->
+                <div class="bg-gray-50 p-4 rounded border border-gray-200 mb-6">
+                    <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                        <div><span class="font-bold text-gray-600">Funcionário:</span> ${func.Nome}</div>
+                        <div><span class="font-bold text-gray-600">Cargo:</span> ${func.Cargo || '-'}</div>
+                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.ID.slice(0,8).toUpperCase()}</div>
+                        <div><span class="font-bold text-gray-600">Departamento:</span> ${func.Departamento || '-'}</div>
+                        <div><span class="font-bold text-gray-600">Admissão:</span> ${Utils.formatDate(func.Admissao)}</div>
+                        <div><span class="font-bold text-gray-600">NIF/BI:</span> ${func.BI || '-'}</div>
+                        <div><span class="font-bold text-gray-600">Banco/IBAN:</span> ${folha.Banco || func.Banco || '-'} / ${folha.Iban || func.Iban || '-'}</div>
+                        <div class="col-span-2 border-t border-gray-300 mt-2 pt-2 flex justify-between">
+                            <span><span class="font-bold text-gray-600">Período:</span> ${folha.Periodo}</span>
+                            <span><span class="font-bold text-gray-600">Processamento:</span> ${Utils.formatDate(folha.CriadoEm)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. PROVENTOS & 5. DESCONTOS -->
+                <div class="mb-6">
+                    <table class="w-full text-sm border-collapse border border-gray-300">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="border border-gray-300 p-2 text-left w-1/2">Descrição</th>
+                                <th class="border border-gray-300 p-2 text-right w-1/4 text-green-700">Proventos (+)</th>
+                                <th class="border border-gray-300 p-2 text-right w-1/4 text-red-700">Descontos (-)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td class="border border-gray-300 p-2">Salário Base</td><td class="border border-gray-300 p-2 text-right">${kz(folha.SalarioBase)}</td><td class="border border-gray-300 p-2 text-right"></td></tr>
+                            ${Number(folha.QtdHoraExtra) > 0 ? `<tr><td class="border border-gray-300 p-2">Horas Extras (${folha.QtdHoraExtra}h)</td><td class="border border-gray-300 p-2 text-right">${kz(Number(folha.QtdHoraExtra) * Number(folha.ValorHoraExtra))}</td><td class="border border-gray-300 p-2 text-right"></td></tr>` : ''}
+                            ${Number(folha.Bonus) > 0 ? `<tr><td class="border border-gray-300 p-2">Bónus / Comissões</td><td class="border border-gray-300 p-2 text-right">${kz(folha.Bonus)}</td><td class="border border-gray-300 p-2 text-right"></td></tr>` : ''}
+                            ${Number(folha.OutrosVencimentos) > 0 ? `<tr><td class="border border-gray-300 p-2">Outros Proventos</td><td class="border border-gray-300 p-2 text-right">${kz(folha.OutrosVencimentos)}</td><td class="border border-gray-300 p-2 text-right"></td></tr>` : ''}
+                            
+                            ${Number(folha.INSS) > 0 ? `<tr><td class="border border-gray-300 p-2">Segurança Social (INSS)</td><td class="border border-gray-300 p-2 text-right"></td><td class="border border-gray-300 p-2 text-right">${kz(folha.INSS)}</td></tr>` : ''}
+                            ${Number(folha.IRT) > 0 ? `<tr><td class="border border-gray-300 p-2">Imposto s/ Rendimento (IRT)</td><td class="border border-gray-300 p-2 text-right"></td><td class="border border-gray-300 p-2 text-right">${kz(folha.IRT)}</td></tr>` : ''}
+                            ${Number(folha.Faltas) > 0 ? `<tr><td class="border border-gray-300 p-2">Faltas / Atrasos</td><td class="border border-gray-300 p-2 text-right"></td><td class="border border-gray-300 p-2 text-right">${kz(folha.Faltas)}</td></tr>` : ''}
+                            ${Number(folha.OutrosDescontos) > 0 ? `<tr><td class="border border-gray-300 p-2">Outros Descontos</td><td class="border border-gray-300 p-2 text-right"></td><td class="border border-gray-300 p-2 text-right">${kz(folha.OutrosDescontos)}</td></tr>` : ''}
+                            
+                            <tr class="bg-gray-50 font-bold">
+                                <td class="border border-gray-300 p-2 text-right">TOTAIS</td>
+                                <td class="border border-gray-300 p-2 text-right text-green-800">${kz(folha.TotalVencimentos)}</td>
+                                <td class="border border-gray-300 p-2 text-right text-red-800">${kz(folha.TotalDescontos)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 6. RESULTADO FINAL -->
+                <div class="flex justify-end mb-8">
+                    <div class="bg-gray-100 border border-gray-300 p-4 rounded w-1/3">
+                        <div class="flex justify-between mb-2 text-sm">
+                            <span>Total Bruto:</span>
+                            <span>${kz(folha.TotalVencimentos)}</span>
+                        </div>
+                        <div class="flex justify-between mb-2 text-sm text-red-600">
+                            <span>Total Descontos:</span>
+                            <span>- ${kz(folha.TotalDescontos)}</span>
+                        </div>
+                        <div class="flex justify-between border-t border-gray-300 pt-2 font-bold text-lg text-blue-800">
+                            <span>Líquido a Receber:</span>
+                            <span>${kz(folha.SalarioLiquido)}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 8. ASSINATURAS -->
+                <div class="grid grid-cols-2 gap-16 mt-12 pt-8">
+                    <div class="text-center">
+                        <div class="border-t border-gray-400 w-3/4 mx-auto mb-2"></div>
+                        <p class="font-bold text-sm text-gray-700">O Empregador</p>
+                        <p class="text-xs text-gray-500">(Assinatura e Carimbo)</p>
+                    </div>
+                    <div class="text-center">
+                        <div class="border-t border-gray-400 w-3/4 mx-auto mb-2"></div>
+                        <p class="font-bold text-sm text-gray-700">O Funcionário</p>
+                        <p class="text-xs text-gray-500">${func.Nome}</p>
+                    </div>
+                </div>
+
+                <div class="mt-12 text-center text-[10px] text-gray-400 border-t pt-2">
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+                </div>
+            </div>
+        `;
+
+        Utils.printNative(html);
     },
 
     // --- 7. ABA LICENÇAS E AUSÊNCIAS ---
@@ -1768,7 +2363,7 @@ const RHModule = {
         const htmlAniversariantes = `
             <div class="mt-8 mb-8">
                 <h4 class="text-lg font-bold text-blue-700 mb-4 border-b border-blue-200 pb-2">🎂 Aniversariantes</h4>
-                <div class="mb-2"><label class="text-xs font-bold text-gray-500 mr-2">Filtrar Mês:</label><select id="rel-mes-aniversario" onchange="RHModule.updateRelatorios()" class="border p-1 rounded text-sm"><option value="1" ${mesSelecionado===1?'selected':''}>Janeiro</option><option value="2" ${mesSelecionado===2?'selected':''}>Fevereiro</option><option value="3" ${mesSelecionado===3?'selected':''}>Março</option><option value="4" ${mesSelecionado===4?'selected':''}>Abril</option><option value="5" ${mesSelecionado===5?'selected':''}>Maio</option><option value="6" ${mesSelecionado===6?'selected':''}>Junho</option><option value="7" ${mesSelecionado===7?'selected':''}>Julho</option><option value="8" ${mesSelecionado===8?'selected':''}>Agosto</option><option value="9" ${mesSelecionado===9?'selected':''}>Setembro</option><option value="10" ${mesSelecionado===10?'selected':''}>Outubro</option><option value="11" ${mesSelecionado===11?'selected':''}>Novembro</option><option value="12" ${mesSelecionado===12?'selected':''}>Dezembro</option></select></div>
+                <div class="mb-2 flex items-center gap-2"><label class="text-xs font-bold text-gray-500 mr-2">Filtrar Mês:</label><select id="rel-mes-aniversario" onchange="RHModule.updateRelatorios()" class="border p-1 rounded text-sm"><option value="1" ${mesSelecionado===1?'selected':''}>Janeiro</option><option value="2" ${mesSelecionado===2?'selected':''}>Fevereiro</option><option value="3" ${mesSelecionado===3?'selected':''}>Março</option><option value="4" ${mesSelecionado===4?'selected':''}>Abril</option><option value="5" ${mesSelecionado===5?'selected':''}>Maio</option><option value="6" ${mesSelecionado===6?'selected':''}>Junho</option><option value="7" ${mesSelecionado===7?'selected':''}>Julho</option><option value="8" ${mesSelecionado===8?'selected':''}>Agosto</option><option value="9" ${mesSelecionado===9?'selected':''}>Setembro</option><option value="10" ${mesSelecionado===10?'selected':''}>Outubro</option><option value="11" ${mesSelecionado===11?'selected':''}>Novembro</option><option value="12" ${mesSelecionado===12?'selected':''}>Dezembro</option></select> <button onclick="RHModule.printAniversariantesFestivo()" class="text-xs bg-pink-500 text-white px-2 py-1 rounded hover:bg-pink-600"><i class="fas fa-birthday-cake"></i> PDF Festivo</button></div>
                 <div class="bg-white p-4 border rounded shadow overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead class="bg-blue-50 text-blue-800">
@@ -1937,11 +2532,226 @@ const RHModule = {
             <div class="mt-10 pt-4 border-t text-center">
                 <p class="font-bold text-gray-800">${user.Nome}</p>
                 <p class="text-sm text-gray-600">${user.Assinatura || ''}</p>
-                <p class="text-xs text-gray-400 mt-1">Documento gerado em ${new Date().toLocaleString()}</p>
+                <p class="text-xs text-gray-400 mt-1">&copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0</p>
             </div>
         `;
         
-        RHModule.printNative(html);
+        Utils.printNative(html);
+    },
+
+    printAniversariantesFestivo: () => {
+        const mesSelect = document.getElementById('rel-mes-aniversario');
+        const mes = Number(mesSelect.value);
+        const mesNome = mesSelect.options[mesSelect.selectedIndex].text;
+        
+        const funcs = RHModule.state.cache.funcionarios.filter(f => {
+            if (!f.Nascimento) return false;
+            const d = new Date(f.Nascimento);
+            return (d.getMonth() + 1) === mes;
+        }).sort((a, b) => new Date(a.Nascimento).getDate() - new Date(b.Nascimento).getDate());
+
+        if (funcs.length === 0) return Utils.toast('Nenhum aniversariante neste mês.', 'warning');
+
+        const html = `
+            <div style="font-family: 'Comic Sans MS', 'Chalkboard SE', sans-serif; padding: 20px; border: 5px double #FF69B4; border-radius: 15px; background-color: #FFF0F5; text-align: center;">
+                <h1 style="color: #FF1493; font-size: 32px; margin-bottom: 5px;">🎉 Feliz Aniversário! 🎉</h1>
+                <h2 style="color: #C71585; font-size: 24px; margin-top: 0;">Aniversariantes de ${mesNome}</h2>
+                <p style="color: #555; font-style: italic;">"A vida é um presente, e cada aniversário é um novo começo."</p>
+                
+                <div style="margin-top: 30px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                    ${funcs.map(f => {
+                        const dia = new Date(f.Nascimento).getDate();
+                        return `
+                        <div style="background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border: 2px solid #FFB6C1; display: flex; align-items: center; gap: 15px;">
+                            <div style="background: #FF69B4; color: white; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px;">
+                                ${dia}
+                            </div>
+                            <div style="text-align: left;">
+                                <div style="font-weight: bold; font-size: 18px; color: #333;">${f.Nome}</div>
+                                <div style="color: #666; font-size: 14px;">${f.Departamento || 'Equipe'}</div>
+                            </div>
+                        </div>
+                        `;
+                    }).join('')}
+                </div>
+
+                <div style="margin-top: 40px; font-size: 12px; color: #888;">
+                    🎈 Desejamos muitas felicidades, saúde e sucesso a todos! 🎈
+                </div>
+            </div>
+            <style>
+                @media print {
+                    body { -webkit-print-color-adjust: exact; }
+                    @page { margin: 10mm; }
+                }
+            </style>
+        `;
+
+        Utils.printNative(html);
+    },
+
+    printIndividualFrequency: (funcId) => {
+        const func = RHModule.state.cache.funcionarios.find(f => f.ID === funcId);
+        if (!func) return Utils.toast('Funcionário não encontrado.', 'error');
+
+        // Determinar o mês do relatório (baseado no filtro ou mês atual)
+        let targetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        if (RHModule.state.filterFrequenciaStart) {
+            targetMonth = RHModule.state.filterFrequenciaStart.slice(0, 7);
+        }
+
+        const [year, month] = targetMonth.split('-');
+        const daysInMonth = new Date(year, month, 0).getDate();
+        
+        // Filtrar registros do funcionário no mês
+        const records = RHModule.state.cache.frequencia.filter(r => 
+            r.FuncionarioID === funcId && r.Data.startsWith(targetMonth)
+        );
+
+        // Cálculos do Resumo
+        let presencas = 0;
+        let faltas = 0;
+        let faltasJustificadas = 0;
+        let atrasos = 0;
+        let totalHoras = 0;
+        let diasUteis = 0; // Aproximação (dias com registro ou dias úteis do mês)
+
+        // Mapa de registros por dia para preencher a tabela completa
+        const mapRecords = {};
+        records.forEach(r => {
+            mapRecords[r.Data] = r;
+            
+            if (r.Status === 'Presente') presencas++;
+            else if (r.Status === 'Falta') faltas++;
+            else if (r.Status === 'Falta Justificada') faltasJustificadas++;
+            else if (r.Status === 'Atraso') atrasos++;
+
+            // Cálculo de horas (simplificado)
+            if (r.Entrada && r.Saida) {
+                const [h1, m1] = r.Entrada.split(':').map(Number);
+                const [h2, m2] = r.Saida.split(':').map(Number);
+                let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (diff < 0) diff += 24 * 60; // Virada de dia
+                totalHoras += diff / 60;
+            }
+        });
+
+        // Gerar linhas da tabela (1 a 31)
+        let rowsHtml = '';
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dayStr = `${year}-${month}-${String(i).padStart(2, '0')}`;
+            const dateObj = new Date(dayStr);
+            const dayOfWeek = dateObj.getDay(); // 0=Dom, 6=Sab
+            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            
+            if (!isWeekend) diasUteis++;
+
+            const r = mapRecords[dayStr] || {};
+            const entrada = r.Entrada || '—';
+            const saida = r.Saida || '—';
+            const status = r.Status || (isWeekend ? 'Folga' : '—');
+            const obs = r.Observacoes || '—';
+            
+            let horasDia = '0h';
+            if (r.Entrada && r.Saida) {
+                const [h1, m1] = r.Entrada.split(':').map(Number);
+                const [h2, m2] = r.Saida.split(':').map(Number);
+                let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (diff < 0) diff += 24 * 60;
+                const h = Math.floor(diff / 60);
+                const m = diff % 60;
+                horasDia = `${h}h${m > 0 ? String(m).padStart(2,'0') : ''}`;
+            }
+
+            rowsHtml += `
+                <tr class="${isWeekend ? 'bg-gray-100' : ''}">
+                    <td class="border p-1 text-center">${String(i).padStart(2, '0')}/${month}</td>
+                    <td class="border p-1 text-center">${entrada}</td>
+                    <td class="border p-1 text-center">${saida}</td>
+                    <td class="border p-1 text-center">${horasDia}</td>
+                    <td class="border p-1 text-center text-xs">${status}</td>
+                    <td class="border p-1 text-xs">${obs}</td>
+                </tr>
+            `;
+        }
+
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-600">Folha Mensal de Presença</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-bold">Mês/Ano: ${month}/${year}</p>
+                        <p class="text-xs text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
+                    <h3 class="font-bold border-b border-gray-300 mb-2 uppercase text-sm">Dados do Funcionário</h3>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><span class="font-bold">Nome:</span> ${func.Nome}</div>
+                        <div><span class="font-bold">Cargo:</span> ${func.Cargo || '-'}</div>
+                        <div><span class="font-bold">ID:</span> ${func.ID.slice(0,8).toUpperCase()}</div>
+                        <div><span class="font-bold">Turno:</span> ${func.Turno || '-'}</div>
+                    </div>
+                </div>
+
+                <h3 class="font-bold text-gray-800 mb-2 text-sm uppercase">Frequência Mensal</h3>
+                <table class="w-full text-sm border-collapse border border-gray-300 mb-6">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="border p-2 text-center">Data</th>
+                            <th class="border p-2 text-center">Entrada</th>
+                            <th class="border p-2 text-center">Saída</th>
+                            <th class="border p-2 text-center">Horas</th>
+                            <th class="border p-2 text-center">Status</th>
+                            <th class="border p-2 text-left">Observação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                    </tbody>
+                </table>
+
+                <div class="flex gap-8 mb-8">
+                    <div class="w-1/2">
+                        <h3 class="font-bold text-gray-800 mb-2 text-sm uppercase">Resumo do Mês</h3>
+                        <table class="w-full text-sm border-collapse border border-gray-300">
+                            <tr><td class="border p-2 bg-gray-50">Dias Úteis (Est.)</td><td class="border p-2 text-right">${diasUteis}</td></tr>
+                            <tr><td class="border p-2 bg-gray-50">Presenças</td><td class="border p-2 text-right">${presencas}</td></tr>
+                            <tr><td class="border p-2 bg-gray-50">Faltas</td><td class="border p-2 text-right">${faltas}</td></tr>
+                            <tr><td class="border p-2 bg-gray-50">Faltas Justificadas</td><td class="border p-2 text-right">${faltasJustificadas}</td></tr>
+                            <tr><td class="border p-2 bg-gray-50">Atrasos</td><td class="border p-2 text-right">${atrasos}</td></tr>
+                            <tr class="font-bold"><td class="border p-2 bg-gray-100">Total Horas</td><td class="border p-2 text-right">${totalHoras.toFixed(2)}h</td></tr>
+                        </table>
+                    </div>
+                    <div class="w-1/2 flex flex-col justify-end">
+                        <div class="mb-8 text-center">
+                            <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
+                            <p class="text-xs font-bold">Funcionário</p>
+                        </div>
+                        <div class="text-center">
+                            <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
+                            <p class="text-xs font-bold">RH / Supervisor</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-4 text-center text-xs text-gray-400 border-t pt-2">
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+                </div>
+            </div>
+        `;
+
+        Utils.printNative(html);
     },
 
     printTabPDF: (type) => {
@@ -2090,17 +2900,38 @@ const RHModule = {
                     </div>
                 </div>
                 ${content}
-                <div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div>
+                <div class="mt-8 text-center text-xs text-gray-400">&copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0</div>
             </div>
         `;
 
-        RHModule.printNative(html);
+        Utils.printNative(html, orientation);
     },
 
     // --- GENÉRICOS ---
     save: async (e, table) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
+
+        // Limpeza de Máscaras (Salário)
+        if (table === 'Funcionarios' && data.Salario) {
+            // Remove 'Kz', espaços e pontos de milhar, troca vírgula decimal por ponto
+            // Ex: "Kz 1.500,00" -> "1500.00"
+            data.Salario = parseFloat(data.Salario.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        }
+
+        // --- VALIDAÇÃO DE DUPLICIDADE (BI/NIF) ---
+        if (table === 'Funcionarios') {
+            const bi = data.BI ? data.BI.trim().toUpperCase() : '';
+            if (bi) {
+                const duplicado = RHModule.state.cache.allFuncionarios.find(f => 
+                    f.BI && f.BI.trim().toUpperCase() === bi && f.ID !== data.ID
+                );
+                if (duplicado) {
+                    return Utils.toast(`⚠️ O BI/NIF ${bi} já está cadastrado para: ${duplicado.Nome}`, 'error');
+                }
+            }
+        }
+
 
         // Geração Automática de ID para Funcionários (Iniciais + Sequencial Global)
         if (table === 'Funcionarios' && !data.ID) {
@@ -2111,7 +2942,7 @@ const RHModule = {
                 // Lida com nomes de uma só palavra (ex: "Maria" -> "MM")
                 const last = parts.length > 1 ? parts[parts.length - 1][0].toUpperCase() : first;
                 const prefix = first + last;
-                
+ 
                 // Lógica Corrigida: Busca o MAIOR número sequencial já existente em qualquer ID
                 // Isso garante a ordem histórica (ex: se existe o 05, o próximo será 06, independente de quantos ativos existem)
                 let maxSeq = 0;
@@ -2121,9 +2952,25 @@ const RHModule = {
                         const seq = parseInt(partsId[partsId.length - 1]); // Pega o número final
                         if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
                     }
-                });
+ });
                 
                 data.ID = `${prefix}-${String(maxSeq + 1).padStart(2, '0')}`;
+            }
+        }
+
+        // Lógica de Upload de Foto (Funcionários)
+        if (table === 'Funcionarios') {
+            const fileInput = document.getElementById('foto-file');
+            if (fileInput && fileInput.files[0]) {
+                try {
+                    const toBase64 = file => new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.readAsDataURL(file);
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = error => reject(error);
+                    });
+                    data.FotoURL = await toBase64(fileInput.files[0]);
+                } catch (err) { return Utils.toast('Erro ao processar foto: ' + err.message); }
             }
         }
 
@@ -2164,6 +3011,16 @@ const RHModule = {
         if (table === 'Avaliacoes') {
             if (!data.FuncionarioID) return Utils.toast('⚠️ Erro: Selecione um funcionário.');
             if (Object.keys(data).filter(k => k.startsWith('N')).some(k => Number(data[k]) < 0 || Number(data[k]) > 10)) return Utils.toast('⚠️ Erro: As notas devem ser entre 0 e 10.');
+            
+            // Pack details into DetalhesJSON
+            const detalhes = {};
+            ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8', 'N9', 'PontosFortes', 'PontosMelhorar', 'Comentarios'].forEach(k => {
+                if (data[k] !== undefined) {
+                    detalhes[k] = data[k];
+                    delete data[k]; // Remove from top level to avoid column error if strict
+                }
+            });
+            data.DetalhesJSON = detalhes;
         }
         if (table === 'Folha') {
             if (!data.FuncionarioID) return Utils.toast('⚠️ Erro: Selecione um funcionário.');

@@ -1,26 +1,75 @@
 const DashboardModule = {
     charts: {}, // Armazena instâncias
+    state: { filterDate: new Date().toISOString().slice(0, 7) }, // Padrão: Mês atual
+
     init: () => {
+        DashboardModule.renderLayout();
         DashboardModule.loadData();
     },
 
     loadData: async () => {
         try {
-            const data = await Utils.api('getDashboardStats');
+            DashboardModule.renderFilters(); // Renderiza o filtro antes de carregar
+            const data = await Utils.api('getDashboardStats', null, { filterDate: DashboardModule.state.filterDate });
             
-            DashboardModule.renderKPIs(data.kpis);
-            DashboardModule.renderDRE(data.dre);
-            DashboardModule.renderQuadroAvisos(data.monitoramento.avisos);
-            DashboardModule.renderMonitoramento(data.monitoramento);
+            if (data.kpis) DashboardModule.renderKPIs(data.kpis);
+            if (data.dre) DashboardModule.renderDRE(data.dre);
+            if (data.monitoramento) DashboardModule.renderQuadroAvisos(data.monitoramento.avisos);
+            if (data.monitoramento) DashboardModule.renderMonitoramento(data.monitoramento);
             DashboardModule.loadTarefas(); // Carrega tarefas separadamente
+            DashboardModule.fetchWeather();
             DashboardModule.renderCharts(data.charts);
+            
+            // Verifica aniversariantes e envia e-mail (Silenciosamente)
+            Utils.api('checkBirthdayEmails').then(res => { if(res.sent > 0) console.log(`${res.sent} e-mails de aniversário enviados.`); });
         } catch (e) {
             console.error(e);
             Utils.toast("Erro ao carregar dashboard.");
         }
     },
 
+    renderFilters: () => {
+        const container = document.getElementById('dashboard-content');
+        let filterDiv = document.getElementById('dashboard-filters');
+        
+        // Cria o container do filtro se não existir
+        if (!filterDiv) {
+            filterDiv = document.createElement('div');
+            filterDiv.id = 'dashboard-filters';
+            filterDiv.className = 'flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-3 rounded shadow-sm border border-gray-100';
+            container.insertBefore(filterDiv, container.firstChild);
+        }
+
+        // Gera opções de meses (Últimos 12 meses + Futuro próximo)
+        let options = `<option value="all">📅 Todo o Período</option>`;
+        const date = new Date();
+        date.setMonth(date.getMonth() + 1); // Começa do mês que vem (para ver previsões se houver)
+        
+        for (let i = 0; i < 18; i++) {
+            const val = date.toISOString().slice(0, 7);
+            const label = date.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+            const selected = DashboardModule.state.filterDate === val ? 'selected' : '';
+            options += `<option value="${val}" ${selected}>${label.charAt(0).toUpperCase() + label.slice(1)}</option>`;
+            date.setMonth(date.getMonth() - 1);
+        }
+
+        filterDiv.innerHTML = `
+            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-chart-pie text-indigo-600"></i> Visão Geral</h2>
+            <div class="flex items-center gap-2">
+                <label class="text-sm font-bold text-gray-600">Período:</label>
+                <select id="dashboard-filter-date" onchange="DashboardModule.state.filterDate = this.value; DashboardModule.loadData()" class="border border-gray-300 p-2 rounded text-sm bg-gray-50 focus:ring-2 focus:ring-indigo-500 outline-none">
+                    ${options}
+                </select>
+                <button onclick="DashboardModule.loadData()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 transition flex items-center gap-2">
+                    <i class="fas fa-sync-alt"></i> Atualizar
+                </button>
+            </div>
+        `;
+    },
+
     renderQuadroAvisos: (avisos) => {
+        if (!avisos) avisos = []; // Garante array vazio se nulo
+
         const container = document.getElementById('dashboard-content'); // Assumindo que existe um container principal ou injetamos no topo
         // Verifica se já existe a seção para não duplicar
         let section = document.getElementById('quadro-avisos-section');
@@ -183,33 +232,14 @@ const DashboardModule = {
     },
 
     renderKPIs: (kpis) => {
+        if (!kpis) return;
+
+        // Atualiza labels para refletir o filtro (opcional, mas bom para UX)
+        const labelPeriodo = DashboardModule.state.filterDate === 'all' ? 'Total Acumulado' : 'Neste Mês';
+        
         document.getElementById('kpi-receita').innerText = Utils.formatCurrency(kpis.receitaMensal);
         document.getElementById('kpi-despesa').innerText = Utils.formatCurrency(kpis.despesaMensal);
         document.getElementById('kpi-lucro').innerText = Utils.formatCurrency(kpis.lucroLiquido);
-        document.getElementById('kpi-receber').innerText = Utils.formatCurrency(kpis.aReceberHoje);
-
-        // Injeta novos KPIs se não existirem (Funcionários, Fornecedores, Refeições)
-        const kpiContainer = document.getElementById('kpi-receita')?.closest('.grid');
-        if (kpiContainer && !document.getElementById('kpi-funcionarios')) {
-            const newCardsHTML = `
-                <div class="bg-white p-4 rounded shadow border-l-4 border-indigo-500">
-                    <div class="text-gray-500 text-sm">Funcionários Ativos</div>
-                    <div class="text-2xl font-bold text-indigo-600" id="kpi-funcionarios">-</div>
-                </div>
-                <div class="bg-white p-4 rounded shadow border-l-4 border-orange-500">
-                    <div class="text-gray-500 text-sm">Fornecedores Ativos</div>
-                    <div class="text-2xl font-bold text-orange-600" id="kpi-fornecedores">-</div>
-                </div>
-                <div class="bg-white p-4 rounded shadow border-l-4 border-teal-500">
-                    <div class="text-gray-500 text-sm">Refeições (Mês)</div>
-                    <div class="text-2xl font-bold text-teal-600" id="kpi-refeicoes">-</div>
-                </div>
-            `;
-            kpiContainer.insertAdjacentHTML('beforeend', newCardsHTML);
-            
-            // Ajusta o grid para acomodar mais itens se necessário (opcional, depende do CSS original)
-            kpiContainer.classList.add('md:grid-cols-4', 'lg:grid-cols-4');
-        }
 
         if(document.getElementById('kpi-funcionarios')) document.getElementById('kpi-funcionarios').innerText = kpis.totalFuncionarios;
         if(document.getElementById('kpi-fornecedores')) document.getElementById('kpi-fornecedores').innerText = kpis.totalFornecedores;
@@ -217,6 +247,8 @@ const DashboardModule = {
     },
 
     renderDRE: (dre) => {
+        if (!dre) return;
+
         document.getElementById('dre-bruta').innerText = Utils.formatCurrency(dre.receitaBruta);
         document.getElementById('dre-impostos').innerText = Utils.formatCurrency(dre.impostos);
         document.getElementById('dre-liquida').innerText = Utils.formatCurrency(dre.receitaLiquida);
@@ -227,6 +259,8 @@ const DashboardModule = {
     },
 
     renderMonitoramento: (mon) => {
+        if (!mon) return;
+
         const list = document.getElementById('monitoramento-list');
         let html = '';
 
@@ -272,10 +306,24 @@ const DashboardModule = {
     renderCharts: (charts) => {
         if (!charts) return;
 
+        // Injeta container para Lucratividade se não existir
+        if (!document.getElementById('chartLucratividade')) {
+            const container = document.getElementById('dashboard-content');
+            const div = document.createElement('div');
+            div.className = 'bg-white p-4 rounded shadow mb-6 border border-gray-100';
+            div.innerHTML = `
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Lucratividade Anual (Últimos 12 Meses)</h4>
+                <div class="h-64"><canvas id="chartLucratividade"></canvas></div>
+            `;
+            // Insere antes das tarefas (se existirem) ou no final
+            const tarefas = document.getElementById('tarefas-section');
+            if (tarefas) container.insertBefore(div, tarefas);
+            else container.appendChild(div);
+        }
+
         // Destruir gráficos anteriores
         if (DashboardModule.charts.financeiro) DashboardModule.charts.financeiro.destroy();
 
-        // Gráfico Financeiro
         DashboardModule.charts.financeiro = new Chart(document.getElementById('chartFinanceiro'), {
             type: 'line',
             data: {
@@ -286,6 +334,25 @@ const DashboardModule = {
                 ]
             }
         });
+
+        if (DashboardModule.charts.lucratividade) DashboardModule.charts.lucratividade.destroy();
+
+        // Gráfico de Lucratividade
+        if (charts.lucratividade) {
+            DashboardModule.charts.lucratividade = new Chart(document.getElementById('chartLucratividade'), {
+                type: 'bar',
+                data: {
+                    labels: charts.lucratividade.labels,
+                    datasets: [{
+                        label: 'Lucro Líquido',
+                        data: charts.lucratividade.data,
+                        backgroundColor: charts.lucratividade.data.map(v => v >= 0 ? '#10B981' : '#EF4444'),
+                        borderRadius: 4
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
 
         if (DashboardModule.charts.atendimento) DashboardModule.charts.atendimento.destroy();
 
@@ -317,6 +384,19 @@ const DashboardModule = {
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        // Gráfico Departamentos (Novo)
+        if (charts.departamentos && document.getElementById('chartDepartamentos')) {
+            if (DashboardModule.charts.departamentos) DashboardModule.charts.departamentos.destroy();
+            DashboardModule.charts.departamentos = new Chart(document.getElementById('chartDepartamentos'), {
+                type: 'pie',
+                data: {
+                    labels: charts.departamentos.labels,
+                    datasets: [{ data: charts.departamentos.data, backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'] }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
             });
         }
     },

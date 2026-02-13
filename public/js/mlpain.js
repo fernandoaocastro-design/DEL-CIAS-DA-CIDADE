@@ -353,7 +353,14 @@ const MLPainModule = {
         // Atualizar Dropdown de Áreas conforme o Tipo selecionado
         const areaSelect = document.querySelector('select[name="AreaID"]');
         if (areaSelect) {
-            const areasFiltradas = MLPainModule.state.areas.filter(a => a.Ativo && (a.Tipo === type || (!a.Tipo && type === 'Sólido')));
+            // Permite UCI aparecer também na lista de Líquidos
+            const areasFiltradas = MLPainModule.state.areas.filter(a => 
+                a.Ativo && (
+                    a.Tipo === type || 
+                    (!a.Tipo && type === 'Sólido') ||
+                    (a.Nome.toUpperCase().includes('UCI') && type === 'Líquido')
+                )
+            );
             areaSelect.innerHTML = '<option value="">Selecione a Área...</option>' + 
                 areasFiltradas.map(a => `<option value="${a.ID}" ${selectedAreaId === a.ID ? 'selected' : ''}>${a.Nome}</option>`).join('');
         }
@@ -540,6 +547,7 @@ const MLPainModule = {
         const areas = MLPainModule.state.areas.filter(a => a.Ativo);
         const solidAreas = areas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
         const liquidAreas = areas.filter(a => a.Tipo === 'Líquido');
+        const liquidDietAreas = [...liquidAreas, ...areas.filter(a => a.Nome.toUpperCase().includes('UCI') && a.Tipo !== 'Líquido')].sort((a, b) => (a.Ordem || 0) - (b.Ordem || 0));
         const weekDays = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 
         // Inicializa Matriz
@@ -561,11 +569,14 @@ const MLPainModule = {
 
         // Preenche Matriz
         recs.forEach(r => {
-            if (matrix[r.AreaID] && matrix[r.AreaID][r.Data]) {
+            // Normaliza a data para YYYY-MM-DD (remove hora se existir) para garantir match com a coluna
+            const dateKey = r.Data ? r.Data.split('T')[0] : null;
+
+            if (dateKey && matrix[r.AreaID] && matrix[r.AreaID][dateKey]) {
                 const qtd = Number(r.Quantidade);
-                if (r.Tipo === 'Sólido') matrix[r.AreaID][r.Data].Solido += qtd;
-                else if (r.Subtipo === 'Sopa') matrix[r.AreaID][r.Data].Sopa += qtd;
-                else if (r.Subtipo === 'Chá') matrix[r.AreaID][r.Data].Cha += qtd;
+                if (r.Tipo === 'Sólido') matrix[r.AreaID][dateKey].Solido += qtd;
+                else if (['Sopa', 'sopa'].includes(r.Subtipo)) matrix[r.AreaID][dateKey].Sopa += qtd;
+                else if (['Chá', 'Cha', 'chá', 'cha'].includes(r.Subtipo)) matrix[r.AreaID][dateKey].Cha += qtd;
             }
         });
 
@@ -672,8 +683,8 @@ const MLPainModule = {
 
             <!-- TABELAS MATRICIAIS SEPARADAS -->
             ${renderMatrixTable('Mapa de Dietas Sólidas', 'Solido', 'text-green-700', 'bg-green-500', solidAreas)}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidAreas)}
-            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Sopa', 'Sopa', 'text-yellow-700', 'bg-yellow-500', liquidDietAreas)}
+            ${renderMatrixTable('Mapa de Dietas Líquidas - Chá', 'Cha', 'text-red-700', 'bg-red-500', liquidDietAreas)}
 
             <!-- QUEBRA DE PÁGINA -->
             <div class="html2pdf__page-break"></div>
@@ -881,12 +892,11 @@ const MLPainModule = {
     exportPDF: async () => {
         const { areas, registros, filterMonth, customFilterStart, customFilterEnd, instituicao } = MLPainModule.state;
         const inst = instituicao[0] || {};
-        const showLogo = inst.ExibirLogoRelatorios;
         const user = Utils.getUser();
+        const showLogo = inst.ExibirLogoRelatorios;
 
         let recs = [];
         let daysToRender = [];
-        let reportTitle = '';
         let periodStr = '';
 
         // Determinar Período e Dados
@@ -899,7 +909,6 @@ const MLPainModule = {
                 return;
             }
 
-            reportTitle = `Relatório Personalizado`;
             periodStr = `${Utils.formatDate(customFilterStart)} a ${Utils.formatDate(customFilterEnd)}`;
             
             const [sY, sM, sD] = customFilterStart.split('-').map(Number);
@@ -912,9 +921,8 @@ const MLPainModule = {
             }
         } else {
             recs = registros; // Usa os dados do mês já carregados no estado
-            reportTitle = `Relatório Mensal`;
             const [year, monthNum] = filterMonth.split('-');
-            periodStr = new Date(year, monthNum - 1).toLocaleString('pt-AO', { month: 'long', year: 'numeric' }).toUpperCase();
+            periodStr = `${monthNum}/${year}`;
             const daysInMonth = new Date(year, monthNum, 0).getDate();
             for(let i=1; i<=daysInMonth; i++) {
                 daysToRender.push(new Date(year, monthNum - 1, i));
@@ -925,6 +933,7 @@ const MLPainModule = {
         const activeAreas = areas.filter(a => a.Ativo);
         const solidAreas = activeAreas.filter(a => !a.Tipo || a.Tipo === 'Sólido');
         const liquidAreas = activeAreas.filter(a => a.Tipo === 'Líquido');
+        const liquidDietAreas = [...liquidAreas, ...activeAreas.filter(a => a.Nome.toUpperCase().includes('UCI') && a.Tipo !== 'Líquido')].sort((a, b) => (a.Ordem || 0) - (b.Ordem || 0));
 
         // Calcular Matriz de Dados
         const matrix = {};
@@ -942,58 +951,106 @@ const MLPainModule = {
             });
         });
 
+        const totals = { Solido: 0, Sopa: 0, Cha: 0 };
+
         recs.forEach(r => {
             if (matrix[r.AreaID] && matrix[r.AreaID][r.Data]) {
                 const qtd = Number(r.Quantidade);
-                if (r.Tipo === 'Sólido') matrix[r.AreaID][r.Data].Solido += qtd;
-                else if (r.Subtipo === 'Sopa') matrix[r.AreaID][r.Data].Sopa += qtd;
-                else if (r.Subtipo === 'Chá') matrix[r.AreaID][r.Data].Cha += qtd;
+                if (r.Tipo === 'Sólido') {
+                    matrix[r.AreaID][r.Data].Solido += qtd;
+                    totals.Solido += qtd;
+                } else if (['Sopa', 'sopa'].includes(r.Subtipo)) {
+                    matrix[r.AreaID][r.Data].Sopa += qtd;
+                    totals.Sopa += qtd;
+                } else if (['Chá', 'Cha', 'chá', 'cha'].includes(r.Subtipo)) {
+                    matrix[r.AreaID][r.Data].Cha += qtd;
+                    totals.Cha += qtd;
+                }
             }
         });
 
+        // --- CÁLCULO ACUMULADO DO ANO (YTD) ---
+        const ytdTotals = { Solido: 0, Sopa: 0, Cha: 0 };
+        try {
+            let yearForYTD, endForYTD;
+            if (customFilterStart) {
+                yearForYTD = new Date(customFilterStart).getFullYear();
+                endForYTD = customFilterEnd;
+            } else {
+                const [y, m] = filterMonth.split('-');
+                yearForYTD = y;
+                endForYTD = new Date(y, m, 0).toISOString().split('T')[0];
+            }
+            const startForYTD = `${yearForYTD}-01-01`;
+            
+            const ytdRecs = await Utils.api('getMLPainRecords', 'MLPain_Registros', { startDate: startForYTD, endDate: endForYTD });
+            
+            ytdRecs.forEach(r => {
+                const qtd = Number(r.Quantidade);
+                if (r.Tipo === 'Sólido') ytdTotals.Solido += qtd;
+                else if (r.Subtipo === 'Sopa') ytdTotals.Sopa += qtd;
+                else if (r.Subtipo === 'Chá') ytdTotals.Cha += qtd;
+            });
+        } catch (e) { console.error('Erro ao calcular acumulado YTD', e); }
+
         // Cabeçalho do Relatório
         let html = `
-            <div class="p-4 font-sans text-gray-900 bg-white">
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-2 mb-4">
+            <div class="p-4 font-sans text-gray-900 bg-white max-w-[297mm] mx-auto">
+                <!-- Cabeçalho -->
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
                     <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-12 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
                         <div>
-                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-xs text-gray-600">Relatório de Controle - M.L. Pain</p>
+                            <h1 class="text-xl font-bold text-gray-900 tracking-wider uppercase">${inst.NomeFantasia || 'DELÍCIAS DA CIDADE'}</h1>
+                            <h2 class="text-sm font-bold text-gray-800 uppercase mt-1">MAPA DE DISTRIBUIÇÃO DE REFEIÇÃO NOS SERVIÇOS</h2>
+                            <h3 class="text-sm font-medium text-gray-600 uppercase mt-1">MATERNIDADE LUCRÉCIA PAIM</h3>
                         </div>
                     </div>
                     <div class="text-right">
-                        <h2 class="text-lg font-bold">${reportTitle.toUpperCase()}</h2>
-                        <p class="text-xs">${periodStr}</p>
-                        <p class="text-[10px] text-gray-500">Gerado por: ${user.Nome}</p>
+                        <p class="text-xs font-bold mt-2 bg-gray-100 inline-block px-4 py-1 rounded border border-gray-300">
+                            Mês: ${periodStr}
+                        </p>
                     </div>
                 </div>
         `;
 
         // Função para Gerar HTML de Tabela
-        const generateTableHtml = (title, typeKey, areasList) => {
+        const renderTable = (title, headerBg, typeKey, textColor, areasList) => {
             if (areasList.length === 0) return '';
             
             let tableHtml = `
                 <div class="mb-6 break-inside-avoid">
-                    <h3 class="text-sm font-bold mb-1 text-gray-700 border-b border-gray-300">${title}</h3>
+                    <div class="${headerBg} text-white text-[10px] font-bold py-1 px-2 uppercase tracking-wide border border-gray-400 border-b-0 rounded-t-sm">
+                        ${title}
+                    </div>
+                    <div class="overflow-x-auto">
                     <table class="w-full border-collapse border border-gray-400 text-[9px]">
                         <thead>
-                            <tr class="bg-gray-100">
-                                <th class="border border-gray-400 p-1 text-left w-24 bg-gray-200">ÁREA / DIA</th>
+                            <tr>
+                                <th class="border border-gray-300 p-1 text-left bg-gray-100 w-32">Área / Dia</th>
             `;
 
             daysToRender.forEach(d => {
-                tableHtml += `<th class="border border-gray-400 p-0.5 w-5">${d.getDate()}</th>`;
+                const dow = d.toLocaleDateString('pt-BR', { weekday: 'short' }).toUpperCase().slice(0, 3);
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const textClass = isWeekend ? 'text-red-600 font-bold' : 'text-gray-500';
+                
+                tableHtml += `
+                    <th class="border border-gray-300 p-0.5 w-6 text-center bg-gray-50 leading-tight">
+                        <div class="text-[7px] ${textClass}">${dow}</div>
+                        <div class="${isWeekend ? 'text-red-600 font-bold' : 'text-gray-700'}">${dayNum}</div>
+                    </th>
+                `;
             });
-            tableHtml += `<th class="border border-gray-400 p-1 bg-gray-300 w-10 font-bold">TOTAL</th></tr></thead><tbody>`;
+            tableHtml += `<th class="border border-gray-300 p-1 w-10 text-center bg-gray-200 font-bold text-gray-800">Total</th></tr></thead><tbody>`;
 
             let grandTotal = 0;
             const colTotals = new Array(daysToRender.length).fill(0);
 
             areasList.forEach((a, idx) => {
-                const bgRow = idx % 2 === 1 ? 'bg-gray-50' : '';
-                tableHtml += `<tr class="${bgRow}"><td class="border border-gray-400 p-1 text-left font-bold">${a.Nome}</td>`;
+                const bgRow = idx % 2 === 1 ? 'bg-gray-50' : 'bg-white';
+                tableHtml += `<tr class="${bgRow}"><td class="border border-gray-300 px-2 py-1 font-medium text-gray-700 truncate max-w-[150px]">${a.Nome}</td>`;
                 let rowTotal = 0;
                 
                 daysToRender.forEach((d, i) => {
@@ -1005,32 +1062,106 @@ const MLPainModule = {
                     const val = matrix[a.ID][k] ? matrix[a.ID][k][typeKey] : 0;
                     rowTotal += val;
                     colTotals[i] += val;
-                    tableHtml += `<td class="border border-gray-400 p-0.5 text-center">${val > 0 ? val : ''}</td>`;
+                    const displayVal = val > 0 ? val : '';
+                    tableHtml += `<td class="border border-gray-300 p-0.5 text-center ${textColor} font-mono">${displayVal}</td>`;
                 });
                 grandTotal += rowTotal;
-                tableHtml += `<td class="border border-gray-400 p-1 font-bold bg-gray-100 text-center">${rowTotal}</td></tr>`;
+                tableHtml += `<td class="border border-gray-300 px-1 text-center font-bold bg-gray-100 text-gray-800">${rowTotal > 0 ? rowTotal : ''}</td></tr>`;
             });
 
-            // Linha de Totais
-            tableHtml += `<tr class="bg-gray-200 font-bold"><td class="border border-gray-400 p-1 text-right">TOTAL</td>`;
-            colTotals.forEach(t => tableHtml += `<td class="border border-gray-400 p-0.5 text-center">${t > 0 ? t : ''}</td>`);
-            tableHtml += `<td class="border border-gray-400 p-1 text-center">${grandTotal}</td></tr>`;
-
-            tableHtml += `</tbody></table></div>`;
+            tableHtml += `</tbody></table></div></div>`;
             return tableHtml;
         };
 
-        html += generateTableHtml('MAPA DE DIETAS SÓLIDAS', 'Solido', solidAreas);
-        html += generateTableHtml('MAPA DE DIETAS LÍQUIDAS - SOPA', 'Sopa', liquidAreas);
-        html += generateTableHtml('MAPA DE DIETAS LÍQUIDAS - CHÁ', 'Cha', liquidAreas);
+        html += renderTable('Tabela 1: MAPA DE DIETAS SÓLIDAS', 'bg-green-600', 'Solido', 'text-green-800', solidAreas);
+        html += renderTable('Tabela 2: MAPA DE DIETAS LÍQUIDAS - SOPA', 'bg-yellow-500', 'Sopa', 'text-yellow-800', liquidDietAreas);
+        html += renderTable('Tabela 3: MAPA DE DIETAS LÍQUIDAS - CHÁ', 'bg-red-500', 'Cha', 'text-red-800', liquidDietAreas);
 
+        // Rodapé e Resumo
         html += `
-            <div class="mt-4 pt-2 border-t text-center text-[8px] text-gray-400">
-                Documento gerado eletronicamente em ${new Date().toLocaleString()}
+            <div class="mt-8 pt-4 border-t-2 border-gray-300">
+                
+                <div class="flex gap-4 mb-16">
+                    <!-- Tabela de Resumo MENSAL -->
+                    <div class="w-40">
+                        <h5 class="text-[9px] font-bold mb-1 uppercase text-gray-600">Total do Mês</h5>
+                        <table class="w-full border border-black text-[10px]">
+                            <thead class="bg-black text-white">
+                                <tr>
+                                    <th class="p-1.5 text-left uppercase">Categoria</th>
+                                    <th class="p-1.5 text-right uppercase">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="font-medium">
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Sólidos</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${totals.Solido}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Sopa</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${totals.Sopa}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Chá</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${totals.Cha}</td>
+                                </tr>
+                                <tr class="bg-gray-200 font-bold">
+                                    <td class="border border-gray-400 p-1.5 border-t-2 border-black">TOTAL</td>
+                                    <td class="border border-gray-400 p-1.5 text-right border-t-2 border-black">${totals.Solido + totals.Sopa + totals.Cha}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Tabela de Resumo ACUMULADO (ANO) -->
+                    <div class="w-40">
+                        <h5 class="text-[9px] font-bold mb-1 uppercase text-gray-600">Acumulado (Ano)</h5>
+                        <table class="w-full border border-black text-[10px]">
+                            <thead class="bg-gray-700 text-white">
+                                <tr>
+                                    <th class="p-1.5 text-left uppercase">Categoria</th>
+                                    <th class="p-1.5 text-right uppercase">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody class="font-medium">
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Sólidos</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${ytdTotals.Solido}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Sopa</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${ytdTotals.Sopa}</td>
+                                </tr>
+                                <tr>
+                                    <td class="border border-gray-300 p-1.5">Chá</td>
+                                    <td class="border border-gray-300 p-1.5 text-right font-bold">${ytdTotals.Cha}</td>
+                                </tr>
+                                <tr class="bg-gray-200 font-bold">
+                                    <td class="border border-gray-400 p-1.5 border-t-2 border-black">TOTAL</td>
+                                    <td class="border border-gray-400 p-1.5 text-right border-t-2 border-black">${ytdTotals.Solido + ytdTotals.Sopa + ytdTotals.Cha}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Assinaturas -->
+                <div class="flex justify-between px-20 text-center pb-2">
+                    <div class="flex flex-col items-center">
+                        <div class="text-[10px] font-bold mb-10 uppercase tracking-widest">DELÍCIAS DA CIDADE</div>
+                        <div class="border-t border-black w-64"></div>
+                        <div class="w-full text-left mt-1 text-[10px] pl-1">Data:</div>
+                    </div>
+                    <div class="flex flex-col items-center">
+                        <div class="text-[10px] font-bold mb-10 uppercase tracking-widest">SECÇÃO DE HOTELARIA</div>
+                        <div class="border-t border-black w-64"></div>
+                        <div class="w-full text-left mt-1 text-[10px] pl-1">Data:</div>
+                    </div>
+                </div>
             </div>
         </div>`;
 
-        MLPainModule.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     shareReportWhatsApp: () => {

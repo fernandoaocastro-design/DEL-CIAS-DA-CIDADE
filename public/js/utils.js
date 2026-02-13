@@ -107,6 +107,44 @@ const Utils = {
         throw new Error(json.message || 'Erro na API');
     },
 
+    // Função de Impressão Nativa (Centralizada)
+    printNative: (htmlContent, orientation = 'portrait') => {
+        let iframe = document.getElementById('print-iframe');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'print-iframe';
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+        }
+        
+        const doc = iframe.contentWindow.document;
+        doc.open();
+        doc.write(`
+            <html>
+            <head>
+                <title>Imprimir Relatório</title>
+                <script src="https://cdn.tailwindcss.com"></script>
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style>
+                    body { background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: sans-serif; }
+                    @page { margin: 5mm; size: A4 ${orientation}; }
+                    table { border-collapse: collapse; width: 100%; }
+                </style>
+            </head>
+            <body>
+                ${htmlContent}
+                <script>window.onload = () => { setTimeout(() => { window.print(); }, 1000); };<\/script>
+            </body>
+            </html>
+        `);
+        doc.close();
+    },
+
     toast: (msg, type = 'info') => {
         const el = document.createElement('div');
         const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
@@ -151,6 +189,15 @@ const Utils = {
             containerEl.classList.add('show-modal');
         }
     },
+
+    toggleSubmenu: (id) => {
+        const submenu = document.getElementById(id);
+        const icon = document.getElementById('icon-' + id);
+        if (submenu) {
+            submenu.classList.toggle('hidden');
+            if (icon) icon.classList.toggle('rotate-180');
+        }
+    },
     
     toggleSidebar: () => {
         const sidebar = document.getElementById('sidebar');
@@ -193,6 +240,16 @@ const Utils = {
         const menu = document.getElementById('profile-menu');
         if(menu) menu.classList.toggle('hidden');
         else {
+            const user = Utils.getUser();
+            // Atualiza o botão principal com a foto se existir
+            const profileBtn = document.getElementById('profile-btn');
+            if (profileBtn && user.FotoURL) {
+                const avatarDiv = profileBtn.querySelector('div');
+                if (avatarDiv) {
+                    avatarDiv.innerHTML = `<img src="${user.FotoURL}" class="w-full h-full object-cover">`;
+                }
+            }
+
             // Cria o menu se não existir (Injeção dinâmica)
             const btn = document.querySelector('button[onclick="Utils.toggleProfileMenu()"]');
             if(btn) {
@@ -201,8 +258,8 @@ const Utils = {
                 div.className = 'absolute right-8 top-20 w-56 bg-white rounded-lg shadow-xl border z-50 py-2 animate-fade-in-down';
                 div.innerHTML = `
                     <div class="px-4 py-2 border-b mb-2">
-                        <p class="text-sm font-bold text-gray-800">Administrador</p>
-                        <p class="text-xs text-gray-500">admin@deliciadacidade.com</p>
+                        <p class="text-sm font-bold text-gray-800">${user.Nome || 'Usuário'}</p>
+                        <p class="text-xs text-gray-500 truncate">${user.Email || ''}</p>
                     </div>
                     <a href="#" onclick="Utils.modalEditProfile()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user mr-2"></i> Meu Perfil</a>
                     <a href="configuracoes.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-cog mr-2"></i> Configurações</a>
@@ -225,6 +282,13 @@ const Utils = {
         Utils.openModal('Editar Perfil', `
             <form onsubmit="Utils.handleUpdateProfile(event)">
                 <input type="hidden" name="id" value="${user.ID}">
+                <div class="mb-4 flex justify-center">
+                    <div class="relative w-24 h-24">
+                        <img id="profile-preview" src="${user.FotoURL || 'https://via.placeholder.com/150'}" class="w-24 h-24 rounded-full object-cover border-2 border-gray-200">
+                        <label for="profile-upload" class="absolute bottom-0 right-0 bg-blue-600 text-white p-1 rounded-full cursor-pointer hover:bg-blue-700"><i class="fas fa-camera text-xs"></i></label>
+                        <input type="file" id="profile-upload" accept="image/*" class="hidden" onchange="Utils.previewProfileImage(this)">
+                    </div>
+                </div>
                 <div class="mb-4">
                     <label class="block text-sm font-bold mb-1">Nome</label>
                     <input name="nome" value="${user.Nome}" class="border p-2 rounded w-full" required>
@@ -252,12 +316,37 @@ const Utils = {
         Utils.toggleProfileMenu();
     },
 
+    previewProfileImage: (input) => {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.getElementById('profile-preview').src = e.target.result;
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    },
+
     handleUpdateProfile: async (e) => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
         
         if (data.novaSenha && data.novaSenha.length < 6) {
             return Utils.toast('⚠️ Erro: A nova senha deve ter pelo menos 6 caracteres.');
+        }
+
+        // Processar Foto
+        const fileInput = document.getElementById('profile-upload');
+        if (fileInput && fileInput.files[0]) {
+            const file = fileInput.files[0];
+            if (file.size > 2 * 1024 * 1024) return Utils.toast('Imagem muito grande (Max 2MB)', 'error');
+            
+            const toBase64 = file => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = error => reject(error);
+            });
+            data.fotoURL = await toBase64(file);
         }
 
         try {
@@ -268,6 +357,7 @@ const Utils = {
                 currentUser.Nome = data.nome;
                 currentUser.Email = data.email;
                 currentUser.Assinatura = data.assinatura;
+                if(data.fotoURL) currentUser.FotoURL = data.fotoURL;
                 if(data.novaSenha) currentUser.Senha = data.novaSenha; // Em app real, não salvaria senha no localstorage
                 localStorage.setItem('user', JSON.stringify(currentUser));
                 
@@ -344,6 +434,38 @@ const Utils = {
 
         // Verifica a ação específica (ver, criar, editar, excluir)
         return modPerms[action] === true;
+    },
+
+    // Injeta botão de Backups para Administradores
+    injectAdminMenu: () => {
+        const user = Utils.getUser();
+        if (user.Cargo !== 'Administrador') return;
+
+        const nav = document.querySelector('#sidebar nav');
+        if (!nav) return;
+
+        if (nav.querySelector('a[href="backups.html"]')) return;
+
+        // Link de Backups
+        const linkBackup = document.createElement('a');
+        linkBackup.href = 'backups.html';
+        linkBackup.className = 'flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200';
+        linkBackup.innerHTML = '<i class="fas fa-database w-6 text-center"></i><span class="ml-3 sidebar-text">Backups</span>';
+
+        // Link de Auditoria
+        const linkAudit = document.createElement('a');
+        linkAudit.href = 'auditoria.html';
+        linkAudit.className = 'flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200';
+        linkAudit.innerHTML = '<i class="fas fa-shield-alt w-6 text-center"></i><span class="ml-3 sidebar-text">Auditoria</span>';
+
+        const configBtn = nav.querySelector('a[href="configuracoes.html"]');
+        if (configBtn) {
+            nav.insertBefore(linkBackup, configBtn);
+            nav.insertBefore(linkAudit, configBtn);
+        } else {
+            nav.appendChild(linkBackup);
+            nav.appendChild(linkAudit);
+        }
     },
 
     // Aplica regras visuais na barra lateral
@@ -528,10 +650,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Aplica permissões na sidebar
     Utils.applySidebarPermissions();
+    Utils.injectAdminMenu();
 
     // Restaura estado do menu lateral
     Utils.initSidebar();
 
     // Inicializa Chat
     if (localStorage.getItem('user')) Utils.initChat();
+
+    // Atualiza avatar no header se existir
+    const user = Utils.getUser();
+    const profileBtn = document.getElementById('profile-btn');
+    if (profileBtn && user.FotoURL) {
+        const avatarDiv = profileBtn.querySelector('div');
+        if (avatarDiv) avatarDiv.innerHTML = `<img src="${user.FotoURL}" class="w-full h-full object-cover">`;
+    }
 });

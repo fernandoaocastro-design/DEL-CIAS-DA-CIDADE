@@ -1,12 +1,12 @@
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+// Configuração do Cliente Supabase
+// Usa variáveis de ambiente ou valores de placeholder para evitar erro na inicialização
+const supabaseUrl = process.env.SUPABASE_URL || 'https://sua-url.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY || 'sua-chave-anonima';
 
-if (!supabaseUrl || !supabaseKey) {
-    console.error("ERRO CRÍTICO: Variáveis SUPABASE não encontradas.");
+if (!process.env.SUPABASE_URL) {
+    console.warn('⚠️ AVISO: SUPABASE_URL não definida. O backend pode falhar ao conectar no banco.');
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-module.exports = { supabase };
+export const supabase = createClient(supabaseUrl, supabaseKey);

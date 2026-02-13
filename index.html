@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - DELÍCIAS DA CIDADE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-slate-900 flex items-center justify-center h-screen">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-96">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">Kitchen OS</h1>
+            <p class="text-gray-500 text-sm">Enterprise V2</p>
+        </div>
+        
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="mb-4">
+                <label class="block text-sm font-bold mb-2 text-gray-700">Email</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-envelope"></i></span>
+                    <input type="email" id="email" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="admin@deliciadacidade.com" required>
+                </div>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-bold mb-2 text-gray-700">Senha</label>
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500"><i class="fas fa-lock"></i></span>
+                    <input type="password" id="password" class="w-full border pl-10 p-2 rounded focus:outline-none focus:border-blue-500" placeholder="******" required>
+                </div>
+            </div>
+            <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded transition shadow-lg">
+                Entrar no Sistema
+            </button>
+            <div class="text-center mt-4">
+                <button type="button" onclick="openRecoveryModal()" class="text-sm text-blue-500 hover:text-blue-700 underline">Esqueci minha senha</button>
+            </div>
+            <p id="error-msg" class="text-red-500 text-center mt-4 text-sm hidden bg-red-100 p-2 rounded border border-red-200"></p>
+        </form>
+    </div>
+
+    <!-- Modal de Recuperação de Senha -->
+    <div id="recovery-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-96 animate-fade-in-up">
+            <h3 class="text-xl font-bold mb-2 text-gray-800">Recuperar Senha</h3>
+            <p class="text-sm text-gray-600 mb-4">Digite seu email para receber as instruções.</p>
+            <form onsubmit="handleRecovery(event)">
+                <input type="email" id="recovery-email" class="w-full border p-2 rounded mb-4 focus:outline-none focus:border-blue-500" placeholder="seu@email.com" required>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closeRecoveryModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded text-sm font-bold">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-bold">Enviar Link</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Verifica se já está logado ao carregar a página
+        if (localStorage.getItem('user') && localStorage.getItem('token')) {
+            window.location.href = 'dashboard.html';
+        }
+
+        function validateEmail(email) {
+            const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return re.test(email);
+        }
+
+        function openRecoveryModal() {
+            document.getElementById('recovery-modal').classList.remove('hidden');
+        }
+
+        function closeRecoveryModal() {
+            document.getElementById('recovery-modal').classList.add('hidden');
+        }
+
+        function handleRecovery(e) {
+            e.preventDefault();
+            const email = document.getElementById('recovery-email').value;
+            
+            if (!validateEmail(email)) {
+                alert('Por favor, insira um email válido.');
+                return;
+            }
+
+            // Simulação de envio (backend não implementado)
+            alert(`Se o email ${email} estiver cadastrado, você receberá um link de recuperação em instantes.`);
+            closeRecoveryModal();
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const btn = e.target.querySelector('button');
+            const errorMsg = document.getElementById('error-msg');
+
+            if (!validateEmail(email)) {
+                errorMsg.innerText = 'Por favor, insira um email válido.';
+                errorMsg.classList.remove('hidden');
+                return;
+            }
+
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Verificando...';
+            errorMsg.classList.add('hidden');
+
+            try {
+                const res = await fetch('/.netlify/functions/business', { method: 'POST', body: JSON.stringify({ action: 'login', data: { email, password } }) });
+                
+                // Verifica se o servidor respondeu com erro (ex: 500 ou 404)
+                if (!res.ok) {
+                    const text = await res.text();
+                    if (res.status === 404) {
+                        throw new Error('ERRO 404: Backend não encontrado. Certifique-se de rodar "netlify dev" e acessar http://localhost:8888.');
+                    }
+                    throw new Error(`Erro no Servidor (${res.status}): ${text.substring(0, 100)}...`);
+                }
+
+                const json = await res.json();
+                if (json.success) { 
+                    localStorage.setItem('user', JSON.stringify(json.data));
+                    localStorage.setItem('token', json.data.token); // Salva o token seguro
+                    window.location.href = 'dashboard.html'; 
+                }
+                else { throw new Error(json.message || 'Dados inválidos'); }
+            } catch (err) { errorMsg.innerText = err.message; errorMsg.classList.remove('hidden'); } 
+            finally { btn.disabled = false; btn.innerText = 'Entrar no Sistema'; }
+        }
+    </script>
+    <script src="js/utils.js"></script>
+</body>
+</html>

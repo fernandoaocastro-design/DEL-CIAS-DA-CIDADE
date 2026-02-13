@@ -1,1082 +1,458 @@
+// c:\Users\USER\OneDrive\EMPRESAS\DELÍCIAS DA CIDADE\DELICIA DA CIDADE\public\js\producao.js
+
 const ProducaoModule = {
     state: {
-        activeTab: 'planejamento',
-        fichas: [],
-        planejamento: [],
-        ordens: [],
-        desperdicio: [],
-        estoque: [], // Necessário para ingredientes
-        consumo: [],
-        charts: {},
-        instituicao: [],
-        productionPlans: [],
-        checklistDate: new Date().toISOString().split('T')[0]
+        activeTab: 'pedidos_dia', // pedidos_dia, cardapios, estoque, eventos
+        
+        // Dados Carregados
+        pedidosDia: [],      // PlanejamentoProducao / production_plans
+        cardapios: [],       // FichasTecnicas
+        estoque: [],         // Estoque
+        eventos: [],         // Eventos (Confirmados)
+        ordens: [],          // Ordens de Produção (Status)
+        filterOrdensStatus: '', // Filtro de status para Ordens
+        desperdicio: [],     // Controle de Desperdício
+        instituicao: [],     // Configurações da Instituição (Logo, Nome)
+        charts: {},          // Gráficos
+        
+        // Auxiliares de UI
+        isLoading: false,
+        filterDate: new Date().toISOString().split('T')[0]
     },
 
     init: () => {
+        ProducaoModule.renderLayout();
         ProducaoModule.fetchData();
     },
 
     fetchData: async () => {
+        ProducaoModule.state.isLoading = true;
+        ProducaoModule.render(); 
+
         try {
-            const [fichas, plan, ordens, desp, estoque, consumo, inst, prodPlans] = await Promise.all([
+            const [plans, fichas, estoque, eventos, ordens, desp, inst] = await Promise.all([
+                Utils.api('getAll', 'production_plans'),
                 Utils.api('getAll', 'FichasTecnicas'),
-                Utils.api('getAll', 'PlanejamentoProducao'),
+                Utils.api('getAll', 'Estoque'),
+                Utils.api('getAll', 'Eventos'),
                 Utils.api('getAll', 'OrdensProducao'),
                 Utils.api('getAll', 'ControleDesperdicio'),
-                Utils.api('getAll', 'Estoque'),
-                Utils.api('getAll', 'ConsumoIngredientes'),
-                Utils.api('getAll', 'InstituicaoConfig'),
-                Utils.api('getAll', 'production_plans')
+                Utils.api('getAll', 'InstituicaoConfig')
             ]);
             
-            ProducaoModule.state.fichas = fichas || [];
-            ProducaoModule.state.planejamento = plan || [];
+            ProducaoModule.state.pedidosDia = plans || [];
+            ProducaoModule.state.cardapios = fichas || [];
+            ProducaoModule.state.estoque = estoque || [];
+            ProducaoModule.state.eventos = (eventos || []).filter(e => e.Status === 'Confirmado' || e.Status === 'Em Execução');
             ProducaoModule.state.ordens = ordens || [];
             ProducaoModule.state.desperdicio = desp || [];
-            ProducaoModule.state.estoque = estoque || [];
-            ProducaoModule.state.consumo = consumo || [];
             ProducaoModule.state.instituicao = inst || [];
-            ProducaoModule.state.productionPlans = prodPlans || [];
-            
-            ProducaoModule.render();
+
         } catch (e) {
             console.error(e);
-            Utils.toast("Erro ao carregar dados de produção.", 'error');
+            Utils.toast('Erro ao carregar dados de produção.', 'error');
+        } finally {
+            ProducaoModule.state.isLoading = false;
+            ProducaoModule.render();
         }
+    },
+
+    renderLayout: () => {
+        const container = document.getElementById('producao-content');
+        if (!container) return;
+
+        container.innerHTML = `
+            <!-- Cabeçalho do Módulo de Cozinha -->
+            <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                            <i class="fas fa-fire-burner text-orange-600"></i> Produção & Cozinha
+                        </h2>
+                        <p class="text-sm text-gray-500">Gestão operacional da cozinha industrial</p>
+                    </div>
+                    
+                    <!-- Navegação Principal (4 Submenus) -->
+                    <div class="flex bg-gray-100 p-1 rounded-lg overflow-x-auto">
+                        <button onclick="ProducaoModule.setTab('pedidos_dia')" id="btn-pedidos_dia" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-utensils mr-2"></i>Pedidos do Dia
+                        </button>
+                        <button onclick="ProducaoModule.setTab('ordens')" id="btn-ordens" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-clipboard-list mr-2"></i>Ordens (OP)
+                        </button>
+                        <button onclick="ProducaoModule.setTab('cardapios')" id="btn-cardapios" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-book-open mr-2"></i>Receitas
+                        </button>
+                        <button onclick="ProducaoModule.setTab('estoque')" id="btn-estoque" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-boxes mr-2"></i>Ingredientes
+                        </button>
+                        <button onclick="ProducaoModule.setTab('eventos')" id="btn-eventos" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-calendar-check mr-2"></i>Eventos
+                        </button>
+                        <button onclick="ProducaoModule.setTab('relatorios')" id="btn-relatorios" class="px-4 py-2 text-sm font-medium rounded-md transition-all whitespace-nowrap">
+                            <i class="fas fa-chart-pie mr-2"></i>Relatórios
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Área de Conteúdo -->
+            <div id="tab-content"></div>
+        `;
     },
 
     setTab: (tab) => {
         ProducaoModule.state.activeTab = tab;
-        
-        // Atualiza visual das abas
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.className = 'tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition whitespace-nowrap';
-            btn.style.borderBottom = 'none';
-        });
-        const activeBtn = document.getElementById(`tab-${tab}`);
-        if(activeBtn) {
-            activeBtn.className = 'tab-btn px-4 py-2 font-bold text-orange-600 border-b-2 border-orange-500 transition whitespace-nowrap';
-        }
         ProducaoModule.render();
     },
 
     render: () => {
-        const container = document.getElementById('producao-content');
+        // Atualiza botões ativos
         const tab = ProducaoModule.state.activeTab;
-
-        if (tab === 'planejamento') ProducaoModule.renderPlanejamento(container);
-        else if (tab === 'visao-geral') ProducaoModule.renderVisaoGeralAgendamento(container);
-        else if (tab === 'novo') ProducaoModule.renderNovoPlanejamento(container);
-        else if (tab === 'fichas') ProducaoModule.renderFichas(container);
-        else if (tab === 'ordens') ProducaoModule.renderOrdens(container);
-        else if (tab === 'ingredientes') ProducaoModule.renderIngredientes(container);
-        else if (tab === 'desperdicio') ProducaoModule.renderDesperdicio(container);
-        else if (tab === 'custos') ProducaoModule.renderCustos(container);
-        else if (tab === 'relatorios') ProducaoModule.renderRelatorios(container);
-        else if (tab === 'limpeza') ProducaoModule.renderLimpeza(container);
-    },
-
-    // 📅 NOVO MÓDULO: AGENDAMENTO DE PRODUÇÃO
-    renderVisaoGeralAgendamento: (container) => {
-        const plans = ProducaoModule.state.productionPlans || [];
-        container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Visão Geral do Agendamento</h3>
-                <button onclick="ProducaoModule.setTab('novo')" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700">
-                    <i class="fas fa-plus"></i> Novo Planejamento
-                </button>
-            </div>
-            <div class="bg-white rounded shadow overflow-x-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Staff (Dia/Noite)</th><th>Pacientes (Sól/Liq)</th><th>Meta Sólida</th><th>Ações</th></tr>
-                    </thead>
-                    <tbody class="divide-y">
-                        ${plans.map(p => `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3 font-bold">${Utils.formatDate(p.planning_date)}</td>
-                                <td class="p-3">${p.staff_count_day} / ${p.staff_count_night}</td>
-                                <td class="p-3">${p.patient_solid} / ${p.patient_liquid}</td>
-                                <td class="p-3 font-bold text-blue-600">${p.meta_solid}</td>
-                                <td class="p-3">
-                                    <button onclick="ProducaoModule.printProductionPlan('${p.id}')" class="text-red-600 hover:text-red-800 bg-red-50 p-2 rounded transition" title="Imprimir Ficha de Produção"><i class="fas fa-file-pdf"></i> Ficha do Dia</button>
-                                </td>
-                            </tr>
-                        `).join('')}
-                        ${plans.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum planejamento encontrado.</td></tr>' : ''}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    },
-
-    renderNovoPlanejamento: (container) => {
-        container.innerHTML = `
-            <div class="max-w-5xl mx-auto">
-                <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
-                    <i class="fas fa-calendar-plus text-blue-600"></i> Novo Planejamento de Produção
-                </h2>
-
-                <form onsubmit="ProducaoModule.saveProductionPlan(event)">
-                    <!-- SEÇÃO 1: CÁLCULO DE PESSOAS / META -->
-                    <div class="bg-white p-6 rounded-lg shadow mb-6 border-l-4 border-blue-500">
-                        <h3 class="font-bold text-gray-700 mb-4 border-b pb-2">1. Definição de Metas (Pessoas)</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div>
-                                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Data do Planejamento</label>
-                                <input type="date" name="planning_date" class="border p-2 rounded w-full" required>
-                            </div>
-                            <div class="bg-gray-50 p-3 rounded">
-                                <label class="block text-xs font-bold text-blue-600 uppercase mb-2">Funcionários (Staff)</label>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input type="number" name="staff_count_day" placeholder="Dia" class="border p-2 rounded text-sm" min="0">
-                                    <input type="number" name="staff_count_night" placeholder="Noite" class="border p-2 rounded text-sm" min="0">
-                                </div>
-                            </div>
-                            <div class="bg-gray-50 p-3 rounded">
-                                <label class="block text-xs font-bold text-green-600 uppercase mb-2">Pacientes</label>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <input type="number" name="patient_solid" placeholder="Sólida" class="border p-2 rounded text-sm" min="0">
-                                    <input type="number" name="patient_liquid" placeholder="Líquida" class="border p-2 rounded text-sm" min="0">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- SEÇÃO 2: FICHA TÉCNICA (CARTÕES) -->
-                    <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                        <i class="fas fa-clipboard-list"></i> Ficha Técnica de Produção
-                    </h3>
-                    
-                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                        
-                        <!-- CARTÃO 1: SÓLIDOS -->
-                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
-                            <div class="bg-green-600 text-white p-3 font-bold text-center">🍽️ SÓLIDOS (Prato Principal)</div>
-                            <div class="p-4 flex-1">
-                                <div class="mb-4">
-                                    <label class="block text-xs font-bold text-gray-500 mb-1">Nome do Prato</label>
-                                    <input type="text" id="solid-dish-name" class="border p-2 rounded w-full font-bold text-gray-700" placeholder="Ex: Frango Grelhado">
-                                </div>
-                                <label class="block text-xs font-bold text-gray-500 mb-1">Ingredientes</label>
-                                <div id="solid-ingredients-list" class="space-y-2 mb-4 max-h-64 overflow-y-auto pr-1"></div>
-                                <button type="button" onclick="ProducaoModule.addIngredienteRow()" class="w-full py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded hover:bg-gray-50 hover:border-green-500 hover:text-green-600 transition text-sm font-bold">+ Adicionar Ingrediente</button>
-                            </div>
-                        </div>
-
-                        <!-- CARTÃO 2: SOPA -->
-                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
-                            <div class="bg-yellow-500 text-white p-3 font-bold text-center">🥣 SOPA (Base & Legumes)</div>
-                            <div class="p-4 flex-1 space-y-4">
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div><label class="text-xs font-bold text-gray-500">Fuba (g/Kg)</label><input type="number" step="0.1" id="soup-fuba" class="border p-2 rounded w-full"></div>
-                                    <div><label class="text-xs font-bold text-gray-500">Batata Rena</label><input type="number" step="0.1" id="soup-potato" class="border p-2 rounded w-full"></div>
-                                    <div><label class="text-xs font-bold text-gray-500">Massa (Pct)</label><input type="number" step="1" id="soup-pasta" class="border p-2 rounded w-full"></div>
-                                    <div><label class="text-xs font-bold text-gray-500">Cebola (Kg)</label><input type="number" step="0.1" id="soup-onion" class="border p-2 rounded w-full"></div>
-                                </div>
-                                <div class="border-t pt-3">
-                                    <label class="block text-xs font-bold text-gray-500 mb-2">Seleção de Legumes</label>
-                                    <div class="grid grid-cols-2 gap-2 text-sm">
-                                        ${['Cenoura', 'Abóbora', 'Couve', 'Repolho', 'Beringela', 'Quiabo'].map(v => `<label class="flex items-center gap-2"><input type="checkbox" class="soup-veg" value="${v}"> ${v}</label>`).join('')}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- CARTÃO 3: CHÁ -->
-                        <div class="bg-white rounded-lg shadow overflow-hidden flex flex-col h-full">
-                            <div class="bg-orange-500 text-white p-3 font-bold text-center">☕ CHÁ (Matinal/Noturno)</div>
-                            <div class="p-4 flex-1">
-                                <div class="space-y-4">
-                                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Erva / Chá (Qtd)</label><input type="number" step="0.1" id="tea-herb" class="border p-2 rounded w-full" placeholder="Ex: 5"></div>
-                                    <div><label class="block text-xs font-bold text-gray-500 mb-1">Açúcar (Kg)</label><input type="number" step="0.1" id="tea-sugar" class="border p-2 rounded w-full" placeholder="Ex: 2"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex justify-end gap-3">
-                        <button type="button" onclick="ProducaoModule.setTab('visao-geral')" class="px-6 py-3 rounded border text-gray-600 hover:bg-gray-100">Cancelar</button>
-                        <button type="submit" class="px-6 py-3 rounded bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-lg flex items-center gap-2"><i class="fas fa-save"></i> Salvar Planejamento</button>
-                    </div>
-                </form>
-            </div>
-        `;
-        ProducaoModule.addIngredienteRow();
-    },
-
-    addIngredienteRow: () => {
-        const container = document.getElementById('solid-ingredients-list');
-        if (!container) return;
-        const div = document.createElement('div');
-        div.className = 'flex gap-2 items-center ingredient-row';
-        div.innerHTML = `<input type="text" placeholder="Item (ex: Arroz)" class="border p-2 rounded w-full text-sm ing-name"><input type="text" placeholder="Qtd" class="border p-2 rounded w-24 text-sm ing-qty"><button type="button" onclick="this.parentElement.remove()" class="text-red-500 hover:text-red-700 px-2"><i class="fas fa-times"></i></button>`;
-        container.appendChild(div);
-    },
-
-    saveProductionPlan: async (e) => {
-        e.preventDefault();
-        const form = e.target;
-        const formData = new FormData(form);
-        const baseData = { planning_date: formData.get('planning_date'), staff_count_day: Number(formData.get('staff_count_day')||0), staff_count_night: Number(formData.get('staff_count_night')||0), patient_solid: Number(formData.get('patient_solid')||0), patient_liquid: Number(formData.get('patient_liquid')||0) };
+        const buttons = ['pedidos_dia', 'ordens', 'cardapios', 'estoque', 'eventos', 'relatorios'];
         
-        const solidIngredients = [];
-        document.querySelectorAll('.ingredient-row').forEach(row => { const name = row.querySelector('.ing-name').value; const qty = row.querySelector('.ing-qty').value; if (name) solidIngredients.push({ item: name, qtd: qty }); });
-        const soupVegs = [];
-        document.querySelectorAll('.soup-veg:checked').forEach(cb => soupVegs.push(cb.value));
-
-        const productionDetails = { solidos: { prato: document.getElementById('solid-dish-name').value, ingredientes: solidIngredients }, sopa: { fuba: document.getElementById('soup-fuba').value, batata: document.getElementById('soup-potato').value, massa: document.getElementById('soup-pasta').value, cebola: document.getElementById('soup-onion').value, legumes: soupVegs }, cha: { erva: document.getElementById('tea-herb').value, acucar: document.getElementById('tea-sugar').value } };
-        
-        try { await Utils.api('save', 'production_plans', { ...baseData, production_details: productionDetails }); Utils.toast('Planejamento salvo!', 'success'); ProducaoModule.fetchData(); ProducaoModule.setTab('visao-geral'); } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
-    },
-
-    printProductionPlan: (id) => {
-        const plan = ProducaoModule.state.productionPlans.find(p => p.id === id);
-        if (!plan) return Utils.toast('Planejamento não encontrado.', 'error');
-
-        const details = plan.production_details || {};
-        const solidos = details.solidos || {};
-        const sopa = details.sopa || {};
-        const cha = details.cha || {};
-        const inst = ProducaoModule.state.instituicao[0] || {};
-        const showLogo = inst.ExibirLogoRelatorios;
-
-        // Elemento temporário
-        const printDiv = document.createElement('div');
-        printDiv.id = 'print-production-plan';
-        printDiv.style.position = 'absolute';
-        printDiv.style.left = '-9999px';
-        printDiv.style.top = '0';
-        printDiv.style.width = '210mm'; // A4 Portrait
-        printDiv.style.background = 'white';
-
-        // Helper para formatar ingredientes
-        const renderIngredientes = (list) => {
-            if (!list || list.length === 0) return '<div class="text-xs text-gray-500 italic">Nenhum ingrediente listado.</div>';
-            return `<ul class="list-disc pl-4 text-sm">${list.map(i => `<li><b>${i.item}</b>: ${i.qtd}</li>`).join('')}</ul>`;
-        };
-
-        // Helper para legumes (array de strings)
-        const renderLegumes = (list) => {
-             if (!list || list.length === 0) return '-';
-             return list.join(', ');
-        };
-
-        printDiv.innerHTML = `
-            <div class="p-8 font-sans text-gray-900">
-                <!-- Cabeçalho -->
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                        <div>
-                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">Ficha de Produção Diária</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-2xl font-bold text-gray-800">${Utils.formatDate(plan.planning_date)}</h2>
-                        <p class="text-xs text-gray-500">Gerado em: ${new Date().toLocaleString()}</p>
-                    </div>
-                </div>
-
-                <!-- 1. Metas de Produção -->
-                <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
-                    <h3 class="font-bold text-gray-800 border-b border-gray-300 mb-3 pb-1 uppercase text-sm">1. Metas de Produção</h3>
-                    <div class="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                            <p class="text-xs text-gray-500 uppercase font-bold">Sólidos (Total)</p>
-                            <p class="text-2xl font-bold text-blue-700">${plan.meta_solid}</p>
-                            <p class="text-xs text-gray-400">Staff: ${plan.staff_count_day + plan.staff_count_night} | Pacientes: ${plan.patient_solid}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs text-gray-500 uppercase font-bold">Sopa (Líquida)</p>
-                            <p class="text-2xl font-bold text-yellow-600">${plan.meta_soup}</p>
-                            <p class="text-xs text-gray-400">Pacientes: ${plan.patient_liquid}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs text-gray-500 uppercase font-bold">Chá</p>
-                            <p class="text-2xl font-bold text-orange-600">${plan.meta_tea}</p>
-                            <p class="text-xs text-gray-400">Pacientes: ${plan.patient_liquid}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 2. Prato Principal (Sólidos) -->
-                <div class="mb-6">
-                    <h3 class="font-bold text-white bg-green-700 p-2 mb-3 uppercase text-sm rounded-t">2. Sólidos - Prato Principal</h3>
-                    <div class="border border-green-200 rounded-b p-4">
-                        <div class="mb-3">
-                            <span class="text-xs font-bold text-gray-500 uppercase block">Nome do Prato</span>
-                            <span class="text-lg font-bold">${solidos.prato || 'Não definido'}</span>
-                        </div>
-                        <div>
-                            <span class="text-xs font-bold text-gray-500 uppercase block mb-1">Ingredientes / Insumos</span>
-                            ${renderIngredientes(solidos.ingredientes)}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-2 gap-6">
-                    <!-- 3. Sopa -->
-                    <div class="mb-6">
-                        <h3 class="font-bold text-white bg-yellow-600 p-2 mb-3 uppercase text-sm rounded-t">3. Sopa</h3>
-                        <div class="border border-yellow-200 rounded-b p-4 text-sm">
-                            <div class="grid grid-cols-2 gap-2 mb-3">
-                                <div><span class="font-bold block text-xs text-gray-500">Fuba</span>${sopa.fuba || '-'} g/Kg</div>
-                                <div><span class="font-bold block text-xs text-gray-500">Batata Rena</span>${sopa.batata || '-'} g/Kg</div>
-                                <div><span class="font-bold block text-xs text-gray-500">Massa</span>${sopa.massa || '-'} Pct</div>
-                                <div><span class="font-bold block text-xs text-gray-500">Cebola</span>${sopa.cebola || '-'} Kg</div>
-                            </div>
-                            <div class="border-t pt-2 mt-2">
-                                <span class="font-bold block text-xs text-gray-500 mb-1">Legumes Selecionados</span>
-                                <p>${renderLegumes(sopa.legumes)}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 4. Chá -->
-                    <div class="mb-6">
-                        <h3 class="font-bold text-white bg-orange-600 p-2 mb-3 uppercase text-sm rounded-t">4. Chá</h3>
-                        <div class="border border-orange-200 rounded-b p-4 text-sm">
-                            <div class="mb-3">
-                                <span class="font-bold block text-xs text-gray-500">Erva / Chá</span>
-                                <span class="text-lg">${cha.erva || '-'} <span class="text-xs font-normal">Qtd</span></span>
-                            </div>
-                            <div>
-                                <span class="font-bold block text-xs text-gray-500">Açúcar</span>
-                                <span class="text-lg">${cha.acucar || '-'} <span class="text-xs font-normal">Kg</span></span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Assinaturas -->
-                <div class="mt-12 grid grid-cols-2 gap-12 text-center">
-                    <div class="border-t border-gray-400 pt-2">
-                        <p class="font-bold text-sm">Responsável Cozinha</p>
-                    </div>
-                    <div class="border-t border-gray-400 pt-2">
-                        <p class="font-bold text-sm">Nutricionista / Supervisor</p>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(printDiv);
-
-        const opt = {
-            margin: 10,
-            filename: `ficha-producao-${plan.planning_date}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(printDiv).save().then(() => {
-            document.body.removeChild(printDiv);
+        buttons.forEach(btn => {
+            const el = document.getElementById(`btn-${btn}`);
+            if (el) {
+                if (btn === tab) {
+                    el.className = 'px-4 py-2 text-sm font-bold rounded-md transition-all bg-white text-orange-600 shadow-sm';
+                } else {
+                    el.className = 'px-4 py-2 text-sm font-medium rounded-md transition-all text-gray-500 hover:text-gray-700 hover:bg-gray-200';
+                }
+            }
         });
+
+        // Renderiza Conteúdo
+        const container = document.getElementById('tab-content');
+        if (tab === 'pedidos_dia') ProducaoModule.renderPedidosDia(container);
+        else if (tab === 'ordens') ProducaoModule.renderOrdens(container);
+        else if (tab === 'cardapios') ProducaoModule.renderCardapios(container);
+        else if (tab === 'estoque') ProducaoModule.renderEstoque(container);
+        else if (tab === 'eventos') ProducaoModule.renderEventos(container);
+        else if (tab === 'relatorios') ProducaoModule.renderRelatorios(container);
     },
 
-    // 🍽️ 1️⃣ Planejamento de Produção
-    renderPlanejamento: (container) => {
-        const data = ProducaoModule.state.planejamento;
-        const canCreate = Utils.checkPermission('Producao', 'criar');
-        container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Planejamento de Produção</h3>
-                ${canCreate ? `<button onclick="ProducaoModule.modalPlanejamento()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
-                    <i class="fas fa-plus"></i> Novo Planejamento
-                </button>` : ''}
-            </div>
-            <div class="bg-white rounded shadow overflow-x-auto">
+    // -------------------------------------------------------------------------
+    // 1. PEDIDOS DO DIA (Refeições Normais)
+    // -------------------------------------------------------------------------
+    renderPedidosDia: (container) => {
+        const date = ProducaoModule.state.filterDate;
+        const plans = ProducaoModule.state.pedidosDia.filter(p => p.planning_date === date);
+        const eventos = ProducaoModule.state.eventos.filter(e => e.Data.startsWith(date));
+        const ordens = ProducaoModule.state.ordens || [];
+        
+        const hasPlan = plans.length > 0;
+        const plan = hasPlan ? plans[0] : null;
+
+        // --- 1. CONSTRUÇÃO DA TABELA UNIFICADA (DASHBOARD) ---
+        const dashboardRows = [];
+
+        // Adiciona Pedido de Rotina (Se houver)
+        if (plan) {
+            const ordem = ordens.find(o => o.PlanejamentoID === plan.id || (o.DetalhesJSON && o.DetalhesJSON.PlanejamentoID === plan.id));
+            const status = ordem ? ordem.Status : 'Planejado';
+            const totalPessoas = (plan.staff_count_day || 0) + (plan.staff_count_night || 0) + (plan.patient_solid || 0) + (plan.patient_liquid || 0);
+            
+            dashboardRows.push({
+                tipo: 'Pedido (Rotina)',
+                cliente: 'Hospital / Staff',
+                pessoas: `${totalPessoas} refeições`,
+                status: status,
+                id: plan.id,
+                isEvent: false
+            });
+        }
+
+        // Adiciona Eventos do Dia
+        eventos.forEach(e => {
+            const ordem = ordens.find(o => o.EventoID === e.ID);
+            const status = ordem ? ordem.Status : (e.Status === 'Confirmado' ? 'Aguardando OP' : e.Status);
+            
+            dashboardRows.push({
+                tipo: 'Evento',
+                cliente: e.Titulo,
+                pessoas: `${e.Pessoas || 0} pessoas`,
+                status: status,
+                id: e.ID,
+                isEvent: true
+            });
+        });
+
+        let contentHtml = `
+            <div class="bg-white rounded-lg shadow overflow-hidden mb-8 border border-gray-200">
+                <div class="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-list-alt text-orange-600"></i> Produção Hoje – ${Utils.formatDate(date)}</h3>
+                    <button onclick="ProducaoModule.modalPlanejamento(null, '${date}')" class="bg-orange-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-orange-700 transition shadow">
+                        <i class="fas fa-plus mr-1"></i> Novo Pedido
+                    </button>
+                </div>
                 <table class="w-full text-sm text-left">
                     <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Refeição</th><th>Setor</th><th>Receita</th><th>Qtd Plan.</th><th>Status</th><th>Ações</th></tr>
+                        <tr>
+                            <th class="p-3">Tipo</th>
+                            <th class="p-3">Cliente / Evento</th>
+                            <th class="p-3 text-center">Pessoas / Qtd</th>
+                            <th class="p-3 text-center">Status</th>
+                            <th class="p-3 text-center">Ações</th>
+                        </tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${data.map(p => `
+                        ${dashboardRows.map(row => {
+                            let statusColor = 'bg-gray-100 text-gray-800';
+                            if (row.status === 'Em Produção' || row.status === 'Em Execução') statusColor = 'bg-yellow-100 text-yellow-800';
+                            if (row.status === 'Concluída' || row.status === 'Pronto') statusColor = 'bg-green-100 text-green-800';
+                            
+                            return `
                             <tr class="hover:bg-gray-50">
-                                <td class="p-3">${Utils.formatDate(p.DataProducao)}</td>
-                                <td class="p-3">${p.TipoRefeicao}</td>
-                                <td class="p-3">${p.Setor}</td>
-                                <td class="p-3 font-bold">${p.ReceitaNome}</td>
-                                <td class="p-3">${p.QtdPlanejada}</td>
-                                <td class="p-3"><span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">${p.Status}</span></td>
-                                <td class="p-3">
-                                    ${canCreate ? `<button onclick="ProducaoModule.gerarOrdem('${p.ID}')" class="text-green-600 hover:text-green-800" title="Gerar Ordem"><i class="fas fa-file-signature"></i></button>` : ''}
+                                <td class="p-3"><span class="font-bold ${row.isEvent ? 'text-purple-600' : 'text-blue-600'}">${row.tipo}</span></td>
+                                <td class="p-3 font-medium">${row.cliente}</td>
+                                <td class="p-3 text-center">${row.pessoas}</td>
+                                <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs font-bold ${statusColor}">${row.status}</span></td>
+                                <td class="p-3 text-center">
+                                    ${!row.isEvent ? `<button onclick="ProducaoModule.printProductionPlan('${row.id}')" class="text-gray-500 hover:text-gray-800 bg-gray-100 p-1.5 rounded" title="Ver Ficha"><i class="fas fa-eye"></i></button>` : ''}
+                                    <button onclick="ProducaoModule.modalOrdemProducao('${row.isEvent ? 'evento' : 'rotina'}', '${row.id}')" class="text-blue-600 hover:text-blue-800 bg-blue-50 p-1.5 rounded font-bold text-xs border border-blue-200" title="Ordem de Produção">Ver OP</button>
                                 </td>
                             </tr>
-                        `).join('')}
+                            `;
+                        }).join('')}
+                        ${dashboardRows.length === 0 ? '<tr><td colspan="5" class="p-8 text-center text-gray-500 italic">Nenhuma produção agendada para hoje.</td></tr>' : ''}
                     </tbody>
                 </table>
+                ${!plan ? `<div class="p-3 bg-gray-50 border-t text-center"><button onclick="ProducaoModule.modalPlanejamento(null, '${date}')" class="text-sm text-orange-600 hover:underline font-bold">+ Criar Planejamento de Rotina</button></div>` : ''}
             </div>
         `;
-    },
 
-    modalPlanejamento: () => {
-        const receitas = ProducaoModule.state.fichas;
-        Utils.openModal('Novo Planejamento', `
-            <form onsubmit="ProducaoModule.save(event, 'PlanejamentoProducao')">
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Data Produção</label><input type="date" name="DataProducao" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Tipo Refeição</label>
-                        <select name="TipoRefeicao" class="border p-2 rounded w-full">
-                            <option>Café da Manhã</option><option>Almoço</option><option>Jantar</option><option>Ceia</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Setor / Unidade</label><input name="Setor" class="border p-2 rounded w-full" placeholder="Ex: Pediatria"></div>
-                    <div><label class="text-xs font-bold">Nº Pacientes</label><input type="number" name="QtdPacientes" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="mb-3">
-                    <label class="text-xs font-bold">Receita Planejada</label>
-                    <select name="ReceitaID" class="border p-2 rounded w-full" onchange="this.form.ReceitaNome.value = this.options[this.selectedIndex].text">
-                        <option value="">Selecione...</option>
-                        ${receitas.map(r => `<option value="${r.ID}">${r.Nome}</option>`).join('')}
-                    </select>
-                    <input type="hidden" name="ReceitaNome">
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Qtd Planejada (Kg/Porções)</label><input type="number" name="QtdPlanejada" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Resp. Técnico</label><input name="ResponsavelTecnico" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="mb-3"><label class="text-xs font-bold">Observações</label><textarea name="Observacoes" class="border p-2 rounded w-full"></textarea></div>
-                <button class="w-full bg-orange-600 text-white py-2 rounded font-bold">Salvar Planejamento</button>
-            </form>
-        `);
-    },
+        // --- 2. DETALHES DO PEDIDO DE ROTINA (CARDS) ---
+        if (plan) {
+            const details = plan.production_details || {};
+            const solidos = details.solidos || {};
+            const sopa = details.sopa || {};
+            const cha = details.cha || {};
 
-    // 🧑‍🍳 2️⃣ Fichas Técnicas
-    renderFichas: (container) => {
-        const data = ProducaoModule.state.fichas;
-        const canCreate = Utils.checkPermission('Producao', 'criar');
-        const canEdit = Utils.checkPermission('Producao', 'editar');
-        const canDelete = Utils.checkPermission('Producao', 'excluir');
-        container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Fichas Técnicas</h3>
-                ${canCreate ? `<button onclick="ProducaoModule.modalFicha()" class="bg-orange-600 text-white px-4 py-2 rounded shadow hover:bg-orange-700">
-                    <i class="fas fa-plus"></i> Nova Ficha
-                </button>` : ''}
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                ${data.map(f => `
-                    <div class="bg-white p-4 rounded shadow border-l-4 border-orange-400">
-                        <h4 class="font-bold text-lg">${f.Nome}</h4>
-                        <p class="text-xs text-gray-500 mb-2">${f.Categoria || 'Geral'}</p>
-                        <div class="text-sm mb-2">
-                            <div>⏱️ ${f.TempoPreparo || '-'}</div>
-                            <div>🥘 Rendimento: ${f.Rendimento || 0} porções</div>
-                            <div class="font-bold text-green-600">💰 Custo: ${Utils.formatCurrency(f.CustoPorPorcao)}</div>
+            contentHtml += `
+                <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-info-circle text-blue-600"></i> Detalhes da Produção de Rotina</h3>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Resumo de Metas -->
+                    <div class="lg:col-span-3 bg-white p-4 rounded-lg shadow-sm border border-gray-200 flex flex-wrap justify-between items-center gap-4">
+                        <div>
+                            <h3 class="font-bold text-gray-800 text-lg">Produção de ${Utils.formatDate(date)}</h3>
+                            <p class="text-xs text-gray-500">Planejamento #${plan.id.slice(0,8)}</p>
                         </div>
-                        <div class="flex gap-3 mt-2">
-                            ${canEdit ? `<button onclick="ProducaoModule.modalFicha('${f.ID}')" class="text-blue-600 text-sm hover:underline">Editar</button>` : ''}
-                            ${canCreate ? `<button onclick="ProducaoModule.duplicarFicha('${f.ID}')" class="text-gray-600 text-sm hover:text-gray-800" title="Duplicar"><i class="fas fa-copy"></i> Duplicar</button>` : ''}
-                            ${canDelete ? `<button onclick="ProducaoModule.deleteFicha('${f.ID}')" class="text-red-500 text-sm hover:text-red-700 ml-auto" title="Excluir"><i class="fas fa-trash"></i></button>` : ''}
+                        <div class="flex gap-4 text-center">
+                            <div class="px-4 py-2 bg-blue-50 rounded-lg border border-blue-100">
+                                <div class="text-xs text-blue-600 font-bold uppercase">Sólidos</div>
+                                <div class="text-xl font-bold text-blue-800">${plan.meta_solid}</div>
+                            </div>
+                            <div class="px-4 py-2 bg-yellow-50 rounded-lg border border-yellow-100">
+                                <div class="text-xs text-yellow-600 font-bold uppercase">Sopa</div>
+                                <div class="text-xl font-bold text-yellow-800">${plan.meta_soup}</div>
+                            </div>
+                            <div class="px-4 py-2 bg-green-50 rounded-lg border border-green-100">
+                                <div class="text-xs text-green-600 font-bold uppercase">Chá</div>
+                                <div class="text-xl font-bold text-green-800">${plan.meta_tea}</div>
+                            </div>
+                        </div>
+                        <div>
+                            <button onclick="ProducaoModule.modalPlanejamento('${plan.id}')" class="text-blue-600 hover:text-blue-800 border border-blue-200 px-3 py-2 rounded bg-blue-50 mr-2 font-bold text-xs">
+                                <i class="fas fa-edit"></i> Editar
+                            </button>
+                            <button onclick="ProducaoModule.printProductionPlan('${plan.id}')" class="text-gray-600 hover:text-gray-800 border border-gray-300 px-3 py-2 rounded bg-white text-xs font-bold">
+                                <i class="fas fa-print"></i> Imprimir Ficha
+                            </button>
                         </div>
                     </div>
-                `).join('')}
-            </div>
-        `;
-    },
 
-    duplicarFicha: async (id) => {
-        if(!confirm('Deseja duplicar esta ficha técnica?')) return;
-        const original = ProducaoModule.state.fichas.find(f => f.ID === id);
-        if(!original) return;
+                    <!-- Cartão Sólidos -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-blue-600 text-white p-3 font-bold flex justify-between items-center">
+                            <span>🍽️ Prato Principal</span>
+                            <span class="text-xs bg-blue-700 px-2 py-1 rounded">Meta: ${plan.meta_solid}</span>
+                        </div>
+                        <div class="p-4">
+                            <h4 class="font-bold text-lg text-gray-800 mb-2">${solidos.prato || 'Não definido'}</h4>
+                            <div class="space-y-2">
+                                <p class="text-xs font-bold text-gray-500 uppercase border-b pb-1">Ingredientes</p>
+                                <ul class="text-sm text-gray-600 space-y-1">
+                                    ${(solidos.ingredientes || []).map(i => `
+                                        <li class="flex justify-between">
+                                            <span>${i.item}</span>
+                                            <span class="font-bold">${i.qtd}</span>
+                                        </li>
+                                    `).join('')}
+                                    ${(!solidos.ingredientes || solidos.ingredientes.length === 0) ? '<li class="italic text-gray-400">Sem ingredientes listados</li>' : ''}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
 
-        const copia = { ...original };
-        delete copia.ID;
-        delete copia.CriadoEm;
-        copia.Nome = copia.Nome + ' (Cópia)';
+                    <!-- Cartão Sopa -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-yellow-500 text-white p-3 font-bold flex justify-between items-center">
+                            <span>🥣 Sopa / Dieta</span>
+                            <span class="text-xs bg-yellow-600 px-2 py-1 rounded">Meta: ${plan.meta_soup}</span>
+                        </div>
+                        <div class="p-4">
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div><span class="block text-xs text-gray-500">Fuba</span><span class="font-bold">${sopa.fuba || '-'}</span></div>
+                                <div><span class="block text-xs text-gray-500">Batata Rena</span><span class="font-bold">${sopa.batata || '-'}</span></div>
+                                <div><span class="block text-xs text-gray-500">Massa</span><span class="font-bold">${sopa.massa || '-'}</span></div>
+                                <div><span class="block text-xs text-gray-500">Cebola</span><span class="font-bold">${sopa.cebola || '-'}</span></div>
+                                ${sopa.carne_seca ? `<div><span class="block text-xs text-gray-500">Carne Seca</span><span class="font-bold">${sopa.carne_seca}</span></div>` : ''}
+                                ${sopa.costelinha ? `<div><span class="block text-xs text-gray-500">Costelinha</span><span class="font-bold">${sopa.costelinha}</span></div>` : ''}
+                                ${sopa.paio ? `<div><span class="block text-xs text-gray-500">Paio</span><span class="font-bold">${sopa.paio}</span></div>` : ''}
+                                ${sopa.calabresa ? `<div><span class="block text-xs text-gray-500">Calabresa</span><span class="font-bold">${sopa.calabresa}</span></div>` : ''}
+                            </div>
+                            <div>
+                                <p class="text-xs font-bold text-gray-500 uppercase border-b pb-1 mb-2">Legumes</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${(sopa.legumes || []).map(l => `<span class="bg-yellow-50 text-yellow-800 text-xs px-2 py-1 rounded border border-yellow-100">${l}</span>`).join('')}
+                                    ${(!sopa.legumes || sopa.legumes.length === 0) ? '<span class="text-xs text-gray-400 italic">Nenhum</span>' : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-        try {
-            await Utils.api('save', 'FichasTecnicas', copia);
-            Utils.toast('Ficha duplicada com sucesso!', 'success');
-            ProducaoModule.fetchData();
-        } catch (err) { Utils.toast('Erro ao duplicar: ' + err.message, 'error'); }
-    },
-
-    modalFicha: (id = null) => {
-        const ficha = id ? ProducaoModule.state.fichas.find(f => f.ID === id) : {};
-        const estoque = ProducaoModule.state.estoque || [];
-        const ingredientes = ficha.IngredientesJSON || [];
-
-        // Função para adicionar linha de ingrediente
-        window.addIngrediente = () => {
-            const container = document.getElementById('lista-ingredientes');
-            // Usa timestamp para garantir ID único e evitar conflito ao excluir/adicionar linhas
-            const index = Date.now() + Math.floor(Math.random() * 1000);
-            const div = document.createElement('div');
-            div.className = 'grid grid-cols-12 gap-2 mb-2 items-center ingrediente-row';
-            div.innerHTML = `
-                <div class="col-span-6">
-                    <select name="ingrediente_id_${index}" class="border p-2 rounded w-full text-sm" onchange="updateCusto(this)">
-                        <option value="">Selecione...</option>
-                        ${estoque.map(e => `<option value="${e.ID}" data-custo="${e.CustoUnitario}" data-unidade="${e.Unidade}">${e.Nome} (${e.Unidade})</option>`).join('')}
-                    </select>
-                </div>
-                <div class="col-span-3">
-                    <input type="number" step="0.001" name="ingrediente_qtd_${index}" class="border p-2 rounded w-full text-sm" placeholder="Qtd" oninput="calcCustoTotal()">
-                </div>
-                <div class="col-span-2">
-                    <input type="text" readonly class="border p-2 rounded w-full text-sm bg-gray-100 text-right custo-parcial" value="0.00">
-                </div>
-                <div class="col-span-1 text-center">
-                    <button type="button" onclick="this.parentElement.parentElement.remove(); calcCustoTotal()" class="text-red-500"><i class="fas fa-times"></i></button>
+                    <!-- Cartão Chá -->
+                    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="bg-green-600 text-white p-3 font-bold flex justify-between items-center">
+                            <span>☕ Chá</span>
+                            <span class="text-xs bg-green-700 px-2 py-1 rounded">Meta: ${plan.meta_tea}</span>
+                        </div>
+                        <div class="p-4">
+                            <div class="space-y-4">
+                                <div class="flex justify-between items-center border-b pb-2">
+                                    <span class="text-gray-600">Erva / Chá</span>
+                                    <span class="font-bold text-lg">${cha.erva || '-'}</span>
+                                </div>
+                                <div class="flex justify-between items-center border-b pb-2">
+                                    <span class="text-gray-600">Açúcar (Kg)</span>
+                                    <span class="font-bold text-lg">${cha.acucar || '-'}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             `;
-            container.appendChild(div);
-        };
-
-        Utils.openModal(id ? 'Editar Ficha Técnica' : 'Nova Ficha Técnica', `
-            <form onsubmit="ProducaoModule.save(event, 'FichasTecnicas')">
-                <input type="hidden" name="ID" value="${ficha.ID || ''}">
-                <div class="mb-3"><label class="text-xs font-bold">Nome da Preparação</label><input name="Nome" value="${ficha.Nome || ''}" class="border p-2 rounded w-full" required></div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Categoria</label><select name="Categoria" class="border p-2 rounded w-full"><option>Prato Principal</option><option>Guarnição</option><option>Sobremesa</option><option>Salada</option></select></div>
-                    <div><label class="text-xs font-bold">Tempo Preparo</label><input name="TempoPreparo" value="${ficha.TempoPreparo || ''}" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Rendimento (Porções)</label><input type="number" name="Rendimento" value="${ficha.Rendimento || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Custo Total (Kz)</label><input type="number" step="0.01" id="custo-total" name="CustoPorPorcao" value="${ficha.CustoPorPorcao || ''}" class="border p-2 rounded w-full bg-gray-100" readonly></div>
-                </div>
-                
-                <h4 class="font-bold text-gray-700 mb-2 border-b mt-4">Ingredientes</h4>
-                <div id="lista-ingredientes" class="mb-2"></div>
-                <button type="button" onclick="addIngrediente()" class="text-sm text-blue-600 hover:underline mb-4">+ Adicionar Ingrediente</button>
-
-                <div class="mb-3"><label class="text-xs font-bold">Modo de Preparo</label><textarea name="ModoPreparo" class="border p-2 rounded w-full h-24">${ficha.ModoPreparo || ''}</textarea></div>
-                <button class="w-full bg-orange-600 text-white py-2 rounded font-bold">Salvar Ficha</button>
-            </form>
-        `);
-
-        // Funções globais para o modal
-        window.updateCusto = (select) => {
-            calcCustoTotal();
-        };
-
-        window.calcCustoTotal = () => {
-            let total = 0;
-            document.querySelectorAll('.ingrediente-row').forEach(row => {
-                const select = row.querySelector('select');
-                const qtdInput = row.querySelector('input[type="number"]');
-                const custoInput = row.querySelector('.custo-parcial');
-                
-                if (select.selectedIndex > 0) {
-                    const option = select.options[select.selectedIndex];
-                    const custoUnit = parseFloat(option.getAttribute('data-custo')) || 0;
-                    const qtd = parseFloat(qtdInput.value) || 0;
-                    const parcial = custoUnit * qtd;
-                    
-                    custoInput.value = parcial.toFixed(2);
-                    total += parcial;
-                }
-            });
-            document.getElementById('custo-total').value = total.toFixed(2);
-        };
-
-        // Carregar ingredientes existentes
-        if (ingredientes && ingredientes.length > 0) {
-            ingredientes.forEach((ing, i) => {
-                addIngrediente();
-                const rows = document.querySelectorAll('.ingrediente-row');
-                const lastRow = rows[rows.length - 1];
-                const select = lastRow.querySelector('select');
-                const qtdInput = lastRow.querySelector('input[type="number"]');
-                
-                select.value = ing.id;
-                qtdInput.value = ing.quantidade;
-            });
-            calcCustoTotal();
         }
-    },
 
-    // 🧾 3️⃣ Ordem de Produção
-    renderOrdens: (container) => {
-        const data = ProducaoModule.state.ordens;
-        const planejamento = ProducaoModule.state.planejamento;
-        const canEdit = Utils.checkPermission('Producao', 'editar');
         container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Ordens de Produção</h3>
+            <div class="mb-6 flex items-center gap-4">
+                <label class="text-sm font-bold text-gray-600">Data de Produção:</label>
+                <input type="date" value="${date}" class="border border-gray-300 p-2 rounded-lg shadow-sm focus:ring-2 focus:ring-orange-500 outline-none" onchange="ProducaoModule.state.filterDate = this.value; ProducaoModule.render();">
             </div>
-            <div class="bg-white rounded shadow overflow-x-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Nº</th><th>Data</th><th>Turno</th><th>Responsável</th><th>Qtd Prod.</th><th>Status</th><th>Ações</th></tr>
-                    </thead>
-                    <tbody class="divide-y">
-                        ${data.map(o => {
-                            // Lógica de Alerta de Divergência
-                            const plan = planejamento.find(p => p.ID === o.PlanejamentoID);
-                            const qtdPlan = plan ? Number(plan.QtdPlanejada) : 0;
-                            const qtdProd = Number(o.QtdProduzida) || 0;
-                            let alertHtml = '';
-                            
-                            if (o.Status === 'Concluída' && qtdPlan > 0) {
-                                const diff = Math.abs(qtdProd - qtdPlan);
-                                const percent = (diff / qtdPlan) * 100;
-                                if (percent > 10) { // Alerta se diferença > 10%
-                                    alertHtml = `<span class="ml-2 text-red-500 cursor-help" title="Divergência: ${percent.toFixed(1)}% (Plan: ${qtdPlan})"><i class="fas fa-exclamation-triangle"></i></span>`;
-                                }
-                            }
-
-                            return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3 font-bold">#${o.Codigo}</td>
-                                <td class="p-3">${Utils.formatDate(o.Data)}</td>
-                                <td class="p-3">${o.Turno || '-'}</td>
-                                <td class="p-3">${o.Responsavel || '-'}</td>
-                                <td class="p-3">${o.QtdProduzida || 0} ${alertHtml}</td>
-                                <td class="p-3"><span class="px-2 py-1 rounded text-xs ${o.Status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${o.Status}</span></td>
-                                <td class="p-3 flex gap-2">
-                                    ${canEdit ? `<button onclick="ProducaoModule.modalOrdem('${o.ID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>` : ''}
-                                    <button onclick="ProducaoModule.printOrdem('${o.ID}')" class="text-gray-600 hover:text-gray-800" title="Imprimir Ficha"><i class="fas fa-print"></i></button>
-                                    ${o.Status !== 'Concluída' && canEdit ? `<button onclick="ProducaoModule.concluirOrdem('${o.ID}')" class="text-green-600 hover:text-green-800 ml-2" title="Concluir e Baixar Estoque"><i class="fas fa-check-circle"></i></button>` : ''}
-                                </td>
-                            </tr>
-                        `}).join('')}
-                    </tbody>
-                </table>
-            </div>
+            ${contentHtml}
         `;
     },
 
-    printOrdem: (id) => {
-        const ordem = ProducaoModule.state.ordens.find(o => o.ID === id);
-        if(!ordem) return;
-        
-        const plan = ProducaoModule.state.planejamento.find(p => p.ID === ordem.PlanejamentoID) || {};
-        const ficha = ProducaoModule.state.fichas.find(f => f.ID === plan.ReceitaID) || {};
-        const ingredientes = ficha.IngredientesJSON || [];
-        const estoque = ProducaoModule.state.estoque || [];
-        const inst = ProducaoModule.state.instituicao[0] || {};
-        const showLogo = inst.ExibirLogoRelatorios;
+    // -------------------------------------------------------------------------
+    // 2. ORDENS DE PRODUÇÃO (Lista Geral)
+    // -------------------------------------------------------------------------
+    renderOrdens: (container) => {
+        let ordens = ProducaoModule.state.ordens || [];
+        const filter = ProducaoModule.state.filterOrdensStatus;
 
-        const element = document.getElementById('print-area-producao');
-        const header = document.getElementById('pdf-header');
-        const content = document.getElementById('pdf-content');
+        if (filter) {
+            ordens = ordens.filter(o => o.Status === filter);
+        }
 
-        // Cabeçalho
-        header.innerHTML = `
-            <div class="flex justify-between items-center">
-                <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                    ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                    <div>
-                        <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Ordem de Produção'}</h1>
-                        <p class="text-xs text-gray-500">OP #${ordem.Codigo} | Emitido em: ${new Date().toLocaleString()}</p>
-                    </div>
-                </div>
-                <div class="text-right">
-                    <div class="text-2xl font-bold text-gray-800">OP #${ordem.Codigo}</div>
-                    <div class="text-sm font-bold ${ordem.Status === 'Concluída' ? 'text-green-600' : 'text-yellow-600'}">${ordem.Status.toUpperCase()}</div>
-                </div>
-            </div>
-        `;
+        // Ordenar por data decrescente
+        ordens.sort((a, b) => new Date(b.Data) - new Date(a.Data));
 
-        // Conteúdo
-        content.innerHTML = `
-            <div class="grid grid-cols-2 gap-4 mb-6 border p-4 rounded bg-gray-50">
-                <div>
-                    <p class="text-xs text-gray-500 uppercase font-bold">Data / Turno</p>
-                    <p class="font-bold">${Utils.formatDate(ordem.Data)} - ${ordem.Turno || '-'}</p>
-                </div>
-                <div>
-                    <p class="text-xs text-gray-500 uppercase font-bold">Responsável</p>
-                    <p class="font-bold">${ordem.Responsavel || 'Não definido'}</p>
-                </div>
-                <div>
-                    <p class="text-xs text-gray-500 uppercase font-bold">Receita</p>
-                    <p class="font-bold text-lg">${ficha.Nome || 'N/A'}</p>
-                </div>
-                <div>
-                    <p class="text-xs text-gray-500 uppercase font-bold">Quantidade Planejada</p>
-                    <p class="font-bold text-lg">${plan.QtdPlanejada || 0} <span class="text-sm font-normal text-gray-500">porções/kg</span></p>
-                </div>
-            </div>
-
-            <h4 class="font-bold text-gray-700 mb-2 border-b pb-1">Checklist de Ingredientes</h4>
-            <table class="w-full text-sm mb-6 border">
-                <thead class="bg-gray-100">
-                    <tr>
-                        <th class="p-2 border text-center w-10">OK</th>
-                        <th class="p-2 border text-left">Ingrediente</th>
-                        <th class="p-2 border text-right">Qtd. Unitária</th>
-                        <th class="p-2 border text-right">Qtd. Total Est.</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${ingredientes.map(ing => {
-                        const itemEstoque = estoque.find(e => e.ID === ing.id);
-                        const nome = itemEstoque ? `${itemEstoque.Nome} (${itemEstoque.Unidade})` : 'Item desconhecido';
-                        const qtdTotal = (Number(ing.quantidade) * (Number(plan.QtdPlanejada) / (Number(ficha.Rendimento)||1))).toFixed(2);
-                        return `
-                        <tr>
-                            <td class="p-2 border text-center"><div class="w-4 h-4 border border-gray-400 rounded mx-auto"></div></td>
-                            <td class="p-2 border">${nome}</td>
-                            <td class="p-2 border text-right">${ing.quantidade}</td>
-                            <td class="p-2 border text-right font-bold">${qtdTotal}</td>
-                        </tr>`;
-                    }).join('')}
-                </tbody>
-            </table>
-
-            <div class="mb-6">
-                <h4 class="font-bold text-gray-700 mb-2 border-b pb-1">Modo de Preparo (Resumo)</h4>
-                <div class="text-sm text-gray-600 p-2 bg-gray-50 rounded border min-h-[60px]">
-                    ${ficha.ModoPreparo || 'Consultar Ficha Técnica completa.'}
-                </div>
-            </div>
-
-            <div class="grid grid-cols-2 gap-8 mt-12">
-                <div class="border-t border-gray-400 pt-2 text-center text-xs">
-                    <p class="font-bold">Responsável pela Produção</p>
-                    <p>Assinatura</p>
-                </div>
-                <div class="border-t border-gray-400 pt-2 text-center text-xs">
-                    <p class="font-bold">Controle de Qualidade</p>
-                    <p>Visto</p>
-                </div>
-            </div>
-        `;
-
-        element.classList.remove('hidden');
-        
-        const opt = {
-            margin: 10,
-            filename: `OP-${ordem.Codigo}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2 },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        html2pdf().set(opt).from(element).save().then(() => {
-            element.classList.add('hidden');
-        });
-    },
-
-    modalOrdem: (id) => {
-        const ordem = ProducaoModule.state.ordens.find(o => o.ID === id);
-        if(!ordem) return;
-
-        Utils.openModal('Editar Ordem de Produção', `
-            <form onsubmit="ProducaoModule.save(event, 'OrdensProducao')">
-                <input type="hidden" name="ID" value="${ordem.ID}">
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Responsável / Cozinheiro</label><input name="Responsavel" value="${ordem.Responsavel || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Qtd Produzida</label><input type="number" name="QtdProduzida" value="${ordem.QtdProduzida || ''}" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Início</label><input type="time" name="Inicio" value="${ordem.Inicio || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Fim</label><input type="time" name="Fim" value="${ordem.Fim || ''}" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="mb-3"><label class="text-xs font-bold">Observações</label><textarea name="Observacoes" class="border p-2 rounded w-full">${ordem.Observacoes || ''}</textarea></div>
-                <div class="mb-3"><label class="text-xs font-bold">Status</label>
-                    <select name="Status" class="border p-2 rounded w-full">
-                        <option ${ordem.Status === 'Aberta' ? 'selected' : ''}>Aberta</option>
-                        <option ${ordem.Status === 'Em Produção' ? 'selected' : ''}>Em Produção</option>
-                        <option ${ordem.Status === 'Concluída' ? 'selected' : ''}>Concluída</option>
+        container.innerHTML = `
+            <div class="bg-white rounded shadow overflow-hidden">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800">Histórico de Ordens de Produção</h3>
+                    <select onchange="ProducaoModule.state.filterOrdensStatus = this.value; ProducaoModule.renderOrdens(document.getElementById('tab-content'))" class="border p-2 rounded text-sm bg-gray-50">
+                        <option value="">Todos os Status</option>
+                        <option value="Pendente" ${filter === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                        <option value="Em Produção" ${filter === 'Em Produção' ? 'selected' : ''}>Em Produção</option>
+                        <option value="Concluída" ${filter === 'Concluída' ? 'selected' : ''}>Concluída</option>
                     </select>
                 </div>
-                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Atualizar Ordem</button>
-            </form>
-        `);
-    },
-
-    concluirOrdem: async (id) => {
-        if(!confirm('Confirma a conclusão da produção? Isso irá baixar os ingredientes do estoque automaticamente com base na quantidade produzida.')) return;
-        try {
-            await Utils.api('completeProductionOrder', null, { id });
-            Utils.toast('Produção concluída e estoque atualizado!', 'success');
-            ProducaoModule.fetchData();
-        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
-    },
-
-    gerarOrdem: async (planejamentoId) => {
-        if(!confirm('Gerar Ordem de Produção para este planejamento?')) return;
-        const plan = ProducaoModule.state.planejamento.find(p => p.ID === planejamentoId);
-        
-        const novaOrdem = {
-            PlanejamentoID: plan.ID,
-            Data: plan.DataProducao,
-            Status: 'Aberta',
-            Observacoes: `Gerado a partir do planejamento de ${plan.TipoRefeicao}`
-        };
-
-        try {
-            await Utils.api('save', 'OrdensProducao', novaOrdem);
-            Utils.toast('Ordem gerada com sucesso!', 'success');
-            ProducaoModule.fetchData();
-            ProducaoModule.setTab('ordens');
-        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
-    },
-
-    // ♻️ 6️⃣ Controle de Desperdício
-    renderDesperdicio: (container) => {
-        const data = ProducaoModule.state.desperdicio;
-        const canCreate = Utils.checkPermission('Producao', 'criar');
-        const canEdit = Utils.checkPermission('Producao', 'editar');
-        const canDelete = Utils.checkPermission('Producao', 'excluir');
-        container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Controle de Desperdício</h3>
-                ${canCreate ? `<button onclick="ProducaoModule.modalDesperdicio()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700">
-                    <i class="fas fa-trash-alt"></i> Registrar Perda
-                </button>` : ''}
-            </div>
-            <div class="bg-white rounded shadow overflow-x-auto">
                 <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr><th>Data</th><th>Refeição</th><th>Sobra Limpa (kg)</th><th>Sobra Suja (kg)</th><th>Motivo</th><th>Resp.</th><th>Ações</th></tr>
+                    <thead class="bg-gray-50 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">OP Nº</th>
+                            <th class="p-3">Data</th>
+                            <th class="p-3">Origem</th>
+                            <th class="p-3">Responsável</th>
+                            <th class="p-3 text-center">Status</th>
+                            <th class="p-3 text-center">Ações</th>
+                        </tr>
                     </thead>
                     <tbody class="divide-y">
-                        ${data.map(d => `
+                        ${ordens.map(o => `
                             <tr class="hover:bg-gray-50">
-                                <td class="p-3">${Utils.formatDate(d.Data)}</td>
-                                <td class="p-3">${d.TipoRefeicao}</td>
-                                <td class="p-3 text-yellow-600 font-bold">${d.SobraLimpa || 0}</td>
-                                <td class="p-3 text-red-600 font-bold">${d.SobraSuja || 0}</td>
-                                <td class="p-3">${d.Motivo}</td>
-                                <td class="p-3">${d.Responsavel}</td>
-                                <td class="p-3 flex gap-2">
-                                    ${canEdit ? `<button onclick="ProducaoModule.modalDesperdicio('${d.ID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-edit"></i></button>` : ''}
-                                    ${canDelete ? `<button onclick="ProducaoModule.deleteDesperdicio('${d.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
+                                <td class="p-3 font-mono font-bold">#${String(o.Codigo).padStart(5,'0')}</td>
+                                <td class="p-3">${Utils.formatDate(o.Data)}</td>
+                                <td class="p-3">${o.OrigemTipo || 'Rotina'}</td>
+                                <td class="p-3">${o.Responsavel || '-'}</td>
+                                <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs font-bold ${o.Status === 'Concluída' ? 'bg-green-100 text-green-800' : (o.Status === 'Em Produção' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800')}">${o.Status}</span></td>
+                                <td class="p-3 text-center">
+                                    <button onclick="ProducaoModule.modalOrdemProducao('${o.OrigemTipo === 'Evento' ? 'evento' : 'rotina'}', '${o.OrigemTipo === 'Evento' ? o.EventoID : o.PlanejamentoID}')" class="text-blue-600 hover:text-blue-800"><i class="fas fa-eye"></i></button>
                                 </td>
                             </tr>
                         `).join('')}
+                        ${ordens.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-gray-500">Nenhuma ordem registrada.</td></tr>' : ''}
                     </tbody>
                 </table>
             </div>
         `;
     },
 
-    modalDesperdicio: (id = null) => {
-        const item = id ? ProducaoModule.state.desperdicio.find(d => d.ID === id) : {};
+    // -------------------------------------------------------------------------
+    // 3. RECEITAS E PORÇÕES (Fichas Técnicas)
+    // -------------------------------------------------------------------------
+    renderCardapios: (container) => {
+        const fichas = ProducaoModule.state.cardapios || [];
         
-        Utils.openModal(id ? 'Editar Desperdício' : 'Registrar Desperdício', `
-            <form onsubmit="ProducaoModule.save(event, 'ControleDesperdicio')">
-                <input type="hidden" name="ID" value="${item.ID || ''}">
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" value="${item.Data || ''}" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Tipo Refeição</label>
-                        <select name="TipoRefeicao" class="border p-2 rounded w-full">
-                            <option ${item.TipoRefeicao === 'Almoço' ? 'selected' : ''}>Almoço</option>
-                            <option ${item.TipoRefeicao === 'Jantar' ? 'selected' : ''}>Jantar</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Sobra Limpa (kg)</label><input type="number" step="0.01" name="SobraLimpa" value="${item.SobraLimpa || ''}" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Sobra Suja (kg)</label><input type="number" step="0.01" name="SobraSuja" value="${item.SobraSuja || ''}" class="border p-2 rounded w-full"></div>
-                </div>
-                <div class="mb-3"><label class="text-xs font-bold">Motivo</label><input name="Motivo" value="${item.Motivo || ''}" class="border p-2 rounded w-full" placeholder="Ex: Excesso de produção"></div>
-                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="Responsavel" value="${item.Responsavel || ''}" class="border p-2 rounded w-full"></div>
-                <button class="w-full bg-red-600 text-white py-2 rounded font-bold">Salvar Registro</button>
-            </form>
-        `);
-    },
-
-    // 🧂 4️⃣ Ingredientes (Controle e Baixa Manual)
-    renderIngredientes: (container) => {
-        const consumo = ProducaoModule.state.consumo || [];
-        const ordens = ProducaoModule.state.ordens || [];
-        const canCreate = Utils.checkPermission('Producao', 'criar');
-
-        // Ordenar por data decrescente
-        consumo.sort((a, b) => new Date(b.DataRetirada) - new Date(a.DataRetirada));
+        // Ordenar por custo (Top 10 mais caros para o gráfico)
+        const topCost = [...fichas].sort((a,b) => Number(b.CustoPorPorcao) - Number(a.CustoPorPorcao)).slice(0, 10);
 
         container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Histórico de Consumo de Ingredientes</h3>
-                ${canCreate ? `<button onclick="ProducaoModule.modalBaixaIngrediente()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700">
-                    <i class="fas fa-arrow-down"></i> Baixar Estoque Manual
-                </button>` : ''}
-            </div>
-
-            <div class="bg-white rounded shadow overflow-x-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr>
-                            <th class="p-3">Data</th>
-                            <th class="p-3">Ingrediente</th>
-                            <th class="p-3">Qtd</th>
-                            <th class="p-3">Ordem (OP)</th>
-                            <th class="p-3">Responsável</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y">
-                        ${consumo.map(c => {
-                            const ordem = ordens.find(o => o.ID === c.OrdemID);
-                            const opCode = ordem ? `#${ordem.Codigo}` : 'Avulso';
-                            return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3">${Utils.formatDate(c.DataRetirada)}</td>
-                                <td class="p-3 font-bold">${c.ProdutoNome}</td>
-                                <td class="p-3">${c.Quantidade}</td>
-                                <td class="p-3"><span class="bg-gray-100 px-2 py-1 rounded text-xs">${opCode}</span></td>
-                                <td class="p-3 text-xs text-gray-500">${c.Responsavel || '-'}</td>
-                            </tr>
-                        `}).join('')}
-                        ${consumo.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum registro de consumo.</td></tr>' : ''}
-                    </tbody>
-                </table>
-            </div>
-        `;
-    },
-
-    modalBaixaIngrediente: () => {
-        const estoque = ProducaoModule.state.estoque;
-        const ordensAbertas = ProducaoModule.state.ordens.filter(o => o.Status !== 'Concluída');
-
-        Utils.openModal('Baixa Manual de Ingrediente', `
-            <form onsubmit="ProducaoModule.saveBaixaIngrediente(event)">
-                <div class="mb-3">
-                    <label class="text-xs font-bold">Ingrediente (Estoque)</label>
-                    <select name="ProdutoID" class="border p-2 rounded w-full" required onchange="this.form.ProdutoNome.value = this.options[this.selectedIndex].text">
-                        <option value="">Selecione...</option>
-                        ${estoque.map(e => `<option value="${e.ID}">${e.Nome} (Atual: ${e.Quantidade} ${e.Unidade})</option>`).join('')}
-                    </select>
-                    <input type="hidden" name="ProdutoNome">
+            <div class="bg-white rounded shadow overflow-hidden">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800">Fichas Técnicas (Cardápios)</h3>
+                    <button onclick="ProducaoModule.modalFicha()" class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 font-bold"><i class="fas fa-plus mr-1"></i> Nova Ficha</button>
                 </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Quantidade</label><input type="number" step="0.01" name="Quantidade" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Vincular a Ordem (Opcional)</label>
-                        <select name="OrdemID" class="border p-2 rounded w-full">
-                            <option value="">Sem Ordem (Avulso)</option>
-                            ${ordensAbertas.map(o => `<option value="${o.ID}">OP #${o.Codigo} - ${o.Responsavel}</option>`).join('')}
-                        </select>
-                    </div>
+                
+                <!-- Gráfico de Custos -->
+                <div class="p-6 border-b border-gray-100 bg-gray-50">
+                    <h4 class="text-sm font-bold text-gray-600 mb-4 uppercase">Top 10 Pratos por Custo Unitário</h4>
+                    <div class="h-64 w-full"><canvas id="chartCustosPratos"></canvas></div>
                 </div>
-                <div class="mb-3"><label class="text-xs font-bold">Responsável</label><input name="Responsavel" class="border p-2 rounded w-full" required></div>
-                <button class="w-full bg-green-600 text-white py-2 rounded font-bold">Confirmar Baixa</button>
-            </form>
-        `);
-    },
 
-    saveBaixaIngrediente: async (e) => {
-        e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
-        
-        if (Number(data.Quantidade) <= 0) return Utils.toast('Quantidade inválida.', 'error');
-
-        try {
-            await Utils.api('saveIngredientConsumption', null, data);
-            Utils.toast('Baixa realizada com sucesso!', 'success');
-            Utils.closeModal();
-            ProducaoModule.fetchData();
-        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
-    },
-
-    // 🧮 7️⃣ Custos (Placeholder visual)
-    renderCustos: (container) => {
-        const ordens = ProducaoModule.state.ordens.filter(o => o.Status === 'Concluída');
-        const planejamento = ProducaoModule.state.planejamento;
-        const fichas = ProducaoModule.state.fichas;
-        const consumo = ProducaoModule.state.consumo;
-        const estoque = ProducaoModule.state.estoque;
-
-        // Construir dados do relatório
-        const relatorio = ordens.map(ordem => {
-            const plan = planejamento.find(p => p.ID === ordem.PlanejamentoID);
-            const ficha = plan ? fichas.find(f => f.ID === plan.ReceitaID) : null;
-            
-            if (!ficha) return null;
-
-            // Custo Planejado (Unitário da Ficha)
-            const custoPlanUnit = Number(ficha.CustoPorPorcao || 0);
-
-            // Custo Real (Baseado no consumo de ingredientes vinculado à ordem)
-            const ingredientesConsumidos = consumo.filter(c => c.OrdemID === ordem.ID);
-            const custoRealTotal = ingredientesConsumidos.reduce((acc, item) => {
-                const prod = estoque.find(e => e.ID === item.ProdutoID);
-                const custoItem = prod ? Number(prod.CustoUnitario || 0) : 0;
-                return acc + (Number(item.Quantidade || 0) * custoItem);
-            }, 0);
-
-            const qtdProduzida = Number(ordem.QtdProduzida || 1);
-            const custoRealUnit = qtdProduzida > 0 ? custoRealTotal / qtdProduzida : 0;
-
-            const variacao = custoPlanUnit > 0 ? ((custoRealUnit - custoPlanUnit) / custoPlanUnit) * 100 : 0;
-
-            return {
-                data: ordem.Data,
-                ordem: ordem.Codigo,
-                receita: ficha.Nome,
-                qtd: qtdProduzida,
-                custoPlan: custoPlanUnit,
-                custoReal: custoRealUnit,
-                variacao: variacao
-            };
-        }).filter(i => i !== null);
-
-        container.innerHTML = `
-            <div class="flex justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-800">Relatório de Custos (Planejado vs Real)</h3>
-                <button onclick="window.print()" class="bg-gray-600 text-white px-4 py-2 rounded shadow hover:bg-gray-700">
-                    <i class="fas fa-print"></i> Imprimir
-                </button>
-            </div>
-            
-            <div class="bg-white p-4 rounded shadow mb-6">
-                <h4 class="font-bold text-gray-700 mb-4">Variação de Custo por Receita (%)</h4>
-                <div class="h-64"><canvas id="chartCustos"></canvas></div>
-            </div>
-
-            <div class="bg-white rounded shadow overflow-x-auto">
-                <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
-                        <tr>
-                            <th class="p-3">Data</th>
-                            <th class="p-3">Ordem</th>
-                            <th class="p-3">Receita</th>
-                            <th class="p-3 text-center">Qtd Prod.</th>
-                            <th class="p-3 text-right">Custo Plan. (Un)</th>
-                            <th class="p-3 text-right">Custo Real (Un)</th>
-                            <th class="p-3 text-center">Variação</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y">
-                        ${relatorio.map(r => {
-                            const varClass = r.variacao > 0 ? 'text-red-600' : (r.variacao < 0 ? 'text-green-600' : 'text-gray-600');
-                            const varIcon = r.variacao > 0 ? '▲' : (r.variacao < 0 ? '▼' : '-');
-                            return `
-                            <tr class="hover:bg-gray-50">
-                                <td class="p-3">${Utils.formatDate(r.data)}</td>
-                                <td class="p-3 font-bold">#${r.ordem}</td>
-                                <td class="p-3">${r.receita}</td>
-                                <td class="p-3 text-center">${r.qtd}</td>
-                                <td class="p-3 text-right">${Utils.formatCurrency(r.custoPlan)}</td>
-                                <td class="p-3 text-right font-bold">${Utils.formatCurrency(r.custoReal)}</td>
-                                <td class="p-3 text-center font-bold ${varClass}">
-                                    ${varIcon} ${Math.abs(r.variacao).toFixed(1)}%
-                                </td>
-                            </tr>
-                        `}).join('')}
-                        ${relatorio.length === 0 ? '<tr><td colspan="7" class="p-4 text-center text-gray-500">Nenhuma ordem concluída com dados de custo.</td></tr>' : ''}
-                    </tbody>
-                </table>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+                    ${fichas.map(f => `
+                        <div class="border rounded p-3 hover:shadow-md transition cursor-pointer bg-gray-50" onclick="ProducaoModule.modalFicha('${f.ID}')">
+                            <div class="flex justify-between items-start mb-2">
+                                <h4 class="font-bold text-gray-800">${f.Nome}</h4>
+                                <span class="text-xs bg-white border px-2 py-1 rounded text-gray-600">${f.Categoria || 'Geral'}</span>
+                            </div>
+                            <div class="text-xs text-gray-500 space-y-1">
+                                <p><i class="fas fa-clock w-4 text-center"></i> ${f.TempoPreparo || '-'}</p>
+                                <p><i class="fas fa-utensils w-4 text-center"></i> Rendimento: ${f.Rendimento || 0}</p>
+                                <p><i class="fas fa-coins w-4 text-center"></i> Custo: ${Utils.formatCurrency(f.CustoPorPorcao)}</p>
+                            </div>
+                        </div>
+                    `).join('')}
+                    ${fichas.length === 0 ? '<div class="col-span-3 text-center text-gray-500 py-8">Nenhuma ficha técnica cadastrada.</div>' : ''}
+                </div>
             </div>
         `;
 
         // Renderizar Gráfico
-        if (relatorio.length > 0) {
+        if (document.getElementById('chartCustosPratos')) {
             if (ProducaoModule.state.charts.custos) ProducaoModule.state.charts.custos.destroy();
-
-            const labels = relatorio.map(r => `#${r.ordem} ${r.receita}`);
-            const data = relatorio.map(r => r.variacao);
-            const colors = relatorio.map(r => r.variacao > 0 ? '#EF4444' : '#10B981'); // Vermelho se aumentou custo, Verde se economizou
-
-            ProducaoModule.state.charts.custos = new Chart(document.getElementById('chartCustos'), {
+            
+            ProducaoModule.state.charts.custos = new Chart(document.getElementById('chartCustosPratos'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels: topCost.map(f => f.Nome),
                     datasets: [{
-                        label: 'Variação (%)',
-                        data: data,
-                        backgroundColor: colors,
+                        label: 'Custo por Porção (Kz)',
+                        data: topCost.map(f => Number(f.CustoPorPorcao)),
+                        backgroundColor: '#F59E0B',
                         borderRadius: 4
                     }]
                 },
@@ -1085,160 +461,1171 @@ const ProducaoModule = {
         }
     },
 
-    // 🧹 8️⃣ Checklist de Limpeza
-    renderLimpeza: async (container) => {
-        const date = ProducaoModule.state.checklistDate;
+    // -------------------------------------------------------------------------
+    // 4. INGREDIENTES NECESSÁRIOS (Estoque)
+    // -------------------------------------------------------------------------
+    renderEstoque: (container) => {
+        const estoque = ProducaoModule.state.estoque || [];
+        // Filtra apenas itens relevantes para a cozinha
+        const items = estoque.filter(i => i.Tipo === 'Alimentos' || i.Tipo === 'Bebidas' || i.Tipo === 'Insumos');
+        const lowStockCount = items.filter(i => Number(i.Quantidade) <= Number(i.Minimo)).length;
         
-        // Itens padrão do checklist
-        const standardItems = [
-            { area: 'Cozinha', item: 'Higienização das Bancadas' },
-            { area: 'Cozinha', item: 'Limpeza do Chão e Ralos' },
-            { area: 'Cozinha', item: 'Limpeza da Coifa/Exaustor' },
-            { area: 'Cozinha', item: 'Descarte de Lixo Orgânico' },
-            { area: 'Cozinha', item: 'Limpeza de Fogões e Fornos' },
-            { area: 'Copa', item: 'Organização de Louças' },
-            { area: 'Copa', item: 'Limpeza de Pias e Torneiras' },
-            { area: 'Estoque', item: 'Verificação de Validade (Visual)' },
-            { area: 'Estoque', item: 'Organização de Prateleiras' },
-            { area: 'Geral', item: 'Limpeza de Maçanetas e Interruptores' }
-        ];
-
-        let savedItems = [];
-        try {
-            savedItems = await Utils.api('getChecklist', null, { date });
-        } catch (e) { console.error(e); }
-
-        // Mesclar itens padrão com salvos
-        const checklist = standardItems.map(std => {
-            const saved = savedItems.find(s => s.Item === std.item && s.Area === std.area);
-            return saved || { ...std, Status: 'Pendente', Data: date, Observacao: '' };
-        });
-
         container.innerHTML = `
-            <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xl font-bold text-gray-800">Checklist de Limpeza e Higiene</h3>
-                <div class="flex gap-2">
-                    <input type="date" value="${date}" class="border p-2 rounded" onchange="ProducaoModule.state.checklistDate = this.value; ProducaoModule.renderLimpeza(document.getElementById('producao-content'))">
-                    <button onclick="ProducaoModule.saveChecklist()" class="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"><i class="fas fa-save"></i> Salvar</button>
-                </div>
-            </div>
-
             <div class="bg-white rounded shadow overflow-hidden">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <div>
+                        <h3 class="font-bold text-gray-800">Estoque da Cozinha</h3>
+                        <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">${items.length} itens</span>
+                        ${lowStockCount > 0 ? `<span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded ml-2 font-bold">⚠️ ${lowStockCount} Baixos</span>` : ''}
+                    </div>
+                    <button onclick="ProducaoModule.printShoppingList()" class="bg-orange-600 text-white px-3 py-1 rounded text-xs hover:bg-orange-700 font-bold shadow">
+                        <i class="fas fa-print mr-1"></i> Lista de Compras
+                    </button>
+                </div>
                 <table class="w-full text-sm text-left">
-                    <thead class="bg-gray-100 text-gray-600 uppercase">
+                    <thead class="bg-gray-50 text-gray-600 uppercase">
                         <tr>
-                            <th class="p-3">Área</th>
-                            <th class="p-3">Item de Verificação</th>
+                            <th class="p-3">Item</th>
+                            <th class="p-3">Categoria</th>
+                            <th class="p-3 text-center">Qtd</th>
+                            <th class="p-3 text-center">Validade</th>
                             <th class="p-3 text-center">Status</th>
-                            <th class="p-3">Observação</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y" id="checklist-body">
-                        ${checklist.map((item, idx) => `
-                            <tr class="hover:bg-gray-50 checklist-row" data-area="${item.area}" data-item="${item.item}">
-                                <td class="p-3 font-bold text-gray-500">${item.area}</td>
-                                <td class="p-3">${item.item}</td>
-                                <td class="p-3 text-center">
-                                    <select class="border p-1 rounded text-xs status-select ${item.Status === 'OK' ? 'bg-green-100 text-green-800' : (item.Status === 'Atenção' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100')}" onchange="this.className = 'border p-1 rounded text-xs status-select ' + (this.value === 'OK' ? 'bg-green-100 text-green-800' : (this.value === 'Atenção' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100'))">
-                                        <option ${item.Status === 'Pendente' ? 'selected' : ''}>Pendente</option>
-                                        <option ${item.Status === 'OK' ? 'selected' : ''}>OK</option>
-                                        <option ${item.Status === 'Atenção' ? 'selected' : ''}>Atenção</option>
-                                        <option ${item.Status === 'Não Realizado' ? 'selected' : ''}>Não Realizado</option>
-                                    </select>
-                                </td>
-                                <td class="p-3"><input type="text" class="border p-1 rounded w-full text-xs obs-input" value="${item.Observacao || ''}" placeholder="Obs..."></td>
+                    <tbody class="divide-y">
+                        ${items.map(i => {
+                            const qtd = Number(i.Quantidade || 0);
+                            const min = Number(i.Minimo || 0);
+                            const status = qtd <= min ? 'Baixo' : 'OK';
+                            const statusClass = qtd <= min ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800';
+                            
+                            return `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 font-bold">${i.Nome}</td>
+                                <td class="p-3 text-xs text-gray-500">${i.Categoria || '-'}</td>
+                                <td class="p-3 text-center font-bold">${qtd} ${i.Unidade}</td>
+                                <td class="p-3 text-center text-xs">${Utils.formatDate(i.Validade)}</td>
+                                <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs ${statusClass}">${status}</span></td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
+                        ${items.length === 0 ? '<tr><td colspan="5" class="p-4 text-center text-gray-500">Nenhum item de cozinha no estoque.</td></tr>' : ''}
                     </tbody>
                 </table>
             </div>
         `;
     },
 
-    saveChecklist: async () => {
-        const rows = document.querySelectorAll('.checklist-row');
-        const items = Array.from(rows).map(row => ({
-            Data: ProducaoModule.state.checklistDate,
-            Area: row.dataset.area,
-            Item: row.dataset.item,
-            Status: row.querySelector('.status-select').value,
-            Observacao: row.querySelector('.obs-input').value,
-            Responsavel: Utils.getUser().Nome
-        }));
+    printShoppingList: () => {
+        const estoque = ProducaoModule.state.estoque || [];
+        // Filtra itens de cozinha com estoque baixo
+        const lowStock = estoque.filter(i => 
+            (i.Tipo === 'Alimentos' || i.Tipo === 'Bebidas' || i.Tipo === 'Insumos') && 
+            Number(i.Quantidade) <= Number(i.Minimo)
+        );
+        
+        if (lowStock.length === 0) return Utils.toast('Nenhum item com estoque baixo.', 'info');
 
-        try {
-            await Utils.api('saveChecklist', null, { items });
-            Utils.toast('Checklist salvo com sucesso!', 'success');
-        } catch (e) { Utils.toast('Erro ao salvar.', 'error'); }
+        const inst = ProducaoModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-500">Lista de Reposição (Cozinha)</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">LISTA DE COMPRAS</h2>
+                        <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <table class="w-full text-sm border-collapse border border-gray-300">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="border p-2 text-left">Produto</th>
+                            <th class="border p-2 text-center">Atual</th>
+                            <th class="border p-2 text-center">Mínimo</th>
+                            <th class="border p-2 text-center w-24">Comprar</th>
+                            <th class="border p-2 text-left">Obs</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${lowStock.map(i => `
+                            <tr>
+                                <td class="border p-2 font-bold">${i.Nome}</td>
+                                <td class="border p-2 text-center text-red-600 font-bold">${i.Quantidade} ${i.Unidade}</td>
+                                <td class="border p-2 text-center">${i.Minimo} ${i.Unidade}</td>
+                                <td class="border p-2 text-center border-b-2 border-black"></td>
+                                <td class="border p-2"></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                
+                <div class="mt-8 text-center text-xs text-gray-400">
+                    Documento gerado automaticamente pelo sistema.
+                </div>
+            </div>
+        `;
+        
+        Utils.printNative(html);
     },
 
-    // 📊 5️⃣ Relatórios (Placeholder visual)
-    renderRelatorios: (container) => {
+    // -------------------------------------------------------------------------
+    // 5. EVENTOS AGENDADOS
+    // -------------------------------------------------------------------------
+    renderEventos: (container) => {
+        const eventos = ProducaoModule.state.eventos;
         container.innerHTML = `
-            <div class="text-center py-10 bg-white rounded shadow">
-                <i class="fas fa-chart-bar text-4xl text-purple-500 mb-4"></i>
-                <h3 class="text-xl font-bold text-gray-800">Relatórios de Eficiência</h3>
-                <p class="text-gray-500">Indicadores de desperdício e rendimento.</p>
+            <div class="bg-white rounded shadow overflow-hidden">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-800">Eventos Confirmados (Cozinha)</h3>
+                </div>
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-50 text-gray-600 uppercase">
+                        <tr>
+                            <th class="p-3">Data</th>
+                            <th class="p-3">Evento</th>
+                            <th class="p-3">Pessoas</th>
+                            <th class="p-3">Cardápio</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        ${eventos.map(e => {
+                            const detalhes = e.DetalhesJSON || {};
+                            const menu = detalhes.menu || [];
+                            const menuStr = menu.map(m => m.name).join(', ') || 'A definir';
+                            return `
+                            <tr class="hover:bg-gray-50">
+                                <td class="p-3 font-bold">${Utils.formatDate(e.Data)}</td>
+                                <td class="p-3">${e.Titulo}</td>
+                                <td class="p-3">${e.Pessoas || 0}</td>
+                                <td class="p-3 text-xs text-gray-500 truncate max-w-xs" title="${menuStr}">${menuStr}</td>
+                            </tr>
+                        `}).join('')}
+                        ${eventos.length === 0 ? '<tr><td colspan="4" class="p-4 text-center text-gray-500">Nenhum evento confirmado próximo.</td></tr>' : ''}
+                    </tbody>
+                </table>
             </div>
         `;
     },
 
-    save: async (e, table) => {
-        e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
-        
-        // Validações básicas
-        if (table === 'FichasTecnicas' && !data.Nome) return Utils.toast('Nome é obrigatório.', 'error');
-        if (table === 'PlanejamentoProducao' && !data.DataProducao) return Utils.toast('Data é obrigatória.', 'error');
+    // -------------------------------------------------------------------------
+    // 6. RELATÓRIOS DE PRODUÇÃO
+    // -------------------------------------------------------------------------
+    renderRelatorios: (container) => {
+        const ordens = ProducaoModule.state.ordens.filter(o => o.Status === 'Concluída');
+        const eventos = ProducaoModule.state.eventos.filter(e => e.Status === 'Finalizado' || e.Status === 'Confirmado');
+        const desperdicio = ProducaoModule.state.desperdicio || [];
+        const fichas = ProducaoModule.state.cardapios || [];
+        const estoque = ProducaoModule.state.estoque || [];
 
-        // Processar Ingredientes (Fichas Técnicas)
-        if (table === 'FichasTecnicas') {
-            const ingredientes = [];
-            const formData = new FormData(e.target);
-            for (const [key, value] of formData.entries()) {
-                if (key.startsWith('ingrediente_id_') && value) {
-                    const index = key.split('_')[2];
-                    const qtd = formData.get(`ingrediente_qtd_${index}`);
-                    if (qtd) {
-                        ingredientes.push({
-                            id: value,
-                            quantidade: Number(qtd)
+        // 1. Total de Refeições no Mês (Baseado em OPs concluídas)
+        const currentMonth = new Date().getMonth();
+        const mealsThisMonth = ordens.filter(o => new Date(o.Data).getMonth() === currentMonth).length; // Simplificado: conta OPs, idealmente somaria pessoas
+
+        // 2. Eventos Mais Lucrativos
+        const eventosLucrativos = eventos.map(e => {
+            const custos = e.DetalhesJSON && e.DetalhesJSON.custos ? 
+                (Number(e.DetalhesJSON.custos.ingredientes||0) + Number(e.DetalhesJSON.custos.equipe||0) + Number(e.DetalhesJSON.custos.transporte||0) + Number(e.DetalhesJSON.custos.outros||0)) : 0;
+            const lucro = Number(e.Valor || 0) - custos;
+            return { nome: e.Titulo, lucro: lucro, data: e.Data };
+        }).sort((a,b) => b.lucro - a.lucro).slice(0, 5);
+
+        // 3. Custos por Prato (Top 5 mais caros)
+        const pratosCaros = [...fichas].sort((a,b) => Number(b.CustoPorPorcao) - Number(a.CustoPorPorcao)).slice(0, 5);
+
+        // 4. Custos Reais das OPs (Baseado no estoque consumido)
+        const custosOPs = ordens.map(op => {
+            let total = 0;
+            if (op.DetalhesProducao && op.DetalhesProducao.ingredientes) {
+                op.DetalhesProducao.ingredientes.forEach(ing => {
+                    const item = estoque.find(i => i.ID === ing.id);
+                    if (item) total += (Number(ing.qtdNecessaria) * Number(item.CustoUnitario || 0));
+                });
+            }
+            return { ...op, custoReal: total };
+        }).sort((a,b) => new Date(b.Data) - new Date(a.Data)).slice(0, 10);
+
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-xl font-bold text-gray-800">Relatórios de Produção</h3>
+                <button onclick="ProducaoModule.exportRelatoriosPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition">
+                    <i class="fas fa-file-pdf mr-2"></i> Exportar PDF
+                </button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div class="bg-white p-6 rounded shadow border-l-4 border-blue-500">
+                    <div class="text-gray-500 text-sm font-bold uppercase">Ordens Concluídas (Mês)</div>
+                    <div class="text-3xl font-bold text-blue-600 mt-1">${mealsThisMonth}</div>
+                </div>
+                <div class="bg-white p-6 rounded shadow border-l-4 border-red-500">
+                    <div class="text-gray-500 text-sm font-bold uppercase">Registros de Desperdício</div>
+                    <div class="text-3xl font-bold text-red-600 mt-1">${desperdicio.length}</div>
+                </div>
+                <div class="bg-white p-6 rounded shadow border-l-4 border-green-500">
+                    <div class="text-gray-500 text-sm font-bold uppercase">Eventos Realizados</div>
+                    <div class="text-3xl font-bold text-green-600 mt-1">${eventos.length}</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Eventos Mais Lucrativos -->
+                <div class="bg-white p-4 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">🏆 Eventos Mais Lucrativos</h4>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-xs uppercase"><tr><th>Evento</th><th class="text-right">Data</th><th class="text-right">Lucro Est.</th></tr></thead>
+                        <tbody class="divide-y">
+                            ${eventosLucrativos.map(e => `
+                                <tr>
+                                    <td class="p-2 font-medium">${e.nome}</td>
+                                    <td class="p-2 text-right text-gray-500">${Utils.formatDate(e.data)}</td>
+                                    <td class="p-2 text-right font-bold text-green-600">${Utils.formatCurrency(e.lucro)}</td>
+                                </tr>
+                            `).join('')}
+                            ${eventosLucrativos.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-gray-500">Sem dados suficientes.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Custos por Prato -->
+                <div class="bg-white p-4 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">💰 Top 5 Pratos Mais Caros (Custo)</h4>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-xs uppercase"><tr><th>Prato</th><th class="text-right">Custo/Porção</th></tr></thead>
+                        <tbody class="divide-y">
+                            ${pratosCaros.map(p => `
+                                <tr>
+                                    <td class="p-2 font-medium">${p.Nome}</td>
+                                    <td class="p-2 text-right font-bold text-red-600">${Utils.formatCurrency(p.CustoPorPorcao)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Custos Reais de Produção -->
+                <div class="bg-white p-4 rounded shadow lg:col-span-2">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">💸 Custos Reais de Produção (Últimas OPs Concluídas)</h4>
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-50 text-xs uppercase"><tr><th>OP</th><th>Data</th><th>Origem</th><th class="text-right">Custo Total</th></tr></thead>
+                        <tbody class="divide-y">
+                            ${custosOPs.map(op => `
+                                <tr>
+                                    <td class="p-2 font-bold">#${String(op.Codigo).padStart(5,'0')}</td>
+                                    <td class="p-2 text-gray-500">${Utils.formatDate(op.Data)}</td>
+                                    <td class="p-2">${op.OrigemTipo || 'Rotina'}</td>
+                                    <td class="p-2 text-right font-bold text-red-600">${Utils.formatCurrency(op.custoReal)}</td>
+                                </tr>
+                            `).join('')}
+                            ${custosOPs.length === 0 ? '<tr><td colspan="4" class="p-4 text-center text-gray-500">Nenhuma ordem concluída.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Gráfico de Desperdício -->
+                <div class="bg-white p-4 rounded shadow lg:col-span-2">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Análise de Desperdício (Motivos)</h4>
+                    <div class="h-64"><canvas id="chartDesperdicioProducao"></canvas></div>
+                </div>
+            </div>
+        `;
+
+        // Renderizar Gráfico de Desperdício
+        if (ProducaoModule.state.charts.desperdicio) ProducaoModule.state.charts.desperdicio.destroy();
+        
+        const wasteMap = {};
+        desperdicio.forEach(d => {
+            const motivo = d.Motivo || 'Outros';
+            wasteMap[motivo] = (wasteMap[motivo] || 0) + 1;
+        });
+
+        if (document.getElementById('chartDesperdicioProducao')) {
+            ProducaoModule.state.charts.desperdicio = new Chart(document.getElementById('chartDesperdicioProducao'), {
+                type: 'bar',
+                data: { labels: Object.keys(wasteMap), datasets: [{ label: 'Ocorrências', data: Object.values(wasteMap), backgroundColor: '#EF4444', borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+            });
+        }
+    },
+
+    exportRelatoriosPDF: () => {
+        const ordens = ProducaoModule.state.ordens.filter(o => o.Status === 'Concluída');
+        const eventos = ProducaoModule.state.eventos.filter(e => e.Status === 'Finalizado' || e.Status === 'Confirmado');
+        const desperdicio = ProducaoModule.state.desperdicio || [];
+        const fichas = ProducaoModule.state.cardapios || [];
+        const estoque = ProducaoModule.state.estoque || [];
+        const inst = ProducaoModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        // KPIs
+        const currentMonth = new Date().getMonth();
+        const mealsThisMonth = ordens.filter(o => new Date(o.Data).getMonth() === currentMonth).length;
+
+        // Eventos Lucrativos
+        const eventosLucrativos = eventos.map(e => {
+            const custos = e.DetalhesJSON && e.DetalhesJSON.custos ? 
+                (Number(e.DetalhesJSON.custos.ingredientes||0) + Number(e.DetalhesJSON.custos.equipe||0) + Number(e.DetalhesJSON.custos.transporte||0) + Number(e.DetalhesJSON.custos.outros||0)) : 0;
+            const lucro = Number(e.Valor || 0) - custos;
+            return { nome: e.Titulo, lucro: lucro, data: e.Data };
+        }).sort((a,b) => b.lucro - a.lucro).slice(0, 5);
+
+        // Pratos Caros
+        const pratosCaros = [...fichas].sort((a,b) => Number(b.CustoPorPorcao) - Number(a.CustoPorPorcao)).slice(0, 5);
+
+        // Custos OPs
+        const custosOPs = ordens.map(op => {
+            let total = 0;
+            if (op.DetalhesProducao && op.DetalhesProducao.ingredientes) {
+                op.DetalhesProducao.ingredientes.forEach(ing => {
+                    const item = estoque.find(i => i.ID === ing.id);
+                    if (item) total += (Number(ing.qtdNecessaria) * Number(item.CustoUnitario || 0));
+                });
+            }
+            return { ...op, custoReal: total };
+        }).sort((a,b) => new Date(b.Data) - new Date(a.Data)).slice(0, 10);
+
+        // Desperdício
+        const wasteMap = {};
+        desperdicio.forEach(d => {
+            const motivo = d.Motivo || 'Outros';
+            wasteMap[motivo] = (wasteMap[motivo] || 0) + 1;
+        });
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Relatório de Produção'}</h1>
+                            <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">RELATÓRIO GERAL</h2>
+                        <p class="text-sm text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-4 mb-8 text-center">
+                    <div class="p-4 bg-gray-50 border rounded">
+                        <div class="text-xs font-bold text-gray-500 uppercase">Ordens (Mês)</div>
+                        <div class="text-xl font-bold text-blue-600">${mealsThisMonth}</div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border rounded">
+                        <div class="text-xs font-bold text-gray-500 uppercase">Desperdícios</div>
+                        <div class="text-xl font-bold text-red-600">${desperdicio.length}</div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border rounded">
+                        <div class="text-xs font-bold text-gray-500 uppercase">Eventos</div>
+                        <div class="text-xl font-bold text-green-600">${eventos.length}</div>
+                    </div>
+                </div>
+
+                <h3 class="font-bold text-gray-800 mb-2 border-b pb-1 text-sm uppercase">Eventos Mais Lucrativos</h3>
+                <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                    <thead class="bg-gray-100"><tr><th class="border p-2 text-left">Evento</th><th class="border p-2 text-right">Data</th><th class="border p-2 text-right">Lucro Est.</th></tr></thead>
+                    <tbody>
+                        ${eventosLucrativos.map(e => `<tr><td class="border p-2">${e.nome}</td><td class="border p-2 text-right">${Utils.formatDate(e.data)}</td><td class="border p-2 text-right font-bold text-green-600">${Utils.formatCurrency(e.lucro)}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <h3 class="font-bold text-gray-800 mb-2 border-b pb-1 text-sm uppercase">Top 5 Pratos (Custo)</h3>
+                <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                    <thead class="bg-gray-100"><tr><th class="border p-2 text-left">Prato</th><th class="border p-2 text-right">Custo/Porção</th></tr></thead>
+                    <tbody>
+                        ${pratosCaros.map(p => `<tr><td class="border p-2">${p.Nome}</td><td class="border p-2 text-right font-bold text-red-600">${Utils.formatCurrency(p.CustoPorPorcao)}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <h3 class="font-bold text-gray-800 mb-2 border-b pb-1 text-sm uppercase">Custos de Produção (Últimas OPs)</h3>
+                <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                    <thead class="bg-gray-100"><tr><th class="border p-2 text-left">OP</th><th class="border p-2 text-left">Origem</th><th class="border p-2 text-right">Custo Total</th></tr></thead>
+                    <tbody>
+                        ${custosOPs.map(op => `<tr><td class="border p-2">#${String(op.Codigo).padStart(5,'0')}</td><td class="border p-2">${op.OrigemTipo || 'Rotina'}</td><td class="border p-2 text-right font-bold text-red-600">${Utils.formatCurrency(op.custoReal)}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <h3 class="font-bold text-gray-800 mb-2 border-b pb-1 text-sm uppercase">Desperdício por Motivo</h3>
+                <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                    <thead class="bg-gray-100"><tr><th class="border p-2 text-left">Motivo</th><th class="border p-2 text-right">Ocorrências</th></tr></thead>
+                    <tbody>
+                        ${Object.entries(wasteMap).map(([k,v]) => `<tr><td class="border p-2">${k}</td><td class="border p-2 text-right">${v}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <div class="mt-8 text-center text-xs text-gray-400">
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados.
+                </div>
+            </div>
+        `;
+        
+        Utils.printNative(html);
+    },
+
+    // 🧾 ORDEM DE PRODUÇÃO (OP)
+    modalOrdemProducao: (type, id) => {
+        let source, op;
+        let origemTexto = '';
+        let dataOp = '';
+        let pessoas = 0;
+        let responsavel = '';
+        let detalhes = { pratos: [], ingredientes: [], etapas: [], equipe: [] };
+
+        if (type === 'rotina') {
+            source = ProducaoModule.state.pedidosDia.find(p => p.id === id);
+            if (!source) return Utils.toast('Planejamento não encontrado.', 'error');
+            
+            // Tenta encontrar OP existente
+            op = ProducaoModule.state.ordens.find(o => o.PlanejamentoID === id);
+            
+            origemTexto = 'Pedido (Rotina)';
+            dataOp = source.planning_date;
+            pessoas = (source.staff_count_day || 0) + (source.staff_count_night || 0) + (source.patient_solid || 0) + (source.patient_liquid || 0);
+            responsavel = op ? op.Responsavel : 'Chefe de Cozinha'; // Default
+        } else {
+            source = ProducaoModule.state.eventos.find(e => e.ID === id);
+            if (!source) return Utils.toast('Evento não encontrado.', 'error');
+            
+            op = ProducaoModule.state.ordens.find(o => o.EventoID === id);
+            
+            origemTexto = `Evento: ${source.Titulo}`;
+            dataOp = source.Data;
+            pessoas = source.Pessoas || 0;
+            responsavel = op ? op.Responsavel : (source.Responsavel || 'Chefe de Cozinha');
+        }
+
+        if (op && op.DetalhesProducao) {
+            detalhes = op.DetalhesProducao;
+        } else {
+            // Inicialização Padrão se for nova OP
+            // 1. Pratos (Tenta extrair do planejamento ou evento)
+            if (type === 'rotina' && source.production_details) {
+                const d = source.production_details;
+                if (d.solidos && d.solidos.prato) detalhes.pratos.push({ nome: d.solidos.prato, porcoes: pessoas, receitaId: '' });
+                if (d.sopa) detalhes.pratos.push({ nome: 'Sopa do Dia', porcoes: source.patient_liquid || 0, receitaId: '' });
+            } else if (type === 'evento' && source.DetalhesJSON && source.DetalhesJSON.menu) {
+                source.DetalhesJSON.menu.forEach(m => {
+                    detalhes.pratos.push({ nome: m.name, porcoes: pessoas, receitaId: '' });
+                });
+            }
+
+            // 2. Etapas Padrão
+            detalhes.etapas = [
+                { nome: 'Pré-preparo (Cortes/Temperos)', status: 'Pendente' },
+                { nome: 'Cozimento', status: 'Pendente' },
+                { nome: 'Montagem/Embalagem', status: 'Pendente' },
+                { nome: 'Finalização/Qualidade', status: 'Pendente' },
+                { nome: 'Pronto para Entrega', status: 'Pendente' }
+            ];
+        }
+        
+        const qual = detalhes.qualidade || {};
+        const entrega = detalhes.entrega || {};
+
+        const opCodigo = op ? String(op.Codigo).padStart(5, '0') : 'NOVA';
+        const status = op ? op.Status : 'Pendente';
+
+        // --- FUNÇÕES AUXILIARES DO MODAL ---
+        window.switchOPTab = (tabId) => {
+            document.querySelectorAll('.op-tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            document.querySelectorAll('.op-tab-btn').forEach(el => {
+                el.classList.remove('border-orange-600', 'text-orange-600');
+                el.classList.add('border-transparent', 'text-gray-500');
+            });
+            document.getElementById('btn-' + tabId).classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById('btn-' + tabId).classList.add('border-orange-600', 'text-orange-600');
+        };
+
+        window.calcIngredients = () => {
+            const tbody = document.getElementById('ingredientes-body');
+            tbody.innerHTML = '';
+            const stock = ProducaoModule.state.estoque || [];
+            const fichas = ProducaoModule.state.cardapios || [];
+            
+            // Coleta ingredientes de todos os pratos vinculados a receitas
+            const needed = {};
+            
+            // Itera sobre os inputs de pratos
+            document.querySelectorAll('.prato-row').forEach(row => {
+                const receitaId = row.querySelector('.receita-select').value;
+                const porcoes = Number(row.querySelector('.porcoes-input').value || 0);
+                
+                if (receitaId) {
+                    const ficha = fichas.find(f => f.ID === receitaId);
+                    if (ficha && ficha.IngredientesJSON) {
+                        const rendimento = Number(ficha.Rendimento || 1);
+                        const fator = porcoes / rendimento;
+                        
+                        ficha.IngredientesJSON.forEach(ing => {
+                            if (!needed[ing.id]) needed[ing.id] = 0;
+                            needed[ing.id] += (Number(ing.quantidade) * fator);
                         });
                     }
                 }
-                // Remove campos temporários do objeto data para não quebrar o salvamento no banco
-                if (key.startsWith('ingrediente_')) {
-                    delete data[key];
-                }
+            });
+
+            // Renderiza Tabela
+            let hasMissing = false;
+            Object.keys(needed).forEach(ingId => {
+                const item = stock.find(i => i.ID === ingId);
+                const qtdNeed = needed[ingId];
+                const qtdStock = item ? Number(item.Quantidade || 0) : 0;
+                const missing = qtdNeed > qtdStock;
+                if (missing) hasMissing = true;
+                
+                const row = `
+                    <tr class="border-b text-sm">
+                        <td class="p-2">${item ? item.Nome : 'Item Desconhecido'}</td>
+                        <td class="p-2 text-center font-bold">${qtdNeed.toFixed(2)} ${item ? item.Unidade : ''}</td>
+                        <td class="p-2 text-center ${missing ? 'text-red-600' : 'text-green-600'}">${qtdStock.toFixed(2)}</td>
+                        <td class="p-2 text-center">
+                            ${missing ? `<span class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-bold">⚠️ Falta ${(qtdNeed - qtdStock).toFixed(2)}</span>` : '<span class="text-green-600">✅ Ok</span>'}
+                        </td>
+                    </tr>
+                `;
+                tbody.insertAdjacentHTML('beforeend', row);
+            });
+            
+            if (Object.keys(needed).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500">Vincule receitas aos pratos para calcular.</td></tr>';
             }
-            data.IngredientesJSON = ingredientes;
-            if (ingredientes.length === 0) return Utils.toast('⚠️ É obrigatório adicionar pelo menos um ingrediente à ficha técnica.', 'warning');
+            
+            const btnCompra = document.getElementById('btn-gerar-compra');
+            if(btnCompra) btnCompra.style.display = hasMissing ? 'inline-block' : 'none';
+        };
+
+        Utils.openModal(`Ordem de Produção`, `
+            <div class="bg-white p-4 rounded-lg border border-gray-200 mb-4">
+                <div class="flex justify-between items-center mb-4 border-b pb-2">
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        <i class="fas fa-file-invoice text-orange-600"></i> OP Nº ${opCodigo}
+                    </h3>
+                    <span class="px-3 py-1 rounded-full text-xs font-bold ${status === 'Concluída' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">${status.toUpperCase()}</span>
+                </div>
+
+                <form onsubmit="ProducaoModule.saveOrdemProducao(event)" id="form-op">
+                    <input type="hidden" name="ID" value="${op ? op.ID : ''}">
+                    <input type="hidden" name="OrigemTipo" value="${type === 'rotina' ? 'Rotina' : 'Evento'}">
+                    <input type="hidden" name="RefID" value="${id}">
+                    <input type="hidden" name="Data" value="${dataOp}">
+
+                    <!-- ABAS -->
+                    <div class="flex border-b border-gray-200 mb-4 overflow-x-auto">
+                        <button type="button" id="btn-tab-resumo" onclick="switchOPTab('tab-resumo')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-orange-600 text-orange-600 whitespace-nowrap">Resumo</button>
+                        <button type="button" id="btn-tab-pratos" onclick="switchOPTab('tab-pratos')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">3. Receitas</button>
+                        <button type="button" id="btn-tab-ingredientes" onclick="switchOPTab('tab-ingredientes'); calcIngredients()" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">4. Ingredientes</button>
+                        <button type="button" id="btn-tab-etapas" onclick="switchOPTab('tab-etapas')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">5. Etapas</button>
+                        <button type="button" id="btn-tab-equipe" onclick="switchOPTab('tab-equipe')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">6. Equipe</button>
+                        <button type="button" id="btn-tab-qualidade" onclick="switchOPTab('tab-qualidade')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">7. Qualidade</button>
+                        <button type="button" id="btn-tab-entrega" onclick="switchOPTab('tab-entrega')" class="op-tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 whitespace-nowrap">8. Entrega</button>
+                    </div>
+
+                    <!-- TAB 1: RESUMO -->
+                    <div id="tab-resumo" class="op-tab-content">
+                        <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+                        <div class="p-2 bg-gray-50 rounded border">
+                            <span class="block text-xs font-bold text-gray-500 uppercase">Origem</span>
+                            <span class="font-medium text-gray-800">${origemTexto}</span>
+                        </div>
+                        <div class="p-2 bg-gray-50 rounded border">
+                            <span class="block text-xs font-bold text-gray-500 uppercase">Data</span>
+                            <span class="font-medium text-gray-800">${Utils.formatDate(dataOp)}</span>
+                        </div>
+                        <div class="p-2 bg-gray-50 rounded border">
+                            <span class="block text-xs font-bold text-gray-500 uppercase">Pessoas</span>
+                            <span class="font-medium text-gray-800">${pessoas}</span>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Responsável</label>
+                            <input name="Responsavel" value="${responsavel}" class="border p-1 rounded w-full text-sm" required>
+                        </div>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Status da Produção</label>
+                            <select name="Status" class="border p-2 rounded w-full text-sm font-bold">
+                                <option ${status === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                                <option ${status === 'Em Produção' ? 'selected' : ''}>Em Produção (Reserva Estoque)</option>
+                                <option ${status === 'Concluída' ? 'selected' : ''}>Concluída (Baixa Estoque)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: PRATOS / RECEITAS -->
+                    <div id="tab-pratos" class="op-tab-content hidden">
+                        <table class="w-full text-sm text-left mb-2">
+                            <thead class="bg-gray-50 text-xs uppercase"><tr><th>Prato</th><th class="w-24">Porções</th><th>Receita Padrão</th></tr></thead>
+                            <tbody id="pratos-list">
+                                ${detalhes.pratos.map((p, idx) => `
+                                    <tr class="prato-row border-b">
+                                        <td class="p-2"><input type="text" name="prato_nome_${idx}" value="${p.nome}" class="border p-1 rounded w-full text-sm"></td>
+                                        <td class="p-2"><input type="number" name="prato_porcoes_${idx}" value="${p.porcoes}" class="porcoes-input border p-1 rounded w-full text-sm text-center" onchange="calcIngredients()"></td>
+                                        <td class="p-2">
+                                            <select name="prato_receita_${idx}" class="receita-select border p-1 rounded w-full text-sm" onchange="calcIngredients()">
+                                                <option value="">Sem Receita</option>
+                                                ${ProducaoModule.state.cardapios.map(f => `<option value="${f.ID}" ${p.receitaId === f.ID ? 'selected' : ''}>${f.Nome}</option>`).join('')}
+                                            </select>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <button type="button" onclick="ProducaoModule.addPratoRow()" class="text-xs text-blue-600 hover:underline">+ Adicionar Prato</button>
+                    </div>
+
+                    <!-- TAB 3: INGREDIENTES (AUTOMÁTICO) -->
+                    <div id="tab-ingredientes" class="op-tab-content hidden">
+                        <div class="bg-yellow-50 p-2 rounded text-xs text-yellow-800 mb-2 border border-yellow-200">
+                            <i class="fas fa-info-circle"></i> O cálculo é baseado nas receitas vinculadas na aba anterior.
+                        </div>
+                        <table class="w-full text-sm text-left border">
+                            <thead class="bg-gray-100"><tr><th>Ingrediente</th><th class="text-center">Necessário</th><th class="text-center">Estoque</th><th class="text-center">Status</th></tr></thead>
+                            <tbody id="ingredientes-body">
+                                <!-- Preenchido via JS -->
+                            </tbody>
+                        </table>
+                        <div class="mt-2 text-right">
+                            <button type="button" id="btn-gerar-compra" style="display:none" onclick="Utils.toast('Funcionalidade de Pedido Automático em breve!')" class="bg-red-600 text-white px-3 py-1 rounded text-xs shadow hover:bg-red-700">
+                                <i class="fas fa-shopping-cart"></i> Gerar Pedido de Compra
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- TAB 4: ETAPAS -->
+                    <div id="tab-etapas" class="op-tab-content hidden">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-50"><tr><th>Etapa</th><th>Status</th></tr></thead>
+                            <tbody>
+                                ${detalhes.etapas.map((e, idx) => `
+                                    <tr class="border-b">
+                                        <td class="p-2 font-medium"><input type="hidden" name="etapa_nome_${idx}" value="${e.nome}">${e.nome}</td>
+                                        <td class="p-2">
+                                            <select name="etapa_status_${idx}" class="border p-1 rounded text-xs ${e.status === 'Concluído' ? 'bg-green-100 text-green-800' : 'bg-gray-100'}">
+                                                <option ${e.status === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                                                <option ${e.status === 'Em Andamento' ? 'selected' : ''}>Em Andamento</option>
+                                                <option ${e.status === 'Concluído' ? 'selected' : ''}>Concluído</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- TAB 5: EQUIPE -->
+                    <div id="tab-equipe" class="op-tab-content hidden">
+                        <table class="w-full text-sm text-left mb-2">
+                            <thead class="bg-gray-50"><tr><th>Funcionário</th><th>Tarefa</th><th>Horário</th><th></th></tr></thead>
+                            <tbody id="equipe-list">
+                                ${detalhes.equipe.map((eq, idx) => `
+                                    <tr class="equipe-row border-b">
+                                        <td class="p-2"><input name="equipe_func_${idx}" value="${eq.funcionario}" class="border p-1 rounded w-full" placeholder="Nome"></td>
+                                        <td class="p-2"><input name="equipe_tarefa_${idx}" value="${eq.tarefa}" class="border p-1 rounded w-full" placeholder="Ex: Cortar legumes"></td>
+                                        <td class="p-2"><input name="equipe_hora_${idx}" value="${eq.horario}" class="border p-1 rounded w-full" placeholder="08h-10h"></td>
+                                        <td class="p-2 text-center"><button type="button" onclick="this.closest('tr').remove()" class="text-red-500"><i class="fas fa-times"></i></button></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <button type="button" onclick="ProducaoModule.addEquipeRow()" class="text-xs text-blue-600 hover:underline">+ Adicionar Membro</button>
+                    </div>
+
+                    <!-- TAB 7: CONTROLE DE QUALIDADE -->
+                    <div id="tab-qualidade" class="op-tab-content hidden">
+                        <div class="bg-green-50 p-4 rounded border border-green-200 mb-4">
+                            <h4 class="font-bold text-green-800 mb-3 text-sm uppercase flex items-center gap-2"><i class="fas fa-clipboard-check"></i> Inspeção Final</h4>
+                            
+                            <div class="grid grid-cols-2 gap-4 mb-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Temperatura (°C)</label>
+                                    <input name="qualidade_temperatura" value="${qual.temperatura || ''}" class="border p-2 rounded w-full" placeholder="Ex: 65°C">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Higiene / Apresentação</label>
+                                    <select name="qualidade_higiene" class="border p-2 rounded w-full">
+                                        <option value="Aprovado" ${qual.higiene === 'Aprovado' ? 'selected' : ''}>✔ Aprovado</option>
+                                        <option value="Reprovado" ${qual.higiene === 'Reprovado' ? 'selected' : ''}>❌ Reprovado</option>
+                                        <option value="Com Ressalvas" ${qual.higiene === 'Com Ressalvas' ? 'selected' : ''}>⚠️ Com Ressalvas</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Embalagem</label>
+                                    <select name="qualidade_embalagem" class="border p-2 rounded w-full">
+                                        <option value="Adequada" ${qual.embalagem === 'Adequada' ? 'selected' : ''}>✔ Adequada</option>
+                                        <option value="Inadequada" ${qual.embalagem === 'Inadequada' ? 'selected' : ''}>❌ Inadequada</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Responsável Inspeção</label>
+                                    <input name="qualidade_responsavel" value="${qual.responsavel || ''}" class="border p-2 rounded w-full" placeholder="Nome do Inspetor">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Observações de Qualidade</label>
+                                <textarea name="qualidade_observacoes" class="border p-2 rounded w-full h-16" placeholder="Ex: Ajustar sal na próxima remessa...">${qual.observacoes || ''}</textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 8: ENTREGA / DISTRIBUIÇÃO -->
+                    <div id="tab-entrega" class="op-tab-content hidden">
+                        <div class="bg-blue-50 p-4 rounded border border-blue-200 mb-4">
+                            <h4 class="font-bold text-blue-800 mb-3 text-sm uppercase flex items-center gap-2"><i class="fas fa-truck"></i> Logística de Entrega</h4>
+                            
+                            <div class="grid grid-cols-2 gap-4 mb-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Destino / Local</label>
+                                    <input name="entrega_destino" value="${entrega.destino || ''}" class="border p-2 rounded w-full" placeholder="Ex: Hospital Ala A">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Horário de Saída</label>
+                                    <input type="time" name="entrega_horario" value="${entrega.horario || ''}" class="border p-2 rounded w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Responsável Transporte</label>
+                                    <input name="entrega_responsavel" value="${entrega.responsavel || ''}" class="border p-2 rounded w-full">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 mb-1">Status da Entrega</label>
+                                    <select name="entrega_status" class="border p-2 rounded w-full">
+                                        <option value="Pendente" ${entrega.status === 'Pendente' ? 'selected' : ''}>Pendente</option>
+                                        <option value="Em Transporte" ${entrega.status === 'Em Transporte' ? 'selected' : ''}>Em Transporte</option>
+                                        <option value="Entregue" ${entrega.status === 'Entregue' ? 'selected' : ''}>Entregue</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-600 mb-1">Observações de Entrega</label>
+                                <textarea name="entrega_observacoes" class="border p-2 rounded w-full h-16" placeholder="Ex: Entregar na recepção...">${entrega.observacoes || ''}</textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center mt-6 pt-4 border-t">
+                        ${op ? `<button type="button" onclick="ProducaoModule.printOrdem('${op.ID}')" class="bg-gray-600 text-white px-4 py-2 rounded shadow hover:bg-gray-700"><i class="fas fa-print"></i> Imprimir</button>` : ''}
+                        <div class="flex gap-2">
+                            <button type="button" onclick="Utils.closeModal()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded">Cancelar</button>
+                            <button type="submit" class="bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700 font-bold">
+                                ${op ? 'Salvar Alterações' : 'Gerar OP'}
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        `);
+    },
+
+    saveOrdemProducao: async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        
+        // Processar Dados Complexos (Arrays)
+        const pratos = [];
+        const etapas = [];
+        const equipe = [];
+        
+        // Extrair Pratos
+        for (const [key, value] of formData.entries()) {
+            if (key.startsWith('prato_nome_')) {
+                const idx = key.split('_')[2];
+                pratos.push({
+                    nome: value,
+                    porcoes: formData.get(`prato_porcoes_${idx}`),
+                    receitaId: formData.get(`prato_receita_${idx}`)
+                });
+            }
+        }
+
+        // Extrair Etapas
+        for (const [key, value] of formData.entries()) {
+            if (key.startsWith('etapa_nome_')) {
+                const idx = key.split('_')[2];
+                etapas.push({
+                    nome: value,
+                    status: formData.get(`etapa_status_${idx}`)
+                });
+            }
+        }
+
+        // Extrair Equipe
+        for (const [key, value] of formData.entries()) {
+            if (key.startsWith('equipe_func_')) {
+                const idx = key.split('_')[2];
+                equipe.push({
+                    funcionario: value,
+                    tarefa: formData.get(`equipe_tarefa_${idx}`),
+                    horario: formData.get(`equipe_hora_${idx}`)
+                });
+            }
+        }
+
+        // Recalcular Ingredientes para salvar no JSON (Snapshot)
+        const ingredientes = [];
+        // (Lógica simplificada: idealmente recalcularia baseado nos pratos salvos)
+        // Aqui vamos confiar que o backend ou o próximo load recalcula, 
+        // mas para o recurso de "Baixa de Estoque" funcionar no backend, precisamos enviar a lista de ingredientes calculada.
+        // Vou adicionar uma lógica rápida aqui para reconstruir a lista de ingredientes necessários.
+        const fichas = ProducaoModule.state.cardapios || [];
+        pratos.forEach(p => {
+            const ficha = fichas.find(f => f.ID === p.receitaId);
+            if (ficha && ficha.IngredientesJSON) {
+                const fator = Number(p.porcoes) / (Number(ficha.Rendimento) || 1);
+                ficha.IngredientesJSON.forEach(ing => {
+                    ingredientes.push({ id: ing.id, qtdNecessaria: Number(ing.quantidade) * fator });
+                });
+            }
+        });
+
+        // Extrair Qualidade
+        const qualidade = {
+            temperatura: formData.get('qualidade_temperatura'),
+            higiene: formData.get('qualidade_higiene'),
+            embalagem: formData.get('qualidade_embalagem'),
+            responsavel: formData.get('qualidade_responsavel'),
+            observacoes: formData.get('qualidade_observacoes')
+        };
+
+        // Extrair Entrega
+        const entrega = {
+            destino: formData.get('entrega_destino'),
+            horario: formData.get('entrega_horario'),
+            responsavel: formData.get('entrega_responsavel'),
+            status: formData.get('entrega_status'),
+            observacoes: formData.get('entrega_observacoes')
+        };
+
+        const payload = {
+            Data: formData.get('Data'),
+            Responsavel: formData.get('Responsavel'),
+            Status: formData.get('Status'),
+            OrigemTipo: formData.get('OrigemTipo'),
+            DetalhesProducao: { pratos, etapas, equipe, ingredientes, qualidade, entrega }
+        };
+
+        const id = formData.get('ID');
+        if (id) {
+            payload.ID = id;
+        } else {
+            // Novo registro
+            if (payload.OrigemTipo === 'Rotina') {
+                payload.PlanejamentoID = formData.get('RefID');
+            } else {
+                payload.EventoID = formData.get('RefID');
+            }
         }
 
         try {
-            await Utils.api('save', table, data);
-            Utils.toast('Salvo com sucesso!', 'success'); 
-            Utils.closeModal(); 
+            if (id) {
+                // Edição: Atualiza status e estoque (já tem ID)
+                await Utils.api('updateProductionStatus', null, { 
+                    id: payload.ID, 
+                    status: payload.Status, 
+                    detalhes: payload.DetalhesProducao 
+                });
+            } else {
+                // Criação: Salva primeiro para gerar o ID
+                const res = await Utils.api('save', 'OrdensProducao', payload);
+                
+                // Se o status inicial já for 'Em Produção' ou 'Concluída', aciona a lógica de estoque com o novo ID
+                if (payload.Status !== 'Pendente' && res && res.length > 0) {
+                    await Utils.api('updateProductionStatus', null, { 
+                        id: res[0].ID, 
+                        status: payload.Status, 
+                        detalhes: payload.DetalhesProducao 
+                    });
+                }
+            }
+
+            Utils.toast('Ordem de Produção atualizada!', 'success');
+            Utils.closeModal();
             ProducaoModule.fetchData();
+        } catch (err) {
+            Utils.toast('Erro ao salvar OP: ' + err.message, 'error');
+        }
+    },
+
+    addPratoRow: () => {
+        const idx = Date.now();
+        const html = `
+            <tr class="prato-row border-b">
+                <td class="p-2"><input type="text" name="prato_nome_${idx}" class="border p-1 rounded w-full text-sm"></td>
+                <td class="p-2"><input type="number" name="prato_porcoes_${idx}" class="porcoes-input border p-1 rounded w-full text-sm text-center" onchange="calcIngredients()"></td>
+                <td class="p-2">
+                    <select name="prato_receita_${idx}" class="receita-select border p-1 rounded w-full text-sm" onchange="calcIngredients()">
+                        <option value="">Sem Receita</option>
+                        ${ProducaoModule.state.cardapios.map(f => `<option value="${f.ID}">${f.Nome}</option>`).join('')}
+                    </select>
+                </td>
+            </tr>`;
+        document.getElementById('pratos-list').insertAdjacentHTML('beforeend', html);
+    },
+
+    addEquipeRow: () => {
+        const idx = Date.now();
+        const html = `
+            <tr class="equipe-row border-b">
+                <td class="p-2"><input name="equipe_func_${idx}" class="border p-1 rounded w-full" placeholder="Nome"></td>
+                <td class="p-2"><input name="equipe_tarefa_${idx}" class="border p-1 rounded w-full" placeholder="Tarefa"></td>
+                <td class="p-2"><input name="equipe_hora_${idx}" class="border p-1 rounded w-full" placeholder="Horário"></td>
+                <td class="p-2 text-center"><button type="button" onclick="this.closest('tr').remove()" class="text-red-500"><i class="fas fa-times"></i></button></td>
+            </tr>`;
+        document.getElementById('equipe-list').insertAdjacentHTML('beforeend', html);
+    },
+
+    printOrdem: (id) => {
+        const op = ProducaoModule.state.ordens.find(o => o.ID === id);
+        if (!op) return;
+        
+        let origem = 'Desconhecida';
+        if (op.OrigemTipo === 'Evento' || op.EventoID) {
+            const evt = ProducaoModule.state.eventos.find(e => e.ID === op.EventoID);
+            origem = evt ? `Evento: ${evt.Titulo}` : 'Evento';
+        } else {
+            origem = 'Pedido (Rotina)';
+        }
+        
+        const entrega = (op.DetalhesProducao && op.DetalhesProducao.entrega) ? op.DetalhesProducao.entrega : null;
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white border-2 border-gray-800 max-w-2xl mx-auto">
+                <div class="text-center border-b-2 border-gray-800 pb-4 mb-6">
+                    <h1 class="text-2xl font-bold uppercase">Ordem de Produção</h1>
+                    <h2 class="text-xl font-mono mt-2">OP Nº ${String(op.Codigo).padStart(5, '0')}</h2>
+                </div>
+                
+                <table class="w-full text-sm mb-6">
+                    <tr><td class="py-2 font-bold w-1/3">Origem:</td><td>${origem}</td></tr>
+                    <tr><td class="py-2 font-bold">Data:</td><td>${Utils.formatDate(op.Data)}</td></tr>
+                    <tr><td class="py-2 font-bold">Responsável:</td><td>${op.Responsavel}</td></tr>
+                    <tr><td class="py-2 font-bold">Status:</td><td>${op.Status}</td></tr>
+                </table>
+
+                ${entrega ? `
+                <div class="mt-6 border-t border-gray-800 pt-4">
+                    <h3 class="font-bold text-sm uppercase mb-2">Logística de Entrega</h3>
+                    <table class="w-full text-sm">
+                        <tr><td class="py-1 font-bold w-1/3">Destino:</td><td>${entrega.destino || '-'}</td></tr>
+                        <tr><td class="py-1 font-bold">Horário:</td><td>${entrega.horario || '-'}</td></tr>
+                        <tr><td class="py-1 font-bold">Status:</td><td>${entrega.status || '-'}</td></tr>
+                        <tr><td class="py-1 font-bold">Responsável:</td><td>${entrega.responsavel || '-'}</td></tr>
+                    </table>
+                </div>
+                ` : ''}
+
+                <div class="mt-12 border-t border-gray-800 pt-2 text-center text-xs text-gray-500">
+                    Assinatura do Responsável
+                </div>
+            </div>
+        `;
+        Utils.printNative(html);
+    },
+
+    // --- MODAIS E AÇÕES ---
+
+    modalPlanejamento: (id = null, date = null) => {
+        const plan = id ? ProducaoModule.state.pedidosDia.find(p => p.id === id) : {};
+        const d = date || plan.planning_date || new Date().toISOString().split('T')[0];
+        
+        const details = plan.production_details || {};
+        const solidos = details.solidos || {};
+        const sopa = details.sopa || {};
+        const cha = details.cha || {};
+
+        Utils.openModal(id ? 'Editar Planejamento' : 'Novo Planejamento de Produção', `
+            <form onsubmit="ProducaoModule.saveProductionPlan(event)">
+                <input type="hidden" name="id" value="${plan.id || ''}">
+                <div class="bg-blue-50 p-4 rounded mb-4 border border-blue-100">
+                    <h4 class="font-bold text-blue-800 mb-2 text-sm uppercase">1. Metas (Pessoas)</h4>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div><label class="text-xs font-bold block">Data</label><input type="date" name="planning_date" value="${d}" class="border p-2 rounded w-full" required></div>
+                        <div><label class="text-xs font-bold block">Staff (Dia/Noite)</label><div class="flex gap-1"><input type="number" name="staff_count_day" value="${plan.staff_count_day || ''}" placeholder="D" class="border p-2 w-full"><input type="number" name="staff_count_night" value="${plan.staff_count_night || ''}" placeholder="N" class="border p-2 w-full"></div></div>
+                        <div><label class="text-xs font-bold block">Pacientes (Sól/Liq)</label><div class="flex gap-1"><input type="number" name="patient_solid" value="${plan.patient_solid || ''}" placeholder="S" class="border p-2 w-full"><input type="number" name="patient_liquid" value="${plan.patient_liquid || ''}" placeholder="L" class="border p-2 w-full"></div></div>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <h4 class="font-bold text-gray-700 mb-2 text-sm uppercase border-b">2. Prato Principal</h4>
+                    <input id="solid-dish-name" value="${solidos.prato || ''}" class="border p-2 rounded w-full mb-2 font-bold" placeholder="Nome do Prato (Ex: Frango Grelhado)">
+                    <div id="solid-ingredients-list" class="space-y-2 mb-2"></div>
+                    <button type="button" onclick="ProducaoModule.addIngredienteRow()" class="text-xs text-blue-600 hover:underline font-bold">+ Add Ingrediente</button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 text-sm uppercase border-b">3. Sopa</h4>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <input type="number" step="0.1" id="soup-fuba" value="${sopa.fuba || ''}" placeholder="Fuba" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-potato" value="${sopa.batata || ''}" placeholder="Batata Rena" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-pasta" value="${sopa.massa || ''}" placeholder="Massa" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-onion" value="${sopa.cebola || ''}" placeholder="Cebola" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-carne-seca" value="${sopa.carne_seca || ''}" placeholder="Carne Seca" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-costelinha" value="${sopa.costelinha || ''}" placeholder="Costelinha" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-paio" value="${sopa.paio || ''}" placeholder="Paio" class="border p-1 rounded">
+                            <input type="number" step="0.1" id="soup-calabresa" value="${sopa.calabresa || ''}" placeholder="Linguiça Calabresa" class="border p-1 rounded">
+                        </div>
+                        <div class="mt-2 text-xs">
+                            ${['Cenoura', 'Abóbora', 'Couve', 'Repolho'].map(v => {
+                                const checked = (sopa.legumes || []).includes(v) ? 'checked' : '';
+                                return `<label class="inline-flex items-center mr-2"><input type="checkbox" class="soup-veg" value="${v}" ${checked}> ${v}</label>`;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-gray-700 mb-2 text-sm uppercase border-b">4. Chá</h4>
+                        <div class="space-y-2">
+                            <input type="number" step="0.1" id="tea-herb" value="${cha.erva || ''}" placeholder="Erva (Qtd)" class="border p-2 rounded w-full text-sm">
+                            <input type="number" step="0.1" id="tea-sugar" value="${cha.acucar || ''}" placeholder="Açúcar (Kg)" class="border p-2 rounded w-full text-sm">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="w-full bg-green-600 text-white py-3 rounded font-bold shadow hover:bg-green-700">Salvar Planejamento</button>
+            </form>
+        `);
+        
+        // Preencher ingredientes
+        const ingredientsList = solidos.ingredientes || [];
+        if (ingredientsList.length > 0) {
+            ingredientsList.forEach(ing => {
+                ProducaoModule.addIngredienteRow(ing.item, ing.qtd);
+            });
+        } else {
+            ProducaoModule.addIngredienteRow();
+        }
+    },
+
+    addIngredienteRow: (item = '', qtd = '') => {
+        const container = document.getElementById('solid-ingredients-list');
+        if (!container) return;
+        const div = document.createElement('div');
+        div.className = 'flex gap-2 items-center ingredient-row';
+        div.innerHTML = `<input type="text" value="${item}" placeholder="Item" class="border p-1 rounded w-full text-sm ing-name"><input type="text" value="${qtd}" placeholder="Qtd" class="border p-1 rounded w-20 text-sm ing-qty"><button type="button" onclick="this.parentElement.remove()" class="text-red-500"><i class="fas fa-times"></i></button>`;
+        container.appendChild(div);
+    },
+
+    saveProductionPlan: async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const formData = new FormData(form);
+        const id = formData.get('id');
+        
+        const baseData = { 
+            planning_date: formData.get('planning_date'), 
+            staff_count_day: Number(formData.get('staff_count_day')||0), 
+            staff_count_night: Number(formData.get('staff_count_night')||0), 
+            patient_solid: Number(formData.get('patient_solid')||0), 
+            patient_liquid: Number(formData.get('patient_liquid')||0) 
+        };
+        
+        if (id) baseData.id = id;
+        
+        const solidIngredients = [];
+        document.querySelectorAll('.ingredient-row').forEach(row => { 
+            const name = row.querySelector('.ing-name').value; 
+            const qty = row.querySelector('.ing-qty').value; 
+            if (name) solidIngredients.push({ item: name, qtd: qty }); 
+        });
+        
+        const soupVegs = [];
+        document.querySelectorAll('.soup-veg:checked').forEach(cb => soupVegs.push(cb.value));
+
+        const productionDetails = { 
+            solidos: { prato: document.getElementById('solid-dish-name').value, ingredientes: solidIngredients }, 
+            sopa: { 
+                fuba: document.getElementById('soup-fuba').value, 
+                batata: document.getElementById('soup-potato').value, 
+                massa: document.getElementById('soup-pasta').value, 
+                cebola: document.getElementById('soup-onion').value, 
+                carne_seca: document.getElementById('soup-carne-seca').value, 
+                costelinha: document.getElementById('soup-costelinha').value, 
+                paio: document.getElementById('soup-paio').value, 
+                calabresa: document.getElementById('soup-calabresa').value, 
+                legumes: soupVegs 
+            }, 
+            cha: { erva: document.getElementById('tea-herb').value, acucar: document.getElementById('tea-sugar').value } 
+        };
+        
+        try { 
+            await Utils.api('save', 'production_plans', { ...baseData, production_details: productionDetails }); 
+            Utils.toast('Planejamento salvo!', 'success'); 
+            Utils.closeModal();
+            ProducaoModule.fetchData(); 
         } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     },
 
-    deleteFicha: async (id) => {
-        if(confirm('Tem certeza que deseja excluir?')) { 
-            try {
-                await Utils.api('delete', 'FichasTecnicas', null, id); 
-                ProducaoModule.fetchData(); 
-            } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
-        }
+    printProductionPlan: (id) => {
+        const plan = ProducaoModule.state.pedidosDia.find(p => p.id === id);
+        if (!plan) return;
+
+        const op = ProducaoModule.state.ordens.find(o => o.PlanejamentoID === id);
+        
+        const details = plan.production_details || {};
+        const solidos = details.solidos || {};
+        const qual = (op && op.DetalhesProducao && op.DetalhesProducao.qualidade) ? op.DetalhesProducao.qualidade : null;
+        
+        const html = `
+            <div class="p-8 bg-white text-black font-sans">
+                <h1 class="text-2xl font-bold mb-4">Ficha de Produção - ${Utils.formatDate(plan.planning_date)}</h1>
+                <div class="mb-4 border p-4">
+                    <h2 class="font-bold">Metas</h2>
+                    <p>Sólidos: ${plan.meta_solid} | Sopa: ${plan.meta_soup} | Chá: ${plan.meta_tea}</p>
+                </div>
+                <div class="mb-4 border p-4">
+                    <h2 class="font-bold">Prato Principal: ${solidos.prato || '-'}</h2>
+                    <ul>${(solidos.ingredientes||[]).map(i => `<li>${i.item}: ${i.qtd}</li>`).join('')}</ul>
+                </div>
+                
+                ${qual ? `
+                <div class="mb-4 border p-4 bg-gray-50">
+                    <h2 class="font-bold border-b mb-2">Controle de Qualidade</h2>
+                    <p><b>Temperatura:</b> ${qual.temperatura || '-'}</p>
+                    <p><b>Higiene:</b> ${qual.higiene || '-'}</p>
+                    <p><b>Embalagem:</b> ${qual.embalagem || '-'}</p>
+                    <p><b>Inspetor:</b> ${qual.responsavel || '-'}</p>
+                    <p><b>Obs:</b> ${qual.observacoes || '-'}</p>
+                </div>
+                ` : ''}
+
+            </div>
+        `;
+        Utils.printNative(html);
     },
 
-    deleteDesperdicio: async (id) => {
-        if(confirm('Tem certeza que deseja excluir este registro de desperdício?')) { 
-            try {
-                await Utils.api('delete', 'ControleDesperdicio', null, id); 
-                ProducaoModule.fetchData(); 
-            } catch (e) { Utils.toast('Erro ao apagar', 'error'); }
-        }
+    modalFicha: (id = null) => {
+        const ficha = id ? ProducaoModule.state.cardapios.find(f => f.ID === id) : {};
+        Utils.openModal(id ? 'Editar Ficha Técnica' : 'Nova Ficha Técnica', `
+            <form onsubmit="ProducaoModule.saveFicha(event)">
+                <input type="hidden" name="ID" value="${ficha.ID || ''}">
+                <div class="mb-3"><label class="text-xs font-bold">Nome da Preparação</label><input name="Nome" value="${ficha.Nome || ''}" class="border p-2 rounded w-full" required></div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Categoria</label><select name="Categoria" class="border p-2 rounded w-full"><option>Prato Principal</option><option>Guarnição</option><option>Sobremesa</option><option>Salada</option></select></div>
+                    <div><label class="text-xs font-bold">Tempo Preparo</label><input name="TempoPreparo" value="${ficha.TempoPreparo || ''}" class="border p-2 rounded w-full"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div><label class="text-xs font-bold">Rendimento (Porções)</label><input type="number" name="Rendimento" value="${ficha.Rendimento || ''}" class="border p-2 rounded w-full"></div>
+                    <div><label class="text-xs font-bold">Custo Total (Kz)</label><input type="number" step="0.01" name="CustoPorPorcao" value="${ficha.CustoPorPorcao || ''}" class="border p-2 rounded w-full"></div>
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar Ficha</button>
+            </form>
+        `);
+    },
+
+    saveFicha: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        try {
+            await Utils.api('save', 'FichasTecnicas', data);
+            Utils.toast('Ficha salva!', 'success');
+            Utils.closeModal();
+            ProducaoModule.fetchData();
+        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     }
 };
 

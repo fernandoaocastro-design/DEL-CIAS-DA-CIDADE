@@ -75,3 +75,14 @@ COMO USAR:
 2. O script verificará a sintaxe de todos os arquivos JavaScript.
 3. Verificará se todos os links (CSS, JS, Páginas) nos arquivos HTML estão corretos.
 4. Exibirá um relatório de saúde do sistema.
+
+----------------------------------------------------------------------
+7. MIGRAÇÃO DE DADOS (migracao_dados.sql)
+----------------------------------------------------------------------
+Contém modelos de scripts SQL para transferir dados entre tabelas.
+
+COMO USAR:
+1. Abra "migracao_dados.sql".
+2. Copie o exemplo que se adapta à sua necessidade.
+3. Ajuste os nomes das tabelas e colunas.
+4. Execute no SQL Editor do Supabase.

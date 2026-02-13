@@ -15,12 +15,21 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE OR REPLACE FUNCTION backup_rotina_diaria() RETURNS void AS $$
 DECLARE
     data_txt text := to_char(now(), 'YYYY_MM_DD');
+    tabela text;
+    -- Lista completa de tabelas para backup diário
+    tabelas text[] := ARRAY[
+        'Usuarios', 'Funcionarios', 'Financas', 'Estoque', 'MovimentacoesEstoque',
+        'Inventario', 'HistoricoInventario', 'Clientes', 'Eventos', 'OrdensProducao',
+        'FichasTecnicas', 'PlanejamentoProducao', 'ConsumoIngredientes', 'ControleDesperdicio',
+        'MLPain_Registros', 'Tarefas', 'ChecklistLimpeza', 'Ferias', 'Frequencia', 
+        'Folha', 'PedidosCompra', 'ItensPedidoCompra', 'ContasPagar', 'ContasReceber'
+    ];
 BEGIN
-    -- Adicione aqui as tabelas que deseja salvar
-    EXECUTE format('CREATE TABLE IF NOT EXISTS "Backup_Estoque_%s" AS SELECT * FROM "Estoque"', data_txt);
-    EXECUTE format('CREATE TABLE IF NOT EXISTS "Backup_Financas_%s" AS SELECT * FROM "Financas"', data_txt);
-    EXECUTE format('CREATE TABLE IF NOT EXISTS "Backup_Funcionarios_%s" AS SELECT * FROM "Funcionarios"', data_txt);
-    EXECUTE format('CREATE TABLE IF NOT EXISTS "Backup_Ordens_%s" AS SELECT * FROM "OrdensProducao"', data_txt);
+    FOREACH tabela IN ARRAY tabelas LOOP
+        IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = tabela AND table_schema = 'public') THEN
+            EXECUTE format('CREATE TABLE IF NOT EXISTS %I AS SELECT * FROM %I', 'Backup_' || tabela || '_' || data_txt, tabela);
+        END IF;
+    END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 

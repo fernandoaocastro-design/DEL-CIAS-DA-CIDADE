@@ -136,6 +136,12 @@ CREATE POLICY "Acesso API Checklist" ON "ChecklistLimpeza" FOR ALL USING (true);
 ALTER TABLE "Eventos" ADD COLUMN IF NOT EXISTS "Responsavel" VARCHAR(100);
 
 -- 1.9. Fidelidade de Clientes
+-- Atualização Tabela OrdensProducao (Suporte a Eventos)
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "EventoID" UUID REFERENCES "Eventos"("ID");
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "OrigemTipo" VARCHAR(50) DEFAULT 'Rotina'; -- Rotina, Evento
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "DetalhesProducao" JSONB; -- Pratos, Ingredientes, Etapas, Equipe
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "QuantidadeReservada" DECIMAL(12,2) DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS "Clientes" (
     "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "Nome" VARCHAR(255) NOT NULL,
@@ -149,6 +155,44 @@ CREATE TABLE IF NOT EXISTS "Clientes" (
 
 ALTER TABLE "Clientes" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Acesso API Clientes" ON "Clientes" FOR ALL USING (true);
+
+-- 1.10. Pedidos de Compra (Módulo de Compras)
+CREATE TABLE IF NOT EXISTS "PedidosCompra" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Solicitante" VARCHAR(255),
+    "ValorTotal" DECIMAL(12,2) DEFAULT 0,
+    "Status" VARCHAR(50) DEFAULT 'Pendente', -- Pendente, Aprovado, Rejeitado, Concluído
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS "ItensPedidoCompra" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "PedidoID" UUID REFERENCES "PedidosCompra"("ID") ON DELETE CASCADE,
+    "ProdutoNome" VARCHAR(255),
+    "Quantidade" DECIMAL(12,3),
+    "CustoUnitario" DECIMAL(12,2),
+    "Subtotal" DECIMAL(12,2),
+    "Observacao" TEXT
+);
+
+ALTER TABLE "PedidosCompra" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ItensPedidoCompra" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Pedidos" ON "PedidosCompra" FOR ALL USING (true);
+CREATE POLICY "Acesso API ItensPedido" ON "ItensPedidoCompra" FOR ALL USING (true);
+
+-- 1.11. Listas de Itens do Dia (Estoque -> Produção)
+CREATE TABLE IF NOT EXISTS "ListasProducaoDia" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Data" DATE NOT NULL,
+    "Categoria" VARCHAR(50) NOT NULL, -- 'Almoço', 'Jantar', 'SopaChaDia', 'SopaChaNoite'
+    "ItensJSON" JSONB DEFAULT '[]', -- Array de objetos {id, nome, qtd, unidade}
+    "Status" VARCHAR(20) DEFAULT 'Rascunho', -- 'Rascunho', 'Enviado'
+    "CriadoEm" TIMESTAMP DEFAULT NOW(),
+    UNIQUE("Data", "Categoria") -- Garante apenas uma lista por categoria por dia
+);
+
+ALTER TABLE "ListasProducaoDia" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API ListasProducao" ON "ListasProducaoDia" FOR ALL USING (true);
 
 -- ==============================================================================
 -- PARTE 2: COMO FAZER CÓPIA DOS DADOS (BACKUP DE EMERGÊNCIA)
@@ -381,3 +425,159 @@ BEGIN
     ORDER BY "MLPain_Registros"."Data";
 END;
 $$ LANGUAGE plpgsql;
+
+-- 8.4. Relatório ABC de Clientes (Eventos) - Otimizado
+CREATE OR REPLACE FUNCTION get_eventos_abc()
+RETURNS TABLE (name text, value numeric) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT "Cliente" as name, SUM("Valor") as value
+    FROM "Eventos"
+    WHERE "Status" != 'Cancelado' AND "Cliente" IS NOT NULL
+    GROUP BY "Cliente"
+    ORDER BY value DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 8.5. Vendas por Dia da Semana (Eventos) - Otimizado
+CREATE OR REPLACE FUNCTION get_vendas_dia_semana()
+RETURNS TABLE (day_idx integer, total numeric, count integer) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        EXTRACT(DOW FROM "Data")::integer as day_idx, -- 0=Domingo, 6=Sábado
+        SUM("Valor") as total,
+        COUNT(*)::integer as count
+    FROM "Eventos"
+    WHERE "Status" != 'Cancelado'
+    GROUP BY day_idx
+    ORDER BY day_idx;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 8.6. Salvar Pedido de Compra (Transação Atômica)
+-- Garante que o pedido e os itens sejam salvos juntos. Se um falhar, tudo é cancelado.
+CREATE OR REPLACE FUNCTION save_purchase_order(
+    p_solicitante text,
+    p_valor_total numeric,
+    p_status text,
+    p_itens jsonb
+) RETURNS uuid AS $$
+DECLARE
+    v_pedido_id uuid;
+    v_item jsonb;
+BEGIN
+    -- 1. Criar Pedido
+    INSERT INTO "PedidosCompra" ("Solicitante", "ValorTotal", "Status")
+    VALUES (p_solicitante, p_valor_total, p_status)
+    RETURNING "ID" INTO v_pedido_id;
+
+    -- 2. Inserir Itens
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens) LOOP
+        INSERT INTO "ItensPedidoCompra" (
+            "PedidoID", "ProdutoNome", "Quantidade", "CustoUnitario", "Subtotal", "Observacao"
+        ) VALUES (
+            v_pedido_id,
+            v_item->>'name',
+            (v_item->>'qty')::numeric,
+            (v_item->>'price')::numeric,
+            (v_item->>'total')::numeric,
+            v_item->>'obs'
+        );
+    END LOOP;
+
+    RETURN v_pedido_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ==============================================================================
+-- PARTE 9: PERFORMANCE DE BUSCA (RH)
+-- ==============================================================================
+CREATE INDEX IF NOT EXISTS "idx_funcionarios_nome" ON "Funcionarios" ("Nome");
+CREATE INDEX IF NOT EXISTS "idx_funcionarios_cargo" ON "Funcionarios" ("Cargo");
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "ValidadeBI" DATE;
+
+-- ==============================================================================
+-- PARTE 10: CONTROLE DE E-MAILS AUTOMÁTICOS
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS "EmailLogs" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "DestinatarioID" UUID,
+    "Tipo" VARCHAR(50), -- Ex: 'Aniversario'
+    "Ano" INTEGER,
+    "DataEnvio" TIMESTAMP DEFAULT NOW()
+);
+
+-- ==============================================================================
+-- PARTE 11: PREVENÇÃO DE DUPLICATAS (CLIENTES)
+-- ==============================================================================
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_clientes_nome_unico" ON "Clientes" (lower(trim("Nome")));
+
+-- ==============================================================================
+-- PARTE 12: CONFIGURAÇÃO RÁPIDA (LOGOTIPO E EMPRESA)
+-- ==============================================================================
+-- Rode este comando para definir o logotipo nos relatórios PDF.
+-- Substitua a URL abaixo pelo link direto da sua imagem.
+
+/*
+-- 1. Garante que existe uma configuração inicial (se a tabela estiver vazia)
+INSERT INTO "InstituicaoConfig" ("NomeFantasia", "ExibirLogoRelatorios")
+SELECT 'Delícias da Cidade', TRUE
+WHERE NOT EXISTS (SELECT 1 FROM "InstituicaoConfig");
+
+-- 2. Atualiza o Logotipo
+UPDATE "InstituicaoConfig"
+SET 
+    "LogotipoURL" = 'https://exemplo.com/seu-logo.png', 
+    "ExibirLogoRelatorios" = TRUE
+WHERE "ID" IS NOT NULL;
+*/
+
+-- ==============================================================================
+-- PARTE 13: COMO HOSPEDAR LOGOTIPO NO SUPABASE STORAGE
+-- ==============================================================================
+/*
+PASSO A PASSO PARA HOSPEDAR A IMAGEM:
+1. No Painel do Supabase, vá em "Storage" (ícone de balde no menu esquerdo).
+2. Clique em "New Bucket".
+3. Nomeie como "logos" e marque a opção "Public bucket". Clique em "Create bucket".
+4. Entre no bucket "logos" e clique em "Upload File". Selecione a imagem do seu computador.
+5. Após enviar, clique nos 3 pontinhos ao lado do arquivo > "Get Public URL".
+6. Copie o link gerado (ex: https://.../storage/v1/object/public/logos/meu-logo.png).
+7. Substitua o link no comando abaixo e execute:
+
+UPDATE "InstituicaoConfig"
+SET "LogotipoURL" = 'COLE_A_URL_AQUI'
+WHERE "ID" IS NOT NULL;
+*/
+
+-- ==============================================================================
+-- PARTE 14: CORREÇÃO DE ERRO (ORDEM DE PRODUÇÃO)
+-- ==============================================================================
+-- Execute isto para corrigir o erro "Could not find the 'DetalhesProducao' column"
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "DetalhesProducao" JSONB;
+
+-- CORREÇÃO DE TIPO DE DADOS (EVENTOS)
+-- Se Eventos.ID for TEXT, converte para UUID para permitir chave estrangeira
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'Eventos' AND column_name = 'ID' AND data_type = 'text'
+    ) THEN
+        -- Converte para UUID (Isso pode falhar se houver IDs inválidos que não são UUIDs)
+        ALTER TABLE "Eventos" ALTER COLUMN "ID" TYPE UUID USING "ID"::uuid;
+        -- Garante o default correto
+        ALTER TABLE "Eventos" ALTER COLUMN "ID" SET DEFAULT gen_random_uuid();
+    END IF;
+END $$;
+
+-- Garante que as outras colunas necessárias também existam
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "EventoID" UUID REFERENCES "Eventos"("ID");
+ALTER TABLE "OrdensProducao" ADD COLUMN IF NOT EXISTS "OrigemTipo" VARCHAR(50) DEFAULT 'Rotina';
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "QuantidadeReservada" DECIMAL(12,2) DEFAULT 0;
+
+-- CORREÇÃO DE CONSTRAINT (ORDENS DE PRODUÇÃO)
+-- Remove a restrição antiga que ligava OrdensProducao à tabela antiga PlanejamentoProducao
+ALTER TABLE "OrdensProducao" DROP CONSTRAINT IF EXISTS "OrdensProducao_PlanejamentoID_fkey";

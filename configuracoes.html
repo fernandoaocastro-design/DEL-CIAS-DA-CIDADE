@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações - Delícias da Cidade</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="bg-slate-900 text-white w-64 flex-shrink-0 transition-all duration-300 flex flex-col">
+            <div class="p-4 flex items-center justify-between h-16 border-b border-slate-800">
+                <div class="flex items-center gap-3" id="sidebar-logo">
+                    <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center font-bold text-slate-900">K</div>
+                    <span class="font-bold text-lg tracking-wide sidebar-text">Kitchen OS</span>
+                </div>
+                <button onclick="Utils.toggleSidebar()" class="text-slate-400 hover:text-white transition"><i class="fas fa-bars"></i></button>
+            </div>
+            <nav class="flex-1 overflow-y-auto py-4 space-y-1">
+                <a href="dashboard.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-chart-pie w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Dashboard</span>
+                </a>
+                <a href="rh.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-users w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">RH & Equipe</span>
+                </a>
+                <a href="estoque.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-boxes w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Estoque</span>
+                </a>
+                <a href="producao.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-utensils w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Agendamento</span>
+                </a>
+                <a href="mlpain.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-hospital-user w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">M.L. Pain</span>
+                </a>
+                <a href="eventos.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-calendar-alt w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Eventos</span>
+                </a>
+                <a href="financas.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-dollar-sign w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Financeiro</span>
+                </a>
+                <a href="inventario.html" class="flex items-center px-4 py-3 text-slate-300 hover:bg-slate-800 hover:text-white transition border-l-4 border-transparent hover:border-yellow-500 group">
+                    <i class="fas fa-dolly w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Inventário</span>
+                </a>
+                <div class="pt-4 mt-4 border-t border-slate-800">
+                    <a href="configuracoes.html" class="flex items-center px-4 py-3 bg-slate-800 text-white border-l-4 border-yellow-500 group">
+                        <i class="fas fa-cog w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Configurações</span>
+                    </a>
+                </div>
+            </nav>
+            <div class="p-4 border-t border-slate-800">
+                <button onclick="Utils.confirmLogout()" class="flex items-center w-full text-slate-400 hover:text-white transition">
+                    <i class="fas fa-sign-out-alt w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text">Sair</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 overflow-y-auto bg-gray-100 relative">
+            <!-- Header -->
+            <header class="bg-white shadow-sm sticky top-0 z-20 h-16 flex items-center justify-between px-6">
+                <h2 class="text-xl font-bold text-gray-800">Configurações do Sistema</h2>
+                <div class="flex items-center gap-4">
+                    <button id="notif-btn" onclick="Utils.toggleNotifications()" class="relative text-gray-500 hover:text-blue-600 transition">
+                        <i class="fas fa-bell text-xl"></i>
+                        <span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-4 h-4 rounded-full flex items-center justify-center hidden">0</span>
+                    </button>
+                    <div class="relative">
+                        <button id="profile-btn" onclick="Utils.toggleProfileMenu()" class="flex items-center gap-2 focus:outline-none">
+                            <div class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600 font-bold">A</div>
+                            <span class="text-sm font-medium text-gray-700 hidden md:block">Admin</span>
+                            <i class="fas fa-chevron-down text-xs text-gray-400"></i>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Notification Panel -->
+            <div id="notification-panel" class="hidden absolute right-20 top-16 w-80 bg-white rounded-lg shadow-xl border z-50 animate-fade-in-up">
+                <div class="p-3 border-b font-bold text-gray-700 flex justify-between items-center">
+                    <span>Notificações</span>
+                    <button onclick="Utils.toggleNotifications()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="max-h-64 overflow-y-auto"></div>
+            </div>
+
+            <!-- Content -->
+            <div class="p-6 max-w-5xl mx-auto" id="config-content">
+                <!-- Injected via JS -->
+                <div class="flex justify-center items-center h-64">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg mx-4 overflow-hidden transform transition-all scale-95 opacity-0">
+            <div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center">
+                <h3 class="font-bold text-gray-800 text-lg" id="modal-title">Título</h3>
+                <button onclick="Utils.closeModal()" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar" id="modal-body">
+                <!-- Content -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script src="js/configuracoes.js"></script>
+</body>
+</html>

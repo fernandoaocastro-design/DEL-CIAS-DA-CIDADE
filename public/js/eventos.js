@@ -1,18 +1,21 @@
 const EventosModule = {
     state: {
+        activeTab: 'visao-geral', // visao-geral, eventos, compras
+        activeSubTab: 'dashboard', // Variável conforme a aba principal
         currentDate: new Date(),
         events: [],
         filter: '',
         stockItems: [],
         purchaseOrders: [],
-        view: 'calendar', // 'calendar' or 'list'
         instituicao: [],
+        fichasTecnicas: [], // Para selecionar pratos no menu
         purchaseCart: [], // Carrinho de compras para pedidos
         charts: {},
         clients: []
     },
 
     init: () => {
+        EventosModule.renderLayout();
         EventosModule.fetchData();
     },
 
@@ -24,16 +27,18 @@ const EventosModule = {
                 Utils.api('getAll', 'InstituicaoConfig'),
                 Utils.api('getAll', 'Estoque'),
                 Utils.api('getAll', 'PedidosCompra'),
-                Utils.api('getAll', 'Clientes')
+                Utils.api('getAll', 'Clientes'),
+                Utils.api('getAll', 'FichasTecnicas')
             ]);
             
-            const [resEvents, resInst, resStock, resOrders, resClients] = results;
+            const [resEvents, resInst, resStock, resOrders, resClients, resFichas] = results;
 
             EventosModule.state.events = resEvents.status === 'fulfilled' ? resEvents.value : [];
             EventosModule.state.instituicao = resInst.status === 'fulfilled' ? resInst.value : [];
             EventosModule.state.stockItems = resStock.status === 'fulfilled' ? resStock.value : [];
             EventosModule.state.purchaseOrders = resOrders.status === 'fulfilled' ? resOrders.value : [];
             EventosModule.state.clients = resClients.status === 'fulfilled' ? resClients.value : [];
+            EventosModule.state.fichasTecnicas = resFichas.status === 'fulfilled' ? resFichas.value : [];
 
             if (resEvents.status === 'rejected') console.warn('Erro ao carregar Eventos (Tabela inexistente?):', resEvents.reason);
             if (resStock.status === 'rejected') Utils.toast('Erro ao carregar Estoque.', 'error');
@@ -45,71 +50,106 @@ const EventosModule = {
         EventosModule.render();
     },
 
-    setView: (view) => {
-        EventosModule.state.view = view;
+    renderLayout: () => {
+        const container = document.getElementById('eventos-content');
+        if (!container) return;
         
-        // Atualiza botões
-        const btnCal = document.getElementById('btn-view-calendar');
-        const btnList = document.getElementById('btn-view-list');
-        const btnPurch = document.getElementById('btn-view-purchase');
-        const btnHist = document.getElementById('btn-view-history');
-        const btnABC = document.getElementById('btn-view-abc');
-        
-        // Injeta botão Fidelidade se não existir
-        let btnLoyalty = document.getElementById('btn-view-loyalty');
-        if (!btnLoyalty && btnABC && btnABC.parentElement) {
-            btnLoyalty = document.createElement('button');
-            btnLoyalty.id = 'btn-view-loyalty';
-            btnLoyalty.innerText = 'Fidelidade';
-            btnLoyalty.onclick = () => EventosModule.setView('loyalty');
-            btnLoyalty.className = 'px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100 transition';
-            btnABC.parentElement.appendChild(btnLoyalty);
-        }
-        
-        // Reset classes
-        [btnCal, btnList, btnPurch, btnHist, btnABC, btnLoyalty].forEach(btn => {
-            if(btn) btn.className = 'px-4 py-2 rounded text-sm font-bold text-gray-600 hover:bg-gray-100 transition';
-        });
+        container.innerHTML = `
+            <div class="border-b border-gray-200 mb-6">
+                <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                    <button id="tab-visao-geral" onclick="EventosModule.setTab('visao-geral')" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">
+                        <i class="fas fa-chart-pie mr-2"></i>Visão Geral
+                    </button>
+                    <button id="tab-eventos" onclick="EventosModule.setTab('eventos')" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">
+                        <i class="fas fa-calendar-alt mr-2"></i>Eventos & Serviço
+                    </button>
+                    <button id="tab-compras" onclick="EventosModule.setTab('compras')" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">
+                        <i class="fas fa-shopping-cart mr-2"></i>Pedidos de Compras
+                    </button>
+                </nav>
+            </div>
+            
+            <!-- Submenu Container -->
+            <div id="submenu-container" class="mb-6 hidden">
+                <div class="flex space-x-2 bg-gray-50 p-1 rounded-lg inline-flex" id="submenu-buttons">
+                    <!-- Injetado via JS -->
+                </div>
+            </div>
 
-        document.getElementById('calendar-view').classList.add('hidden');
-        document.getElementById('list-view').classList.add('hidden');
-        document.getElementById('purchase-view').classList.add('hidden');
-        document.getElementById('history-view').classList.add('hidden');
-        const abcView = document.getElementById('abc-view');
-        if(abcView) abcView.classList.add('hidden');
-        
-        // Cria container Fidelidade se não existir
-        let loyaltyView = document.getElementById('loyalty-view');
-        if (!loyaltyView) {
-            loyaltyView = document.createElement('div');
-            loyaltyView.id = 'loyalty-view';
-            loyaltyView.className = 'hidden';
-            document.getElementById('calendar-view').parentElement.appendChild(loyaltyView);
-        }
-        loyaltyView.classList.add('hidden');
+            <div id="tab-content"></div>
+        `;
+    },
 
-        if(view === 'calendar') {
-            btnCal.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            document.getElementById('calendar-view').classList.remove('hidden');
-        } else if (view === 'list') {
-            btnList.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            document.getElementById('list-view').classList.remove('hidden');
-        } else if (view === 'purchase') {
-            btnPurch.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            document.getElementById('purchase-view').classList.remove('hidden');
-        } else if (view === 'history') {
-            if(btnHist) btnHist.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            document.getElementById('history-view').classList.remove('hidden');
-        } else if (view === 'abc') {
-            if(btnABC) btnABC.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            if(abcView) abcView.classList.remove('hidden');
-            EventosModule.renderClientABC();
-        } else if (view === 'loyalty') {
-            if(btnLoyalty) btnLoyalty.className = 'px-4 py-2 rounded text-sm font-bold bg-indigo-100 text-indigo-700 transition';
-            loyaltyView.classList.remove('hidden');
-            EventosModule.renderLoyalty();
-        }
+    setTab: (tab) => {
+        EventosModule.state.activeTab = tab;
+        
+        // Define sub-aba padrão ao trocar de aba principal
+        if (tab === 'visao-geral') EventosModule.state.activeSubTab = 'dashboard';
+        else if (tab === 'eventos') EventosModule.state.activeSubTab = 'calendario';
+        else if (tab === 'compras') EventosModule.state.activeSubTab = 'novo-pedido';
+
         EventosModule.render();
+    },
+
+    setSubTab: (subTab) => {
+        EventosModule.state.activeSubTab = subTab;
+        EventosModule.render();
+    },
+
+    render: () => {
+        // Atualiza estilo das abas principais
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('border-indigo-500', 'text-indigo-600');
+            btn.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+        });
+        const activeBtn = document.getElementById(`tab-${EventosModule.state.activeTab}`);
+        if(activeBtn) {
+            activeBtn.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+            activeBtn.classList.add('border-indigo-500', 'text-indigo-600');
+        }
+
+        // Renderiza Submenus e Conteúdo
+        const submenuContainer = document.getElementById('submenu-container');
+        const submenuButtons = document.getElementById('submenu-buttons');
+        const contentContainer = document.getElementById('tab-content');
+        
+        if (!contentContainer) return;
+
+        const tab = EventosModule.state.activeTab;
+        const subTab = EventosModule.state.activeSubTab;
+
+        // Helper para botões de submenu
+        const renderSubBtn = (id, label) => `
+            <button onclick="EventosModule.setSubTab('${id}')" class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${subTab === id ? 'bg-white text-gray-900 shadow' : 'text-gray-500 hover:text-gray-900'}">
+                ${label}
+            </button>
+        `;
+
+        if (tab === 'visao-geral') {
+            submenuContainer.classList.remove('hidden');
+            submenuButtons.innerHTML = renderSubBtn('dashboard', 'Relatórios & ABC') + renderSubBtn('fidelidade', 'Fidelidade');
+            
+            if (subTab === 'dashboard') EventosModule.renderClientABC(contentContainer);
+            else if (subTab === 'fidelidade') EventosModule.renderLoyalty(contentContainer);
+
+        } else if (tab === 'eventos') {
+            submenuContainer.classList.remove('hidden');
+            submenuButtons.innerHTML = 
+                renderSubBtn('calendario', 'Calendário') + 
+                renderSubBtn('cardapio', 'Cardápio Planejado') + 
+                renderSubBtn('equipe', 'Equipe Envolvida');
+
+            if (subTab === 'calendario') EventosModule.renderCalendar(contentContainer);
+            else if (subTab === 'cardapio') contentContainer.innerHTML = '<div class="p-10 text-center text-gray-500"><i class="fas fa-utensils text-4xl mb-2"></i><br>Módulo de Cardápio Planejado em desenvolvimento.</div>';
+            else if (subTab === 'equipe') contentContainer.innerHTML = '<div class="p-10 text-center text-gray-500"><i class="fas fa-users text-4xl mb-2"></i><br>Módulo de Equipe Envolvida em desenvolvimento.</div>';
+
+        } else if (tab === 'compras') {
+            submenuContainer.classList.remove('hidden');
+            submenuButtons.innerHTML = renderSubBtn('novo-pedido', 'Novo Pedido') + renderSubBtn('lista', 'Histórico de Pedidos');
+
+            if (subTab === 'novo-pedido') EventosModule.renderPurchaseOrders(contentContainer);
+            else if (subTab === 'lista') EventosModule.renderPurchaseHistory(contentContainer);
+        }
     },
 
     setFilter: (category) => {
@@ -139,16 +179,7 @@ const EventosModule = {
         EventosModule.render();
     },
 
-    render: () => {
-        if (EventosModule.state.view === 'calendar') EventosModule.renderCalendar();
-        // else if (EventosModule.state.view === 'list') EventosModule.renderList(); // Função não implementada
-        else if (EventosModule.state.view === 'purchase') EventosModule.renderPurchaseOrders();
-        else if (EventosModule.state.view === 'history') EventosModule.renderPurchaseHistory();
-        // abc view is rendered on setView
-        // loyalty view is rendered on setView
-    },
-
-    renderCalendar: () => {
+    renderCalendar: (container) => {
         const date = EventosModule.state.currentDate;
         const year = date.getFullYear();
         const month = date.getMonth();
@@ -156,10 +187,21 @@ const EventosModule = {
         const canCreate = Utils.checkPermission('Eventos', 'criar');
 
         // Atualiza Cabeçalho
-        const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-        document.getElementById('calendar-month-year').innerText = `${monthNames[month]} ${year}`;
+        const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];        
 
-        const grid = document.getElementById('calendar-grid');
+        container.innerHTML = `
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex items-center gap-4">
+                    <button onclick="EventosModule.changeMonth(-1)" class="text-gray-600 hover:text-indigo-600"><i class="fas fa-chevron-left fa-lg"></i></button>
+                    <h2 class="text-xl font-bold text-gray-800 w-48 text-center" id="calendar-month-year">${monthNames[month]} ${year}</h2>
+                    <button onclick="EventosModule.changeMonth(1)" class="text-gray-600 hover:text-indigo-600"><i class="fas fa-chevron-right fa-lg"></i></button>
+                </div>
+                ${canCreate ? `<button onclick="EventosModule.modalEvento()" class="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700"><i class="fas fa-plus"></i> Novo Evento</button>` : ''}
+            </div>
+            <div class="grid grid-cols-7 border-l border-b border-gray-200 bg-white shadow rounded-lg overflow-hidden" id="calendar-grid">
+                <!-- Grid injetado abaixo -->
+            </div>
+        `;
         
         // Cabeçalho dos Dias
         let html = `
@@ -199,11 +241,11 @@ const EventosModule = {
                     <div class="flex justify-between items-start">
                         <span class="text-sm font-bold ${isToday ? 'bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : 'text-gray-700'}">${day}</span>
                         ${holidayName ? `<span class="text-[10px] text-red-500 font-bold truncate ml-2" title="${holidayName}">${holidayName}</span>` : ''}
-                        ${canCreate ? `<button onclick="EventosModule.modalEvento('${currentDayStr}')" class="opacity-0 group-hover:opacity-100 text-indigo-600 hover:text-indigo-800 transition"><i class="fas fa-plus-circle"></i></button>` : ''}
+                        ${canCreate ? `<button onclick="EventosModule.modalEvento(null, '${currentDayStr}')" class="opacity-0 group-hover:opacity-100 text-indigo-600 hover:text-indigo-800 transition"><i class="fas fa-plus-circle"></i></button>` : ''}
                     </div>
                     <div class="mt-1 space-y-1 overflow-y-auto custom-scrollbar flex-1">
                         ${dayEvents.map(e => `
-                            <div class="text-xs bg-indigo-100 text-indigo-800 p-1 rounded truncate cursor-pointer hover:bg-indigo-200" title="${e.Titulo}">
+                            <div onclick="EventosModule.modalEvento('${e.ID}')" class="text-xs ${e.Status === 'Confirmado' ? 'bg-green-100 text-green-800' : 'bg-indigo-100 text-indigo-800'} p-1 rounded truncate cursor-pointer hover:opacity-80" title="${e.Titulo}">
                                 ${e.Hora ? e.Hora.slice(0,5) : ''} ${e.Titulo}
                             </div>
                         `).join('')}
@@ -212,40 +254,209 @@ const EventosModule = {
             `;
         }
 
-        grid.innerHTML = html;
+        document.getElementById('calendar-grid').innerHTML = html;
     },
 
-    modalEvento: (date = null) => {
-        const d = date ? new Date(date) : new Date();
+    modalEvento: (id = null, date = null) => {
+        const event = id ? EventosModule.state.events.find(e => e.ID === id) : {};
+        const d = date ? new Date(date) : (event.Data ? new Date(event.Data) : new Date());
         const dateStr = d.toISOString().split('T')[0];
         
-        // Busca funcionários para o select de responsável (Garçom)
-        // Idealmente isso viria do cache global ou de uma chamada específica, 
-        // mas vamos tentar pegar do RHModule se disponível ou fazer uma chamada rápida
-        // Para simplificar, faremos um input texto com sugestão ou select se tivermos dados
-        // Assumindo que podemos pegar do localStorage se o RH já carregou, ou deixar texto livre por enquanto.
-        // Melhor: input texto simples para não depender de outro módulo carregado.
-        
-        Utils.openModal('Novo Evento / Pedido', `
+        const detalhes = event.DetalhesJSON || {};
+        const menu = detalhes.menu || [];
+        const custos = detalhes.custos || { ingredientes: 0, equipe: 0, transporte: 0, outros: 0 };
+        const equipe = detalhes.equipe || '';
+        const checklist = detalhes.checklist || '';
+
+        // Função para alternar abas no modal
+        window.switchEventTab = (tabId) => {
+            document.querySelectorAll('.evt-tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            document.querySelectorAll('.evt-tab-btn').forEach(el => {
+                el.classList.remove('border-indigo-600', 'text-indigo-600');
+                el.classList.add('border-transparent', 'text-gray-500');
+            });
+            document.getElementById('btn-' + tabId).classList.remove('border-transparent', 'text-gray-500');
+            document.getElementById('btn-' + tabId).classList.add('border-indigo-600', 'text-indigo-600');
+        };
+
+        // Função para adicionar item ao menu
+        window.addMenuItem = () => {
+            const container = document.getElementById('menu-items-container');
+            const idx = Date.now();
+            const html = `
+                <div class="grid grid-cols-12 gap-2 mb-2 items-center menu-row" id="menu-row-${idx}">
+                    <div class="col-span-3">
+                        <select name="menu_cat_${idx}" class="border p-2 rounded w-full text-sm">
+                            <option>Entrada</option><option>Principal</option><option>Sobremesa</option><option>Bebidas</option><option>Cocktail</option>
+                        </select>
+                    </div>
+                    <div class="col-span-6">
+                        <input name="menu_item_${idx}" class="border p-2 rounded w-full text-sm" placeholder="Ex: Risoto de Camarão">
+                    </div>
+                    <div class="col-span-2">
+                        <input type="number" name="menu_qtd_${idx}" class="border p-2 rounded w-full text-sm" placeholder="Qtd">
+                    </div>
+                    <div class="col-span-1 text-center">
+                        <button type="button" onclick="document.getElementById('menu-row-${idx}').remove()" class="text-red-500"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', html);
+        };
+
+        // Função para calcular lucro
+        window.calcEventProfit = () => {
+            const ing = Number(document.querySelector('[name="custo_ingredientes"]').value || 0);
+            const eq = Number(document.querySelector('[name="custo_equipe"]').value || 0);
+            const trans = Number(document.querySelector('[name="custo_transporte"]').value || 0);
+            const out = Number(document.querySelector('[name="custo_outros"]').value || 0);
+            const totalCusto = ing + eq + trans + out;
+            
+            const contrato = Number(document.querySelector('[name="Valor"]').value || 0);
+            const lucro = contrato - totalCusto;
+            
+            document.getElementById('display-total-custo').innerText = Utils.formatCurrency(totalCusto);
+            document.getElementById('display-lucro').innerText = Utils.formatCurrency(lucro);
+            
+            const lucroEl = document.getElementById('display-lucro');
+            if(lucro < 0) lucroEl.className = 'text-xl font-bold text-red-600';
+            else lucroEl.className = 'text-xl font-bold text-green-600';
+        };
+
+        Utils.openModal(id ? 'Ficha do Evento' : 'Novo Evento', `
             <form onsubmit="EventosModule.save(event)">
-                <div class="mb-3"><label class="text-xs font-bold">Título do Evento</label><input name="Titulo" class="border p-2 rounded w-full" required placeholder="Ex: Aniversário, Coffee Break..."></div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" value="${dateStr}" class="border p-2 rounded w-full" required></div>
-                    <div><label class="text-xs font-bold">Horário</label><input type="time" name="Hora" class="border p-2 rounded w-full"></div>
+                <input type="hidden" name="ID" value="${event.ID || ''}">
+                
+                <!-- Abas -->
+                <div class="flex border-b border-gray-200 mb-4">
+                    <button type="button" id="btn-tab-dados" onclick="switchEventTab('tab-dados')" class="evt-tab-btn flex-1 py-2 px-4 text-sm font-medium text-center border-b-2 border-indigo-600 text-indigo-600">Dados Gerais</button>
+                    <button type="button" id="btn-tab-menu" onclick="switchEventTab('tab-menu')" class="evt-tab-btn flex-1 py-2 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-700">Cardápio</button>
+                    <button type="button" id="btn-tab-custos" onclick="switchEventTab('tab-custos')" class="evt-tab-btn flex-1 py-2 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-700">Custos</button>
+                    <button type="button" id="btn-tab-equipe" onclick="switchEventTab('tab-equipe')" class="evt-tab-btn flex-1 py-2 px-4 text-sm font-medium text-center border-b-2 border-transparent text-gray-500 hover:text-gray-700">Equipe</button>
                 </div>
-                <div class="grid grid-cols-2 gap-3 mb-3">
-                    <div><label class="text-xs font-bold">Cliente</label><input name="Cliente" class="border p-2 rounded w-full"></div>
-                    <div><label class="text-xs font-bold">Valor Estimado (Kz)</label><input type="number" step="0.01" name="Valor" class="border p-2 rounded w-full"></div>
-                    <div class="col-span-2"><label class="text-xs font-bold">Responsável / Garçom</label><input name="Responsavel" class="border p-2 rounded w-full" placeholder="Quem atendeu?"></div>
+
+                <!-- TAB 1: DADOS -->
+                <div id="tab-dados" class="evt-tab-content">
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div class="col-span-2"><label class="text-xs font-bold">Nome do Evento</label><input name="Titulo" value="${event.Titulo || ''}" class="border p-2 rounded w-full" required placeholder="Ex: Casamento João & Maria"></div>
+                        <div><label class="text-xs font-bold">Tipo de Evento</label>
+                            <select name="Categoria" class="border p-2 rounded w-full">
+                                <option ${event.Categoria === 'Casamento' ? 'selected' : ''}>Casamento</option>
+                                <option ${event.Categoria === 'Cocktail' ? 'selected' : ''}>Cocktail</option>
+                                <option ${event.Categoria === 'Aniversário' ? 'selected' : ''}>Aniversário</option>
+                                <option ${event.Categoria === 'Corporativo' ? 'selected' : ''}>Corporativo</option>
+                                <option ${event.Categoria === 'Outro' ? 'selected' : ''}>Outro</option>
+                            </select>
+                        </div>
+                        <div><label class="text-xs font-bold">Cliente</label><input name="Cliente" value="${event.Cliente || ''}" class="border p-2 rounded w-full"></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3 mb-3">
+                        <div><label class="text-xs font-bold">Data</label><input type="date" name="Data" value="${dateStr}" class="border p-2 rounded w-full" required></div>
+                        <div><label class="text-xs font-bold">Hora</label><input type="time" name="Hora" value="${event.Hora || ''}" class="border p-2 rounded w-full"></div>
+                        <div><label class="text-xs font-bold">Nº Pessoas</label><input type="number" name="Pessoas" value="${event.Pessoas || ''}" class="border p-2 rounded w-full"></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div><label class="text-xs font-bold">Local</label><input name="Local" value="${event.Local || ''}" class="border p-2 rounded w-full" placeholder="Salão..."></div>
+                        <div><label class="text-xs font-bold">Responsável (Chef)</label><input name="Responsavel" value="${event.Responsavel || ''}" class="border p-2 rounded w-full"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-xs font-bold">Status</label>
+                        <select name="Status" class="border p-2 rounded w-full bg-gray-50">
+                            <option ${event.Status === 'Planejado' ? 'selected' : ''}>Planejado</option>
+                            <option ${event.Status === 'Orçamento Enviado' ? 'selected' : ''}>Orçamento Enviado</option>
+                            <option ${event.Status === 'Confirmado' ? 'selected' : ''}>Confirmado</option>
+                            <option ${event.Status === 'Em Execução' ? 'selected' : ''}>Em Execução</option>
+                            <option ${event.Status === 'Finalizado' ? 'selected' : ''}>Finalizado</option>
+                            <option ${event.Status === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="mb-3"><label class="text-xs font-bold">Descrição / Itens</label><textarea name="Descricao" class="border p-2 rounded w-full h-20"></textarea></div>
-                <button class="w-full bg-indigo-600 text-white py-2 rounded font-bold">Salvar Evento</button>
+
+                <!-- TAB 2: CARDÁPIO -->
+                <div id="tab-menu" class="evt-tab-content hidden">
+                    <div class="flex justify-between items-center mb-2">
+                        <h5 class="font-bold text-gray-700 text-sm">Itens do Menu</h5>
+                        <button type="button" onclick="addMenuItem()" class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">+ Adicionar Prato</button>
+                    </div>
+                    <div id="menu-items-container" class="max-h-64 overflow-y-auto pr-1">
+                        ${menu.map((item, idx) => `
+                            <div class="grid grid-cols-12 gap-2 mb-2 items-center menu-row" id="menu-row-exist-${idx}">
+                                <div class="col-span-3">
+                                    <select name="menu_cat_exist_${idx}" class="border p-2 rounded w-full text-sm">
+                                        <option ${item.cat === 'Entrada' ? 'selected' : ''}>Entrada</option>
+                                        <option ${item.cat === 'Principal' ? 'selected' : ''}>Principal</option>
+                                        <option ${item.cat === 'Sobremesa' ? 'selected' : ''}>Sobremesa</option>
+                                        <option ${item.cat === 'Bebidas' ? 'selected' : ''}>Bebidas</option>
+                                        <option ${item.cat === 'Cocktail' ? 'selected' : ''}>Cocktail</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-6">
+                                    <input name="menu_item_exist_${idx}" value="${item.name}" class="border p-2 rounded w-full text-sm">
+                                </div>
+                                <div class="col-span-2">
+                                    <input type="number" name="menu_qtd_exist_${idx}" value="${item.qtd}" class="border p-2 rounded w-full text-sm">
+                                </div>
+                                <div class="col-span-1 text-center">
+                                    <button type="button" onclick="document.getElementById('menu-row-exist-${idx}').remove()" class="text-red-500"><i class="fas fa-times"></i></button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- TAB 3: CUSTOS -->
+                <div id="tab-custos" class="evt-tab-content hidden">
+                    <div class="bg-gray-50 p-4 rounded border mb-4" oninput="calcEventProfit()">
+                        <div class="grid grid-cols-2 gap-4 mb-2">
+                            <div><label class="text-xs font-bold">Ingredientes (Kz)</label><input type="number" name="custo_ingredientes" value="${custos.ingredientes}" class="border p-2 rounded w-full"></div>
+                            <div><label class="text-xs font-bold">Equipe Extra (Kz)</label><input type="number" name="custo_equipe" value="${custos.equipe}" class="border p-2 rounded w-full"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-2">
+                            <div><label class="text-xs font-bold">Transporte (Kz)</label><input type="number" name="custo_transporte" value="${custos.transporte}" class="border p-2 rounded w-full"></div>
+                            <div><label class="text-xs font-bold">Outros (Kz)</label><input type="number" name="custo_outros" value="${custos.outros}" class="border p-2 rounded w-full"></div>
+                        </div>
+                        <div class="border-t pt-2 mt-2">
+                            <label class="text-sm font-bold text-blue-800">Valor do Contrato (Cobrado)</label>
+                            <input type="number" name="Valor" value="${event.Valor || ''}" class="border p-2 rounded w-full font-bold text-blue-800 text-lg">
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center bg-white p-3 rounded shadow-sm border">
+                        <div>
+                            <div class="text-xs text-gray-500">Custo Total</div>
+                            <div class="text-lg font-bold text-gray-700" id="display-total-custo">Kz 0,00</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-gray-500">Lucro Estimado</div>
+                            <div class="text-xl font-bold text-green-600" id="display-lucro">Kz 0,00</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: EQUIPE -->
+                <div id="tab-equipe" class="evt-tab-content hidden">
+                    <div class="mb-3">
+                        <label class="text-xs font-bold">Equipe Envolvida</label>
+                        <textarea name="equipe_texto" class="border p-2 rounded w-full h-24" placeholder="Cozinheiros, Garçons, Motoristas...">${equipe}</textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="text-xs font-bold">Checklist de Logística</label>
+                        <textarea name="checklist_texto" class="border p-2 rounded w-full h-24" placeholder="- Mesas\n- Pratos\n- Fornos...">${checklist}</textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-between mt-6 pt-4 border-t">
+                    ${id ? `<button type="button" onclick="EventosModule.printEventSheet('${id}')" class="text-gray-600 hover:text-gray-800"><i class="fas fa-print"></i> Imprimir Ficha</button>` : '<div></div>'}
+                    <button class="bg-indigo-600 text-white px-6 py-2 rounded font-bold shadow hover:bg-indigo-700">Salvar Evento</button>
+                </div>
             </form>
         `);
+        
+        // Inicializa cálculos
+        setTimeout(calcEventProfit, 100);
     },
 
-    renderPurchaseOrders: () => {
-        const container = document.getElementById('purchase-view');
+    renderPurchaseOrders: (container) => {
         const items = EventosModule.state.stockItems || [];
         const cart = EventosModule.state.purchaseCart || [];
         const canCreate = Utils.checkPermission('Eventos', 'criar');
@@ -473,8 +684,7 @@ const EventosModule = {
         }
     },
 
-    renderPurchaseHistory: () => {
-        const container = document.getElementById('history-view');
+    renderPurchaseHistory: (container) => {
         const orders = EventosModule.state.purchaseOrders || [];
         
         // Ordenar por data (mais recente primeiro)
@@ -514,8 +724,7 @@ const EventosModule = {
         `;
     },
 
-    renderClientABC: async () => {
-        const container = document.getElementById('abc-view');
+    renderClientABC: async (container) => {
         container.innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-indigo-600"></i><p class="mt-2">Carregando relatórios...</p></div>';
 
         try {
@@ -608,8 +817,7 @@ const EventosModule = {
         } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao carregar relatório.</p>'; }
     },
 
-    renderLoyalty: () => {
-        const container = document.getElementById('loyalty-view');
+    renderLoyalty: (container) => {
         const clients = EventosModule.state.clients || [];
         
         container.innerHTML = `
@@ -747,55 +955,53 @@ const EventosModule = {
         const totalGeral = itemsToBuy.reduce((acc, i) => acc + i.total, 0);
         const inst = EventosModule.state.instituicao[0] || {};
         const user = Utils.getUser();
+        const showLogo = inst.ExibirLogoRelatorios;
 
         const element = document.getElementById('print-area-eventos');
         const header = document.getElementById('pdf-header');
         const content = document.getElementById('pdf-content');
 
         header.innerHTML = `
-            <div class="flex items-center gap-4 border-b pb-4 mb-4">
-                ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Pedido de Compra'}</h1>
-                    <p class="text-xs text-gray-500">${inst.Endereco || ''}</p>
-                </div>
-            </div>
-            <div class="flex justify-between items-end mb-6">
-                <div>
-                    <h2 class="text-2xl font-bold text-gray-800">PEDIDO DE COMPRA</h2>
-                    <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+            <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                    ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                    <div>
+                        <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Pedido de Compra'}</h1>
+                        <p class="text-xs text-gray-500">${inst.Endereco || ''}</p>
+                    </div>
                 </div>
                 <div class="text-right">
-                    <p class="text-sm font-bold">Solicitante:</p>
-                    <p class="text-sm">${user.Nome}</p>
+                    <h2 class="text-2xl font-bold text-gray-800">PEDIDO DE COMPRA</h2>
+                    <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
+                    <p class="text-sm font-bold mt-1">Solicitante: ${user.Nome}</p>
                 </div>
             </div>
         `;
 
         content.innerHTML = `
-            <table class="w-full text-sm text-left border-collapse">
+            <table class="w-full text-sm text-left border-collapse border border-gray-300">
                 <thead class="bg-gray-100 uppercase text-xs">
                     <tr>
-                        <th class="p-2 border">Produto</th>
-                        <th class="p-2 border text-right">Custo Unit.</th>
-                        <th class="p-2 border text-center">Qtd</th>
-                        <th class="p-2 border text-left">Obs</th>
-                        <th class="p-2 border text-right">Subtotal</th>
+                        <th class="p-2 border border-gray-300">Produto</th>
+                        <th class="p-2 border border-gray-300 text-right">Custo Unit.</th>
+                        <th class="p-2 border border-gray-300 text-center">Qtd</th>
+                        <th class="p-2 border border-gray-300 text-left">Obs</th>
+                        <th class="p-2 border border-gray-300 text-right">Subtotal</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${itemsToBuy.map(i => `
                         <tr>
-                            <td class="p-2 border">${i.name}</td>
-                            <td class="p-2 border text-right">${Utils.formatCurrency(i.price)}</td>
-                            <td class="p-2 border text-center">${i.qty}</td>
-                            <td class="p-2 border text-xs text-gray-500">${i.obs || '-'}</td>
-                            <td class="p-2 border text-right font-bold">${Utils.formatCurrency(i.total)}</td>
+                            <td class="p-2 border border-gray-300">${i.name}</td>
+                            <td class="p-2 border border-gray-300 text-right">${Utils.formatCurrency(i.price)}</td>
+                            <td class="p-2 border border-gray-300 text-center">${i.qty}</td>
+                            <td class="p-2 border border-gray-300 text-xs text-gray-500">${i.obs || '-'}</td>
+                            <td class="p-2 border border-gray-300 text-right font-bold">${Utils.formatCurrency(i.total)}</td>
                         </tr>
                     `).join('')}
                     <tr class="bg-gray-50 font-bold">
-                        <td colspan="3" class="p-2 border text-right">TOTAL ESTIMADO</td>
-                        <td class="p-2 border text-right text-lg">${Utils.formatCurrency(totalGeral)}</td>
+                        <td colspan="4" class="p-2 border border-gray-300 text-right">TOTAL ESTIMADO</td>
+                        <td class="p-2 border border-gray-300 text-right text-lg">${Utils.formatCurrency(totalGeral)}</td>
                     </tr>
                 </tbody>
             </table>
@@ -807,6 +1013,10 @@ const EventosModule = {
                 <div class="border-t border-black pt-2 text-center text-xs">
                     <p class="font-bold">Recebido por</p>
                 </div>
+            </div>
+
+            <div class="mt-8 text-center text-xs text-gray-400">
+                &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
             </div>
         `;
 
@@ -823,20 +1033,118 @@ const EventosModule = {
         html2pdf().set(opt).from(element).save().then(() => {
             element.classList.add('hidden');
         });
+        
+        // Fallback opcional para impressão nativa se necessário
+        // const html = element.innerHTML;
+        // Utils.printNative(html);
     },
 
     save: async (e) => {
         e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
         
         // Validação
         if (!data.Titulo || data.Titulo.trim() === '') return Utils.toast('⚠️ O título do evento é obrigatório.');
         if (!data.Data) return Utils.toast('⚠️ A data do evento é obrigatória.');
 
+        // Processar Menu (Itens Dinâmicos)
+        const menu = [];
+        for (const [key, value] of formData.entries()) {
+            if (key.startsWith('menu_item_')) {
+                const suffix = key.replace('menu_item_', '');
+                const cat = formData.get(`menu_cat_${suffix}`);
+                const qtd = formData.get(`menu_qtd_${suffix}`);
+                if (value) menu.push({ cat, name: value, qtd });
+            }
+        }
+
+        // Processar Custos e Detalhes
+        const detalhes = {
+            menu: menu,
+            custos: {
+                ingredientes: Number(data.custo_ingredientes || 0),
+                equipe: Number(data.custo_equipe || 0),
+                transporte: Number(data.custo_transporte || 0),
+                outros: Number(data.custo_outros || 0)
+            },
+            equipe: data.equipe_texto,
+            checklist: data.checklist_texto
+        };
+
+        // Limpar campos auxiliares do objeto principal
+        Object.keys(data).forEach(k => {
+            if (k.startsWith('menu_') || k.startsWith('custo_') || k.endsWith('_texto')) delete data[k];
+        });
+
+        data.DetalhesJSON = detalhes;
+
         try {
             await Utils.api('save', 'Eventos', data);
             Utils.toast('Evento salvo!', 'success'); Utils.closeModal(); EventosModule.fetchData();
         } catch (err) { Utils.toast('Erro ao salvar: ' + err.message, 'error'); }
+    },
+
+    printEventSheet: (id) => {
+        const event = EventosModule.state.events.find(e => e.ID === id);
+        if (!event) return;
+
+        const detalhes = event.DetalhesJSON || {};
+        const menu = detalhes.menu || [];
+        const inst = EventosModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white border-2 border-gray-800 max-w-3xl mx-auto">
+                <div class="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="flex items-center gap-4">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">FICHA DE EVENTO / ORDEM DE SERVIÇO</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">EVT-${event.ID.slice(0,6).toUpperCase()}</h2>
+                        <p class="text-sm font-bold ${event.Status === 'Confirmado' ? 'text-green-700' : 'text-gray-500'}">${event.Status.toUpperCase()}</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded border">
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Evento</span> ${event.Titulo}</div>
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Cliente</span> ${event.Cliente || '-'}</div>
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Data & Hora</span> ${Utils.formatDate(event.Data)} às ${event.Hora || '-'}</div>
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Local</span> ${event.Local || '-'}</div>
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Nº Pessoas</span> ${event.Pessoas || 0}</div>
+                    <div><span class="font-bold block text-xs text-gray-500 uppercase">Responsável</span> ${event.Responsavel || '-'}</div>
+                </div>
+
+                <h3 class="font-bold text-gray-800 border-b border-gray-400 mb-2 uppercase text-sm">Cardápio Selecionado</h3>
+                <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                    <thead class="bg-gray-100"><tr><th class="border p-2 text-left">Categoria</th><th class="border p-2 text-left">Prato / Item</th><th class="border p-2 text-center">Qtd</th></tr></thead>
+                    <tbody>
+                        ${menu.map(m => `<tr><td class="border p-2 font-bold text-gray-600">${m.cat}</td><td class="border p-2">${m.name}</td><td class="border p-2 text-center">${m.qtd || '-'}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+
+                <div class="grid grid-cols-2 gap-8 mb-8">
+                    <div>
+                        <h3 class="font-bold text-gray-800 border-b border-gray-400 mb-2 uppercase text-sm">Equipe & Staff</h3>
+                        <p class="text-sm whitespace-pre-wrap">${detalhes.equipe || 'Não definido'}</p>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-gray-800 border-b border-gray-400 mb-2 uppercase text-sm">Logística & Obs</h3>
+                        <p class="text-sm whitespace-pre-wrap">${detalhes.checklist || 'Sem observações'}</p>
+                    </div>
+                </div>
+
+                <div class="mt-12 border-t border-gray-800 pt-2 flex justify-between text-xs text-gray-500">
+                    <span>Gerado em ${new Date().toLocaleString()}</span>
+                    <span>Assinatura do Responsável: __________________________</span>
+                </div>
+            </div>
+        `;
+        Utils.printNative(html);
     }
 };
 

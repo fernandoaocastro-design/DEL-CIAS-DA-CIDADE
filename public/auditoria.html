@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão Financeira - Delícia da Cidade</title>
+    <title>Auditoria do Sistema - Delícia da Cidade</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="bg-gray-100 font-sans antialiased">
@@ -33,7 +31,7 @@
                 <a href="mlpain.html" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200">
                     <i class="fas fa-hospital w-6 text-center"></i><span class="ml-3 sidebar-text">M.L. Pain</span>
                 </a>
-                <a href="financas.html" class="flex items-center px-4 py-3 bg-gray-800 text-white border-l-4 border-orange-500 transition-colors duration-200">
+                <a href="financas.html" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200">
                     <i class="fas fa-chart-line w-6 text-center"></i><span class="ml-3 sidebar-text">Finanças</span>
                 </a>
                 <a href="inventario.html" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200">
@@ -53,7 +51,7 @@
         <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
             <header class="bg-white shadow-sm z-10 h-16 flex items-center justify-between px-6">
-                <h2 class="text-xl font-bold text-gray-800">Gestão Financeira</h2>
+                <h2 class="text-xl font-bold text-gray-800">Auditoria de Ações</h2>
                 <div class="flex items-center gap-4">
                     <button id="notif-btn" onclick="Utils.toggleNotifications()" class="relative text-gray-500 hover:text-gray-700">
                         <i class="fas fa-bell text-xl"></i>
@@ -73,12 +71,7 @@
             </div>
 
             <main class="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 p-6">
-                <div id="financas-content">
-                    <div class="flex flex-col justify-center items-center h-64 text-gray-500">
-                        <i class="fas fa-circle-notch fa-spin text-4xl text-blue-500 mb-4"></i>
-                        <span>Carregando dados financeiros...</span>
-                    </div>
-                </div>
+                <div id="auditoria-content"></div>
             </main>
         </div>
     </div>
@@ -90,6 +83,6 @@
         </div>
     </div>
     <script src="js/utils.js"></script>
-    <script src="js/financas.js"></script>
+    <script src="js/auditoria.js"></script>
 </body>
 </html>

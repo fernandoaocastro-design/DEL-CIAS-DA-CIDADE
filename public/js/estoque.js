@@ -1,5 +1,5 @@
 const EstoqueModule = {
-    state: { items: [], movimentacoes: [], movStats: [], fornecedores: [], activeTab: 'dashboard', filterMovSubtipo: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 } },
+    state: { items: [], movimentacoes: [], movStats: [], fornecedores: [], activeTab: 'dashboard', filterMovSubtipo: '', filterMovTerm: '', filterSubtype: '', charts: {}, pagination: { page: 1, limit: 20, total: 0 }, productPagination: { page: 1, limit: 15, total: 0 } },
     // Classificação Inteligente
     taxonomy: {
         'Alimentos': {
@@ -43,10 +43,11 @@ const EstoqueModule = {
         try {
             const { page, limit } = EstoqueModule.state.pagination;
             const subtipo = EstoqueModule.state.filterMovSubtipo;
+            const term = EstoqueModule.state.filterMovTerm;
             
             // Busca lista paginada e estatísticas para o gráfico em paralelo
             const [response, stats] = await Promise.all([
-                Utils.api('getMovimentacoesEstoque', null, { page, limit, subtipo }),
+                Utils.api('getMovimentacoesEstoque', null, { page, limit, subtipo, term }),
                 Utils.api('getMovimentacoesStats', null, {})
             ]);
 
@@ -65,11 +66,21 @@ const EstoqueModule = {
             btn.style.borderBottom = 'none';
         });
         const activeBtn = document.getElementById(`tab-${tab}`);
-        activeBtn.className = 'tab-btn px-4 py-2 font-bold text-yellow-600 transition';
-        activeBtn.style.borderBottom = '2px solid #EAB308';
+        if (activeBtn) {
+            activeBtn.className = 'tab-btn px-4 py-2 font-bold text-yellow-600 transition';
+            activeBtn.style.borderBottom = '2px solid #EAB308';
+        }
 
         if (tab === 'movimentacoes') EstoqueModule.fetchMovimentacoes().then(EstoqueModule.render);
         else if (tab === 'dashboard') Promise.all([EstoqueModule.fetchData(), EstoqueModule.fetchMovimentacoes()]).then(EstoqueModule.render);
+        else if (tab === 'lista-dia') {
+            if (typeof DailyListModule !== 'undefined') {
+                DailyListModule.init();
+            } else {
+                console.error('DailyListModule não encontrado. Verifique se o arquivo js/modules/lista_dia.js foi carregado.');
+                Utils.toast('Erro: Módulo Lista do Dia não carregado.', 'error');
+            }
+        }
         else EstoqueModule.render();
     },
 
@@ -90,9 +101,17 @@ const EstoqueModule = {
             EstoqueModule.renderRelatorios();
             return;
         }
+        else if (EstoqueModule.state.activeTab === 'lista-dia') {
+            // Não faz nada, deixa o DailyListModule controlar a tela
+            return;
+        }
         // --- RENDERIZAÇÃO DA ABA PRODUTOS (Padrão) ---
 
         let data = EstoqueModule.state.items || [];        
+
+        if (EstoqueModule.state.filterSubtype) {
+            data = data.filter(i => i.Subtipo === EstoqueModule.state.filterSubtype);
+        }
 
         if (EstoqueModule.state.filterTerm) {
             const term = EstoqueModule.state.filterTerm.toLowerCase();
@@ -102,6 +121,12 @@ const EstoqueModule = {
                 return nome.toLowerCase().includes(term) || codigo.toLowerCase().includes(term);
             });
         }
+
+        // --- LÓGICA DE PAGINAÇÃO (CLIENT-SIDE) ---
+        EstoqueModule.state.productPagination.total = data.length;
+        const { page, limit } = EstoqueModule.state.productPagination;
+        const totalPages = Math.ceil(data.length / limit) || 1;
+        const paginatedData = data.slice((page - 1) * limit, page * limit);
 
         const totalValue = data.reduce((acc, item) => acc + (Number(item.Quantidade) * Number(item.CustoUnitario)), 0);
         const criticalItems = data.filter(i => Number(i.Quantidade) <= Number(i.Minimo)).length;
@@ -128,6 +153,12 @@ const EstoqueModule = {
             <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
                 <h3 class="text-xl font-bold">Cadastro de Produtos</h3>
                 <div class="flex flex-wrap gap-2">
+                    <select onchange="EstoqueModule.updateSubtypeFilter(this.value)" class="border p-2 rounded text-sm">
+                        <option value="">📂 Todos</option>
+                        <option value="Frescos" ${EstoqueModule.state.filterSubtype === 'Frescos' ? 'selected' : ''}>🥦 Frescos</option>
+                        <option value="Secos" ${EstoqueModule.state.filterSubtype === 'Secos' ? 'selected' : ''}>🌾 Secos</option>
+                        <option value="Materiais" ${EstoqueModule.state.filterSubtype === 'Materiais' ? 'selected' : ''}>📦 Materiais</option>
+                    </select>
                     <input type="text" placeholder="🔍 Buscar..." class="border p-2 rounded text-sm w-64" value="${EstoqueModule.state.filterTerm || ''}" oninput="EstoqueModule.updateFilter(this.value)">
                     <button onclick="EstoqueModule.exportPDF()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-file-pdf"></i> PDF</button>
                     ${canCreate ? `<button onclick="EstoqueModule.modalEntrada()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-down"></i> Entrada</button>
@@ -154,7 +185,7 @@ const EstoqueModule = {
                         </tr>
                     </thead>
                     <tbody>
-                        ${data.map(i => {
+                        ${paginatedData.map(i => {
                             const qtd = Number(i.Quantidade);
                             const min = Number(i.Minimo);
                             const custo = Number(i.CustoUnitario);
@@ -188,6 +219,16 @@ const EstoqueModule = {
                     </tbody>
                 </table>
                 <div id="pdf-footer" class="hidden p-4 border-t text-center text-xs text-gray-400"></div>
+            </div>
+
+            <!-- CONTROLES DE PAGINAÇÃO -->
+            <div class="flex justify-between items-center mt-4 text-sm text-gray-600 bg-gray-50 p-3 rounded border">
+                <span>Mostrando <b>${(page - 1) * limit + 1}</b> a <b>${Math.min(page * limit, data.length)}</b> de <b>${data.length}</b> produtos</span>
+                <div class="flex gap-2 items-center">
+                    <button onclick="EstoqueModule.changeProductPage(-1)" class="px-3 py-1 border rounded bg-white hover:bg-gray-100 disabled:opacity-50" ${page === 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i> Anterior</button>
+                    <span class="px-2 font-bold">Página ${page} de ${totalPages}</span>
+                    <button onclick="EstoqueModule.changeProductPage(1)" class="px-3 py-1 border rounded bg-white hover:bg-gray-100 disabled:opacity-50" ${page >= totalPages ? 'disabled' : ''}>Próxima <i class="fas fa-chevron-right"></i></button>
+                </div>
             </div>
         `;
     },
@@ -452,6 +493,7 @@ const EstoqueModule = {
                     </div>
                     
                     <div class="flex gap-3 items-center w-full md:w-auto">
+                        <input type="text" placeholder="🔍 Buscar produto..." class="border p-2 rounded-lg text-sm w-48" value="${EstoqueModule.state.filterMovTerm || ''}" oninput="EstoqueModule.updateMovFilter(this.value)">
                         <div class="relative w-full md:w-64">
                             <select onchange="EstoqueModule.setMovFilter(this.value)" class="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 py-2 px-4 pr-8 rounded-lg leading-tight focus:outline-none focus:bg-white focus:border-yellow-500 transition-all cursor-pointer shadow-sm hover:bg-gray-100">
                                 <option value="">📂 Todos os Subtipos</option>
@@ -487,6 +529,7 @@ const EstoqueModule = {
                             <th class="p-4 font-semibold">Produto</th>
                             <th class="p-4 font-semibold">Subtipo</th>
                             <th class="p-4 text-center font-semibold">Qtd</th>
+                            <th class="p-4 text-right font-semibold">Valor Total</th>
                             <th class="p-4 font-semibold">Responsável</th>
                             <th class="p-4 font-semibold">Obs</th>
                         </tr>
@@ -496,6 +539,8 @@ const EstoqueModule = {
                             // Usa dados do JOIN se disponível, ou fallback para items locais
                             const prodNome = m.Estoque ? m.Estoque.Nome : (EstoqueModule.state.items.find(i => i.ID === m.ProdutoID)?.Nome || 'Item Excluído');
                             const prodSubtipo = m.Estoque ? m.Estoque.Subtipo : '-';
+                            const custo = m.Estoque ? Number(m.Estoque.CustoUnitario || 0) : 0;
+                            const totalMov = Number(m.Quantidade) * custo;
                             
                             const color = m.Tipo === 'Entrada' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
                             const tipoIcon = m.Tipo === 'Entrada' ? 'fa-arrow-down' : 'fa-arrow-up';
@@ -512,11 +557,12 @@ const EstoqueModule = {
                                     <span class="bg-gray-100 px-2 py-1 rounded border border-gray-200">${prodSubtipo}</span>
                                 </td>
                                 <td class="p-4 text-center font-bold text-gray-700">${m.Quantidade}</td>
+                                <td class="p-4 text-right font-bold text-gray-700">${Utils.formatCurrency(totalMov)}</td>
                                 <td class="p-4 text-sm text-gray-600">${m.Responsavel || '-'}</td>
                                 <td class="p-4 text-xs text-gray-400 italic max-w-xs truncate" title="${m.Observacoes || ''}">${m.Observacoes || '-'}</td>
                             </tr>`;
                         }).join('')}
-                        ${movs.length === 0 ? '<tr><td colspan="7" class="p-10 text-center text-gray-400 flex flex-col items-center"><i class="fas fa-search text-3xl mb-2 text-gray-300"></i>Nenhuma movimentação encontrada para este filtro.</td></tr>' : ''}
+                        ${movs.length === 0 ? '<tr><td colspan="8" class="p-10 text-center text-gray-400 flex flex-col items-center"><i class="fas fa-search text-3xl mb-2 text-gray-300"></i>Nenhuma movimentação encontrada para este filtro.</td></tr>' : ''}
                     </tbody>
                 </table>
                 <div id="pdf-footer-mov" class="hidden p-4 border-t text-center text-xs text-gray-400"></div>
@@ -553,6 +599,17 @@ const EstoqueModule = {
     changePage: (offset) => {
         EstoqueModule.state.pagination.page += offset;
         EstoqueModule.fetchMovimentacoes().then(EstoqueModule.renderMovimentacoes);
+    },
+
+    changeProductPage: (offset) => {
+        const { page, limit, total } = EstoqueModule.state.productPagination;
+        const newPage = page + offset;
+        const totalPages = Math.ceil(total / limit);
+        
+        if (newPage > 0 && newPage <= totalPages) {
+            EstoqueModule.state.productPagination.page = newPage;
+            EstoqueModule.render();
+        }
     },
 
     modalItem: (id = null) => {
@@ -753,6 +810,13 @@ const EstoqueModule = {
 
     updateFilter: (term) => {
         EstoqueModule.state.filterTerm = term;
+        EstoqueModule.state.productPagination.page = 1; // Reseta para a primeira página ao buscar
+        EstoqueModule.render();
+    },
+
+    updateSubtypeFilter: (val) => {
+        EstoqueModule.state.filterSubtype = val;
+        EstoqueModule.state.productPagination.page = 1;
         EstoqueModule.render();
     },
 
@@ -832,7 +896,7 @@ const EstoqueModule = {
                 ${tableHtml}
                 
                 <div class="mt-8 text-center text-xs text-gray-400">
-                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
                 </div>
             </div>
         `;
@@ -917,7 +981,7 @@ const EstoqueModule = {
                             </tr>
                         </tfoot>
                     </table>
-                    <div class="mt-8 text-center text-xs text-gray-400">Gerado por: ${user.Nome}</div>
+                    <div class="mt-8 text-center text-xs text-gray-400">&copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0</div>
                 </div>`;
 
             EstoqueModule.printNative(html);
@@ -932,6 +996,15 @@ const EstoqueModule = {
         EstoqueModule.state.filterMovSubtipo = subtipo;
         EstoqueModule.state.pagination.page = 1; // Reseta para a primeira página
         EstoqueModule.fetchMovimentacoes().then(EstoqueModule.renderMovimentacoes);
+    },
+
+    updateMovFilter: (term) => {
+        EstoqueModule.state.filterMovTerm = term;
+        EstoqueModule.state.pagination.page = 1;
+        if (EstoqueModule.movFilterTimeout) clearTimeout(EstoqueModule.movFilterTimeout);
+        EstoqueModule.movFilterTimeout = setTimeout(() => {
+            EstoqueModule.fetchMovimentacoes().then(EstoqueModule.renderMovimentacoes);
+        }, 500);
     },
 
     exportMovimentacoesPDF: () => {
@@ -963,7 +1036,7 @@ const EstoqueModule = {
                 ${tableHtml}
                 
                 <div class="mt-8 text-center text-xs text-gray-400">
-                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
                 </div>
             </div>
         `;
@@ -1177,7 +1250,7 @@ const EstoqueModule = {
                 ${tableHtml}
                 
                 <div class="mt-8 text-center text-xs text-gray-400">
-                    Gerado por ${user.Nome} em ${new Date().toLocaleString()}
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
                 </div>
             </div>
         `;
