@@ -3,6 +3,15 @@ const InventarioModule = {
 
     init: () => {
         InventarioModule.fetchData();
+        InventarioModule.updateHeaderPhoto();
+    },
+
+    updateHeaderPhoto: () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const img = document.getElementById('user-photo'); 
+        if (user && user.FotoURL && img) {
+            img.src = user.FotoURL;
+        }
     },
 
     fetchData: async () => {

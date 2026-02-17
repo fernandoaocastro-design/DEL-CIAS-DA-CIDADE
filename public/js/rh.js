@@ -5,22 +5,27 @@ const RHModule = {
         filterVencidas: false,
         filterFrequenciaStart: '',
         filterFrequenciaEnd: '',
+        filterFrequenciaTurno: '',
+        filterDateVisaoGeral: new Date().toISOString().split('T')[0],
+        filterTurnoVisaoGeral: '',
         pagination: {
             currentPage: 1,
-            rowsPerPage: 15
+            rowsPerPage: 15,
+            totalRows: 0
         }
     },
 
     init: () => {
         RHModule.renderLayout();
         RHModule.fetchData();
+        RHModule.updateHeaderPhoto();
     },
 
     fetchData: async () => {
         try {
-            // Carregamento Otimizado: Apenas dados essenciais para a aba inicial
-            const [funcs, ferias, params, cargos, deptos, inst] = await Promise.all([
-                Utils.api('getAll', 'Funcionarios'),
+            // Carregamento Otimizado: Lista leve para dropdowns + Dados auxiliares
+            const [allFuncs, ferias, params, cargos, deptos, inst] = await Promise.all([
+                Utils.api('getEmployeesList', null), // Substitui getAll por lista leve
                 Utils.api('getAll', 'Ferias'),
                 Utils.api('getAll', 'ParametrosRH'),
                 Utils.api('getAll', 'Cargos'),
@@ -29,8 +34,8 @@ const RHModule = {
             ]);
             
             RHModule.state.cache = {
-                allFuncionarios: funcs || [],
-                funcionarios: funcs || [],
+                allFuncionarios: allFuncs || [], // Usado em dropdowns e validações
+                funcionarios: [], // Será preenchido pelo loadEmployees (Paginado)
                 ferias: ferias || [],
                 parametros: params || [],
                 cargos: cargos || [],
@@ -39,7 +44,8 @@ const RHModule = {
                 // Dados sob demanda (Lazy Loading) - Inicializam como null
                 frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null
             };
-            RHModule.renderFuncionarios();
+            await RHModule.loadEmployees(); // Carrega dados da equipe em background
+            RHModule.renderVisaoGeral(); // Define Visão Geral como aba inicial
         } catch (e) { 
             console.error("Erro crítico ao carregar dados do servidor:", e);
             Utils.toast("Erro de Conexão: Verifique se o backend está online.", 'error');
@@ -53,11 +59,46 @@ const RHModule = {
         }
     },
 
+    loadEmployees: async () => {
+        try {
+            const { currentPage, rowsPerPage } = RHModule.state.pagination;
+            const term = RHModule.state.filterTerm;
+
+            // Se filtro de vencidas estiver ativo, usamos lógica client-side na lista leve
+            if (RHModule.state.filterVencidas) {
+                RHModule.renderFuncionarios();
+                return;
+            }
+
+            const response = await Utils.api('getEmployees', null, { 
+                page: currentPage, 
+                limit: rowsPerPage, 
+                term: term 
+            });
+
+            RHModule.state.cache.funcionarios = response.data || [];
+            RHModule.state.pagination.totalRows = response.total || 0;
+            
+            RHModule.renderFuncionarios();
+        } catch (e) { console.error(e); Utils.toast("Erro ao atualizar lista.", 'error'); }
+    },
+
+    updateHeaderPhoto: () => {
+        // Atualiza a foto do usuário logado no cabeçalho (Header)
+        const user = JSON.parse(localStorage.getItem('user'));
+        // IMPORTANTE: Verifique se a imagem do perfil no seu HTML (dashboard.html) tem o id="user-photo"
+        const img = document.getElementById('user-photo'); 
+        if (user && user.FotoURL && img) {
+            img.src = user.FotoURL;
+        }
+    },
+
     renderLayout: () => {
         // Menu de Abas - Estilo Enterprise Minimalista (Underline)
         document.getElementById('rh-content').innerHTML = `
             <div class="border-b border-gray-200 mb-8">
                 <nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
+                    <button id="tab-visao-geral" onclick="RHModule.renderVisaoGeral()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Visão Geral</button>
                     <button id="tab-funcionarios" onclick="RHModule.renderFuncionarios()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Equipe</button>
                     <button id="tab-frequencia" onclick="RHModule.renderFrequencia()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Frequência</button>
                     <button id="tab-ferias" onclick="RHModule.renderFerias()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Férias</button>
@@ -68,7 +109,12 @@ const RHModule = {
                     <button id="tab-relatorios" onclick="RHModule.renderRelatorios()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Relatórios</button>
                 </nav>
             </div>
-            <div id="tab-content"></div>
+            <div id="tab-content">
+                <div class="flex flex-col items-center justify-center h-64 text-blue-600">
+                    <i class="fas fa-spinner fa-spin text-5xl mb-4"></i>
+                    <p class="text-xl font-medium animate-pulse">Carregando dados do RH...</p>
+                </div>
+            </div>
         `;
     },
 
@@ -84,26 +130,412 @@ const RHModule = {
         }
     },
 
+    // --- 0. ABA VISÃO GERAL ---
+    renderVisaoGeral: async () => {
+        RHModule.highlightTab('tab-visao-geral');
+
+        // Carrega dados necessários se não existirem (Lazy Loading)
+        if (!RHModule.state.cache.frequencia) {
+            document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando dados...</p></div>';
+            try {
+                RHModule.state.cache.frequencia = await Utils.api('getAll', 'Frequencia');
+            } catch (e) { 
+                Utils.toast('Erro ao carregar frequência.', 'error');
+                document.getElementById('tab-content').innerHTML = '<div class="text-center p-10 text-red-500"><i class="fas fa-exclamation-circle text-4xl mb-2"></i><p>Erro ao carregar dados.</p><button onclick="RHModule.renderVisaoGeral()" class="mt-2 text-blue-600 underline font-bold">Tentar novamente</button></div>';
+                return;
+            }
+        }
+        if (!RHModule.state.cache.escala) {
+             try {
+                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+            } catch (e) { RHModule.state.cache.escala = []; }
+        }
+
+        // --- DASHBOARD METRICS (HOJE) ---
+        const targetDate = RHModule.state.filterDateVisaoGeral || new Date().toISOString().split('T')[0];
+        const targetTurno = RHModule.state.filterTurnoVisaoGeral || '';
+
+        let allFuncs = RHModule.state.cache.allFuncionarios || [];
+        
+        // Filtra funcionários pelo turno selecionado
+        if (targetTurno) {
+            allFuncs = allFuncs.filter(f => f.Turno === targetTurno);
+        }
+        const validFuncIds = new Set(allFuncs.map(f => f.ID));
+
+        const ferias = RHModule.state.cache.ferias || [];
+        const escala = RHModule.state.cache.escala || [];
+        let frequencia = RHModule.state.cache.frequencia || [];
+
+        // Filtra registros de frequência apenas dos funcionários do turno selecionado
+        if (targetTurno) frequencia = frequencia.filter(r => validFuncIds.has(r.FuncionarioID));
+
+        const presentesHoje = frequencia.filter(r => r.Data === targetDate && (r.Status === 'Presente' || r.Entrada)).length;
+        const faltasHoje = frequencia.filter(r => r.Data === targetDate && r.Status === 'Falta').length;
+        const atrasosHoje = frequencia.filter(r => r.Data === targetDate && r.Status === 'Atraso').length;
+        const emFeriasHoje = ferias.filter(f => f.Status === 'Aprovado' && f.DataInicio <= targetDate && f.DataFim >= targetDate && validFuncIds.has(f.FuncionarioID)).length;
+        const totalAtivos = allFuncs.filter(f => f.Status === 'Ativo').length;
+
+        // Cálculo de Escalados Hoje
+        const dObj = new Date(targetDate + 'T00:00:00');
+        const jsDay = dObj.getDay();
+        const appDay = jsDay === 0 ? 7 : jsDay; // 1=Seg ... 7=Dom
+        let escaladosHoje = 0;
+        
+        allFuncs.filter(f => f.Status === 'Ativo').forEach(f => {
+            const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === appDay);
+            let isWorking = false;
+            if (config) {
+                if (config.Tipo === 'Trabalho') isWorking = true;
+            } else {
+                if (f.Turno === 'Diarista' && appDay <= 5) isWorking = true;
+            }
+            if (isWorking) escaladosHoje++;
+        });
+
+        // --- GRÁFICO DE PONTUALIDADE SEMANAL ---
+        const last7Days = [];
+        const dataPresentes = [];
+        const dataAtrasos = [];
+        const dataFaltas = [];
+
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(targetDate + 'T00:00:00');
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().split('T')[0];
+            const dayLabel = d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric' });
+            
+            last7Days.push(dayLabel);
+
+            const recs = frequencia.filter(r => r.Data === dateStr);
+            
+            let p = 0, a = 0, f = 0;
+            recs.forEach(r => {
+                if (r.Status === 'Presente' || (r.Entrada && r.Status !== 'Atraso' && r.Status !== 'Falta')) p++;
+                else if (r.Status === 'Atraso') a++;
+                else if (r.Status === 'Falta' || r.Status === 'Falta Justificada') f++;
+            });
+            
+            dataPresentes.push(p);
+            dataAtrasos.push(a);
+            dataFaltas.push(f);
+        }
+
+        // --- GRÁFICO DE TURNOS (DADOS GLOBAIS ATIVOS) ---
+        const turnoMap = {};
+        (RHModule.state.cache.allFuncionarios || []).filter(f => f.Status === 'Ativo').forEach(f => {
+            const t = f.Turno || 'Não Definido';
+            turnoMap[t] = (turnoMap[t] || 0) + 1;
+        });
+        const turnoLabels = Object.keys(turnoMap);
+        const turnoData = Object.values(turnoMap);
+
+        document.getElementById('tab-content').innerHTML = `
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold text-gray-800">Visão Geral do RH</h3>
+                <div class="flex gap-2 items-center">
+                    <label class="text-sm font-bold text-gray-600">Turno:</label>
+                    <select class="border p-2 rounded shadow-sm text-sm" onchange="RHModule.state.filterTurnoVisaoGeral = this.value; RHModule.renderVisaoGeral()">
+                        <option value="">Todos</option>
+                        <option value="Diarista" ${targetTurno === 'Diarista' ? 'selected' : ''}>Diarista</option>
+                        <option value="Regime de Turno" ${targetTurno === 'Regime de Turno' ? 'selected' : ''}>Regime de Turno</option>
+                    </select>
+                    <label class="text-sm font-bold text-gray-600">Data:</label>
+                    <input type="date" value="${targetDate}" class="border p-2 rounded shadow-sm text-sm" onchange="RHModule.state.filterDateVisaoGeral = this.value; RHModule.renderVisaoGeral()">
+                    <button onclick="RHModule.exportVisaoGeralPDF()" class="bg-red-600 text-white px-4 py-2 rounded shadow hover:bg-red-700 transition flex items-center gap-2">
+                        <i class="fas fa-file-pdf"></i> Exportar Resumo
+                    </button>
+                </div>
+            </div>
+            
+            <!-- DASHBOARD DE PRESENÇA -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                <div class="bg-white p-3 rounded shadow border-l-4 border-blue-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Total Equipe</div>
+                    <div class="text-xl font-bold text-gray-800">${totalAtivos}</div>
+                </div>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-indigo-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Escalados Hoje</div>
+                    <div class="text-xl font-bold text-indigo-600">${escaladosHoje}</div>
+                </div>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-green-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Presentes</div>
+                    <div class="text-xl font-bold text-green-600">${presentesHoje}</div>
+                </div>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-red-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Faltas</div>
+                    <div class="text-xl font-bold text-red-600">${faltasHoje}</div>
+                </div>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-yellow-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Atrasos</div>
+                    <div class="text-xl font-bold text-yellow-600">${atrasosHoje}</div>
+                </div>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-purple-500">
+                    <div class="text-xs text-gray-500 font-bold uppercase">Em Férias</div>
+                    <div class="text-xl font-bold text-purple-600">${emFeriasHoje}</div>
+                </div>
+            </div>
+            
+            <!-- GRÁFICO -->
+            <div class="bg-white p-6 rounded shadow mb-6">
+                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Pontualidade Semanal (Até ${new Date(targetDate + 'T00:00:00').toLocaleDateString('pt-BR')})</h4>
+                <div class="h-64"><canvas id="chartPontualidade"></canvas></div>
+            <!-- GRÁFICOS -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Pontualidade Semanal (Até ${new Date(targetDate + 'T00:00:00').toLocaleDateString('pt-BR')})</h4>
+                    <div class="h-64"><canvas id="chartPontualidade"></canvas></div>
+                </div>
+                <div class="bg-white p-6 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Distribuição por Turno (Ativos)</h4>
+                    <div class="h-64"><canvas id="chartTurnos"></canvas></div>
+                </div>
+            </div>
+            
+            <div class="bg-blue-50 p-4 rounded border border-blue-100 text-center text-blue-800">
+                <p>Utilize as abas acima para gerenciar a equipe, frequência e pagamentos.</p>
+            </div>
+        `;
+
+        // Renderizar Gráfico
+        if (typeof Chart !== 'undefined') {
+            new Chart(document.getElementById('chartPontualidade'), {
+                type: 'bar',
+                data: {
+                    labels: last7Days,
+                    datasets: [
+                        { label: 'Presentes', data: dataPresentes, backgroundColor: '#10B981' },
+                        { label: 'Atrasos', data: dataAtrasos, backgroundColor: '#F59E0B' },
+                        { label: 'Faltas', data: dataFaltas, backgroundColor: '#EF4444' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true }
+                    }
+                }
+            });
+
+            new Chart(document.getElementById('chartTurnos'), {
+                type: 'pie',
+                data: {
+                    labels: turnoLabels,
+                    datasets: [{
+                        data: turnoData,
+                        backgroundColor: ['#3B82F6', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right' }
+                    }
+                }
+            });
+        }
+    },
+
+    exportVisaoGeralPDF: () => {
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+        const user = Utils.getUser();
+        const targetDate = RHModule.state.filterDateVisaoGeral || new Date().toISOString().split('T')[0];
+        const targetTurno = RHModule.state.filterTurnoVisaoGeral || '';
+
+        // Recalcular métricas para o PDF (mesma lógica da tela)
+        let allFuncs = RHModule.state.cache.allFuncionarios || [];
+        
+        if (targetTurno) {
+            allFuncs = allFuncs.filter(f => f.Turno === targetTurno);
+        }
+        const validFuncIds = new Set(allFuncs.map(f => f.ID));
+
+        const ferias = RHModule.state.cache.ferias || [];
+        const escala = RHModule.state.cache.escala || [];
+        let frequencia = RHModule.state.cache.frequencia || [];
+
+        if (targetTurno) frequencia = frequencia.filter(r => validFuncIds.has(r.FuncionarioID));
+
+        const presentesHoje = frequencia.filter(r => r.Data === targetDate && (r.Status === 'Presente' || r.Entrada)).length;
+        const faltasHoje = frequencia.filter(r => r.Data === targetDate && r.Status === 'Falta').length;
+        const atrasosHoje = frequencia.filter(r => r.Data === targetDate && r.Status === 'Atraso').length;
+        const emFeriasHoje = ferias.filter(f => f.Status === 'Aprovado' && f.DataInicio <= targetDate && f.DataFim >= targetDate && validFuncIds.has(f.FuncionarioID)).length;
+        const totalAtivos = allFuncs.filter(f => f.Status === 'Ativo').length;
+
+        const dObj = new Date(targetDate + 'T00:00:00');
+        const jsDay = dObj.getDay();
+        const appDay = jsDay === 0 ? 7 : jsDay;
+        let escaladosHoje = 0;
+        
+        allFuncs.filter(f => f.Status === 'Ativo').forEach(f => {
+            const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === appDay);
+            let isWorking = false;
+            if (config) {
+                if (config.Tipo === 'Trabalho') isWorking = true;
+            } else {
+                if (f.Turno === 'Diarista' && appDay <= 5) isWorking = true;
+            }
+            if (isWorking) escaladosHoje++;
+        });
+
+        // --- PREPARAÇÃO DA TABELA DETALHADA (PRESENÇA DO DIA) ---
+        const records = frequencia.filter(r => r.Data === targetDate);
+        
+        // Ordenar por nome
+        records.sort((a, b) => {
+            const fa = allFuncs.find(f => f.ID === a.FuncionarioID);
+            const fb = allFuncs.find(f => f.ID === b.FuncionarioID);
+            const na = fa ? fa.Nome : (a.FuncionarioNome || '');
+            const nb = fb ? fb.Nome : (b.FuncionarioNome || '');
+            return na.localeCompare(nb);
+        });
+
+        const tableRows = records.map(r => {
+            const f = allFuncs.find(func => func.ID === r.FuncionarioID) || {};
+            
+            let atraso = '-';
+            let extra = '-';
+            
+            // Cálculo de Atraso (Considerando 08:00 como padrão se não for turno)
+            if (r.Entrada && f.Turno !== 'Regime de Turno') {
+                const [h, m] = String(r.Entrada).split(':').map(Number);
+                const entryMins = h * 60 + m;
+                const limitMins = 8 * 60 + 15; // 08:15 tolerância
+                if (entryMins > limitMins) {
+                    const diff = entryMins - (8 * 60); // Calcula atraso base 08:00
+                    const hh = Math.floor(diff / 60);
+                    const mm = diff % 60;
+                    atraso = `${hh}h${mm}m`;
+                }
+            } else if (r.Status === 'Atraso') {
+                atraso = 'Sim';
+            }
+
+            // Cálculo de Hora Extra
+            if (r.Entrada && r.Saida) {
+                const [h1, m1] = String(r.Entrada).split(':').map(Number);
+                const [h2, m2] = String(r.Saida).split(':').map(Number);
+                let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (diff < 0) diff += 24 * 60;
+                
+                const hoursWorked = diff / 60;
+                const standard = f.Turno === 'Regime de Turno' ? 24 : 8;
+                
+                if (hoursWorked > standard) {
+                    const extraMins = Math.round((hoursWorked - standard) * 60);
+                    const hh = Math.floor(extraMins / 60);
+                    const mm = extraMins % 60;
+                    extra = `${hh}h${mm}m`;
+                }
+            }
+
+            return `
+                <tr>
+                    <td class="border p-2">${f.Nome || r.FuncionarioNome || 'Desconhecido'}</td>
+                    <td class="border p-2">${f.Cargo || '-'}</td>
+                    <td class="border p-2">${f.Departamento || '-'}</td>
+                    <td class="border p-2 text-center">${r.Entrada || '--:--'} / ${r.Saida || '--:--'}</td>
+                    <td class="border p-2 text-center ${atraso !== '-' ? 'text-red-600 font-bold' : ''}">${atraso}</td>
+                    <td class="border p-2 text-center ${extra !== '-' ? 'text-green-600 font-bold' : ''}">${extra}</td>
+                    <td class="border p-2 text-center">${r.Status || '-'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white">
+                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm text-gray-500">Resumo Diário de RH</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">VISÃO GERAL</h2>
+                        <p class="text-sm text-gray-500">Data: ${new Date(targetDate + 'T00:00:00').toLocaleDateString('pt-BR')} ${targetTurno ? '(' + targetTurno + ')' : ''}</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-8">
+                    <div class="p-4 bg-gray-50 border rounded">
+                        <h3 class="font-bold text-gray-700 mb-2 border-b pb-1">Efetivo</h3>
+                        <div class="flex justify-between mb-1"><span>Total Equipe:</span> <strong>${totalAtivos}</strong></div>
+                        <div class="flex justify-between"><span>Escalados Hoje:</span> <strong>${escaladosHoje}</strong></div>
+                    </div>
+                    <div class="p-4 bg-gray-50 border rounded">
+                        <h3 class="font-bold text-gray-700 mb-2 border-b pb-1">Ausências</h3>
+                        <div class="flex justify-between mb-1"><span>Faltas:</span> <strong class="text-red-600">${faltasHoje}</strong></div>
+                        <div class="flex justify-between"><span>Em Férias:</span> <strong class="text-purple-600">${emFeriasHoje}</strong></div>
+                    </div>
+                </div>
+
+                <div class="mb-8">
+                    <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">Presença do Dia</h3>
+                    <div class="flex justify-around text-center">
+                        <div class="p-4 border rounded w-1/3 mx-2 bg-green-50">
+                            <div class="text-3xl font-bold text-green-600">${presentesHoje}</div>
+                            <div class="text-xs uppercase font-bold text-green-800">Presentes</div>
+                        </div>
+                        <div class="p-4 border rounded w-1/3 mx-2 bg-yellow-50">
+                            <div class="text-3xl font-bold text-yellow-600">${atrasosHoje}</div>
+                            <div class="text-xs uppercase font-bold text-yellow-800">Atrasos</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-8">
+                    <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">Detalhamento de Presença</h3>
+                    <table class="w-full text-sm border-collapse border border-gray-300">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="border p-2 text-left">Funcionário</th>
+                                <th class="border p-2 text-left">Cargo</th>
+                                <th class="border p-2 text-left">Departamento</th>
+                                <th class="border p-2 text-center">Entrada/Saída</th>
+                                <th class="border p-2 text-center">Atraso</th>
+                                <th class="border p-2 text-center">H. Extra</th>
+                                <th class="border p-2 text-center">Status/Falta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${tableRows || '<tr><td colspan="7" class="border p-4 text-center text-gray-500">Nenhum registro encontrado para esta data.</td></tr>'}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="mt-12 text-center text-xs text-gray-400 border-t pt-2">
+                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Gerado por ${user.Nome || 'Sistema'}
+                </div>
+            </div>
+        `;
+
+        Utils.printNative(html);
+    },
+
     // --- 1. ABA FUNCIONÁRIOS ---
     renderFuncionarios: () => {
         RHModule.highlightTab('tab-funcionarios');
-        let filteredData = RHModule.state.cache.funcionarios || [];
         
-        // Ordenação Alfabética
-        filteredData.sort((a, b) => a.Nome.localeCompare(b.Nome));
+        let displayData = [];
+        let totalRows = 0;
+        const { currentPage, rowsPerPage } = RHModule.state.pagination;
 
         const ferias = RHModule.state.cache.ferias || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
 
-        // Filtro de Busca (Agora realizado no Backend via updateFilter)
-        // A variável filteredData já contém os resultados da busca vindos do cache
-
-        // Filtro de Férias Vencidas
+        // MODO 1: Filtro de Férias Vencidas (Client-Side com lista leve)
         if (RHModule.state.filterVencidas) {
             const hoje = new Date();
-            filteredData = filteredData.filter(f => {
+            // Filtra na lista completa (leve)
+            let filtered = RHModule.state.cache.allFuncionarios.filter(f => {
                 if (!f.Admissao) return false;
                 const adm = new Date(f.Admissao);
                 const diffTime = Math.abs(hoje - adm);
@@ -116,15 +548,26 @@ const RHModule = {
                 
                 return (direito - taken) > 22;
             });
+
+            // Aplica filtro de texto também se houver
+            if (RHModule.state.filterTerm) {
+                const term = RHModule.state.filterTerm.toLowerCase();
+                filtered = filtered.filter(f => f.Nome.toLowerCase().includes(term));
+            }
+
+            totalRows = filtered.length;
+            const startIndex = (currentPage - 1) * rowsPerPage;
+            displayData = filtered.slice(startIndex, startIndex + rowsPerPage);
+        } 
+        // MODO 2: Paginação no Servidor (Padrão)
+        else {
+            displayData = RHModule.state.cache.funcionarios || [];
+            totalRows = RHModule.state.pagination.totalRows || 0;
         }
 
-        // Lógica de Paginação
-        const { currentPage, rowsPerPage } = RHModule.state.pagination;
-        const totalRows = filteredData.length;
         const totalPages = Math.ceil(totalRows / rowsPerPage) || 1;
         const startIndex = (currentPage - 1) * rowsPerPage;
-        const endIndex = startIndex + rowsPerPage;
-        const paginatedData = filteredData.slice(startIndex, endIndex);
+        const endIndex = startIndex + displayData.length;
 
         // Gera o HTML da tabela separadamente
         const tableHTML = `
@@ -143,7 +586,7 @@ const RHModule = {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200 bg-white">
-                        ${paginatedData.map(f => {
+                        ${displayData.map(f => {
                             // Cálculo de Saldo de Férias
                             let saldo = '-';
                             let badgeClass = 'bg-gray-100 text-gray-600';
@@ -181,13 +624,13 @@ const RHModule = {
                             return `
                             <tr class="group hover:bg-gray-50 transition-colors duration-150">
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="font-mono text-xs text-gray-400">...${f.ID.slice(-4)}</span>
+                                    <span class="font-mono text-xs text-gray-400">${f.ID.length > 10 ? '...' + f.ID.slice(-4) : f.ID}</span>
+                                    <span class="font-mono text-sm font-bold text-gray-700">${f.Codigo || '-'}</span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="flex items-center">
                                         <div class="h-9 w-9 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold overflow-hidden border border-gray-300">
-                                            ${f.FotoURL ? `<img src="${f.FotoURL}" class="h-full w-full object-cover">` : f.Nome.charAt(0)}
- 
+                                            <img src="${f.FotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(f.Nome)}&background=random&color=fff&size=128`}" class="h-full w-full object-cover">
                                         </div>
                                         <div class="ml-4">
                                             <div class="text-sm font-medium text-gray-900">${f.Nome}</div>
@@ -307,19 +750,11 @@ const RHModule = {
         RHModule.state.filterTerm = term;
         RHModule.state.pagination.currentPage = 1; // Reseta para a primeira página ao filtrar
         
-        // Filtro Local (Instantâneo)
-        const lower = term.toLowerCase();
-        if (!lower) {
-            RHModule.state.cache.funcionarios = [...RHModule.state.cache.allFuncionarios];
-        } else {
-            RHModule.state.cache.funcionarios = RHModule.state.cache.allFuncionarios.filter(f => 
-                (f.Nome && f.Nome.toLowerCase().includes(lower)) ||
-                (f.Cargo && f.Cargo.toLowerCase().includes(lower)) ||
-                (f.Departamento && f.Departamento.toLowerCase().includes(lower)) ||
-                (f.Email && f.Email.toLowerCase().includes(lower))
-            );
-        }
-        RHModule.renderFuncionarios();
+        // Debounce para não chamar API a cada tecla
+        if (RHModule.filterTimeout) clearTimeout(RHModule.filterTimeout);
+        RHModule.filterTimeout = setTimeout(() => {
+            RHModule.loadEmployees();
+        }, 500);
     },
 
     toggleVencidas: (checked) => {
@@ -329,13 +764,11 @@ const RHModule = {
     },
 
     changePage: (page) => {
-        const totalRows = document.getElementById('tab-content').querySelector('tbody').getAttribute('data-total-rows');
-        const totalPages = Math.ceil(totalRows / RHModule.state.pagination.rowsPerPage) || 1;
-
-        if (page < 1 || page > totalPages) return;
+        // Validação básica feita no botão, mas reforçada aqui
+        if (page < 1) return;
 
         RHModule.state.pagination.currentPage = page;
-        RHModule.renderFuncionarios();
+        RHModule.loadEmployees();
     },
 
     // --- MÁSCARAS DE INPUT ---
@@ -359,8 +792,18 @@ const RHModule = {
         el.value = "Kz " + v;
     },
 
-    modalFuncionario: (id = null) => {
-        const f = id ? RHModule.state.cache.funcionarios.find(x => x.ID === id) : {};
+    modalFuncionario: async (id = null) => {
+        let f = {};
+        if (id) {
+            // Busca dados completos do servidor para edição segura (incluindo FotoURL que não vem na lista leve)
+            try {
+                f = await Utils.api('getEmployee', null, { id });
+            } catch (e) {
+                Utils.toast('Erro ao carregar detalhes do funcionário.', 'error');
+                return;
+            }
+        }
+
         const tiposContrato = RHModule.state.cache.parametros.filter(p => p.Tipo === 'TipoContrato');
         const cargosList = RHModule.state.cache.cargos || [];
         
@@ -520,6 +963,10 @@ const RHModule = {
                             <label class="block text-sm font-medium text-gray-700 mb-1">Saldo Férias (Manual)</label>
                             <input type="number" name="SaldoFerias" value="${f.SaldoFerias || ''}" placeholder="Auto" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-orange-500 focus:border-orange-500 block w-full p-2.5">
                         </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Banco de Horas (Saldo)</label>
+                            <input type="number" step="0.01" name="BancoHoras" value="${f.BancoHoras || '0'}" placeholder="Horas acumuladas" class="bg-blue-50 border border-blue-300 text-blue-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 font-bold">
+                        </div>
                     </div>
                 </div>
 
@@ -624,7 +1071,7 @@ const RHModule = {
     },
 
     modalEscala: async (id) => {
-        const f = RHModule.state.cache.funcionarios.find(x => x.ID === id);
+        const f = RHModule.state.cache.allFuncionarios.find(x => x.ID === id); // Usa lista completa para achar nome
         if(!f) return;
 
         // Carrega escalas sob demanda se ainda não carregou
@@ -722,7 +1169,7 @@ const RHModule = {
             } catch (e) { RHModule.state.cache.escala = []; }
         }
 
-        const funcs = RHModule.state.cache.funcionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
+        const funcs = RHModule.state.cache.allFuncionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
         const escala = RHModule.state.cache.escala || [];
         const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
         const inst = RHModule.state.cache.instituicao[0] || {};
@@ -786,13 +1233,13 @@ const RHModule = {
         }
         
         // Garante que funcionários estejam carregados
-        if (!RHModule.state.cache.funcionarios || RHModule.state.cache.funcionarios.length === 0) {
+        if (!RHModule.state.cache.allFuncionarios || RHModule.state.cache.allFuncionarios.length === 0) {
              try {
-                RHModule.state.cache.funcionarios = await Utils.api('getAll', 'Funcionarios');
-            } catch (e) { RHModule.state.cache.funcionarios = []; }
+                RHModule.state.cache.allFuncionarios = await Utils.api('getEmployeesList');
+            } catch (e) { RHModule.state.cache.allFuncionarios = []; }
         }
 
-        const funcs = RHModule.state.cache.funcionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
+        const funcs = RHModule.state.cache.allFuncionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
         const escala = RHModule.state.cache.escala || [];
         const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
         
@@ -842,7 +1289,7 @@ const RHModule = {
     },
 
     printFuncionarioProfile: async (id) => {
-        const f = RHModule.state.cache.funcionarios.find(x => x.ID === id);
+        const f = await Utils.api('getEmployee', null, { id }); // Busca completa para perfil
         if (!f) return Utils.toast('Funcionário não encontrado.', 'error');
 
         // Carrega histórico financeiro se necessário
@@ -876,13 +1323,14 @@ const RHModule = {
 
                 <div class="flex gap-6 mb-8">
                     <div class="w-32 h-32 bg-gray-200 border border-gray-300 flex items-center justify-center rounded overflow-hidden">
-                        ${f.FotoURL ? `<img src="${f.FotoURL}" class="w-full h-full object-cover">` : `<i class="fas fa-user text-4xl text-gray-400"></i>`}
+                        <img src="${f.FotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(f.Nome)}&background=random&color=fff&size=256`}" class="w-full h-full object-cover">
                     </div>
                     <div class="flex-1">
                         <h3 class="text-2xl font-bold text-gray-800 mb-1">${f.Nome}</h3>
                         <p class="text-lg text-gray-600 mb-4">${f.Cargo} - ${f.Departamento || 'Geral'}</p>
                         <div class="grid grid-cols-2 gap-4 text-sm">
                             <div><span class="font-bold text-gray-700">ID:</span> ${f.ID}</div>
+                            <div><span class="font-bold text-gray-700">Matrícula:</span> ${f.Codigo || f.ID.slice(0,8)}</div>
                             <div><span class="font-bold text-gray-700">Status:</span> <span class="px-2 py-0.5 rounded ${f.Status === 'Ativo' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'} text-xs font-bold">${f.Status}</span></div>
                             <div><span class="font-bold text-gray-700">Admissão:</span> ${Utils.formatDate(f.Admissao)}</div>
                             <div><span class="font-bold text-gray-700">Turno:</span> ${f.Turno || '-'}</div>
@@ -958,10 +1406,14 @@ const RHModule = {
             document.getElementById('tab-content').innerHTML = '<div class="text-center p-10"><i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i><p class="mt-2">Carregando frequência...</p></div>';
             try {
                 RHModule.state.cache.frequencia = await Utils.api('getAll', 'Frequencia');
-            } catch (e) { return Utils.toast('Erro ao carregar dados.', 'error'); }
+            } catch (e) { 
+                Utils.toast('Erro ao carregar dados.', 'error');
+                document.getElementById('tab-content').innerHTML = '<div class="text-center p-10 text-red-500"><i class="fas fa-exclamation-circle text-4xl mb-2"></i><p>Erro ao carregar dados.</p><button onclick="RHModule.renderFrequencia()" class="mt-2 text-blue-600 underline font-bold">Tentar novamente</button></div>';
+                return;
+            }
         }
 
-        const data = RHModule.state.cache.frequencia || [];
+        let data = RHModule.state.cache.frequencia || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -980,18 +1432,32 @@ const RHModule = {
         };
 
         // Aplicar filtro de data
-        const { filterFrequenciaStart, filterFrequenciaEnd } = RHModule.state;
+        const { filterFrequenciaStart, filterFrequenciaEnd, filterFrequenciaTurno } = RHModule.state;
         if (filterFrequenciaStart) {
             data = data.filter(r => r.Data >= filterFrequenciaStart);
         }
         if (filterFrequenciaEnd) {
             data = data.filter(r => r.Data <= filterFrequenciaEnd);
         }
+        // Filtro de Turno
+        if (filterFrequenciaTurno) {
+            data = data.filter(r => {
+                const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === r.FuncionarioID);
+                return func && func.Turno === filterFrequenciaTurno;
+            });
+        }
 
         document.getElementById('tab-content').innerHTML = `
             <div class="flex justify-between items-center mb-4">
                 <div class="flex gap-2 items-center bg-gray-50 p-2 rounded border">
-                    <label class="text-sm font-bold text-gray-600">Filtrar por Data:</label>
+                    <label class="text-sm font-bold text-gray-600">Filtros:</label>
+                    <select id="freq-turno" class="border p-1 rounded text-sm">
+                        <option value="">Todos os Turnos</option>
+                        <option value="Diarista" ${filterFrequenciaTurno === 'Diarista' ? 'selected' : ''}>Diarista</option>
+                        <option value="Regime de Turno" ${filterFrequenciaTurno === 'Regime de Turno' ? 'selected' : ''}>Regime de Turno</option>
+                    </select>
+                    <span class="text-gray-400">|</span>
+                    <label class="text-sm font-bold text-gray-600">Data:</label>
                     <input type="date" id="freq-start-date" class="border p-1 rounded text-sm" value="${filterFrequenciaStart || ''}">
                     <span class="text-gray-500">até</span>
                     <input type="date" id="freq-end-date" class="border p-1 rounded text-sm" value="${filterFrequenciaEnd || ''}">
@@ -1010,6 +1476,8 @@ const RHModule = {
                         <th class="p-3 text-left">Funcionário</th>
                         <th class="p-3 text-center">Entrada</th>
                         <th class="p-3 text-center">Saída</th>
+                        <th class="p-3 text-center">Horas Trab.</th>
+                        <th class="p-3 text-center">Saldo Dia</th>
                         <th class="p-3 text-center">Status</th>
                         <th class="p-3 text-left">Observação</th>
                         <th class="p-3 text-center">Ações</th>
@@ -1018,7 +1486,28 @@ const RHModule = {
                 <tbody>
                     ${data.map(r => {
                         // Busca funcionário para saber o turno
-                        const func = RHModule.state.cache.funcionarios.find(f => f.ID === r.FuncionarioID);
+                        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === r.FuncionarioID);
+                        const is24h = func && func.Turno === 'Regime de Turno';
+                        const jornadaPadrao = is24h ? 24 : 8;
+
+                        // Cálculo de Horas Trabalhadas
+                        let horasTrab = 0;
+                        let saldoDia = 0;
+                        let saldoClass = 'text-gray-400';
+                        let horasTexto = '-';
+                        let saldoTexto = '-';
+
+                        if (r.Entrada && r.Saida) {
+                            horasTrab = calcHours(r.Entrada, r.Saida, is24h);
+                            saldoDia = horasTrab - jornadaPadrao;
+                            
+                            const h = Math.floor(horasTrab);
+                            const m = Math.round((horasTrab - h) * 60);
+                            horasTexto = `${h}h ${m > 0 ? m + 'm' : ''}`;
+                            
+                            saldoTexto = saldoDia > 0 ? `+${saldoDia.toFixed(2)}h` : `${saldoDia.toFixed(2)}h`;
+                            saldoClass = saldoDia >= 0 ? 'text-green-600 font-bold' : 'text-red-500 font-bold';
+                        }
                         
                         // Lógica de Status (Prioridade: Manual > Calculado)
                         let status = r.Status || 'Presente';
@@ -1044,6 +1533,8 @@ const RHModule = {
                             </td>
                             <td class="p-3 text-center">${r.Entrada || '—'}</td>
                             <td class="p-3 text-center">${r.Saida || '—'}</td>
+                            <td class="p-3 text-center font-mono text-xs">${horasTexto}</td>
+                            <td class="p-3 text-center font-mono text-xs ${saldoClass}">${saldoTexto}</td>
                             <td class="p-3 text-center"><span class="px-2 py-1 rounded text-xs font-bold ${statusClass}">${status}</span></td>
                             <td class="p-3 text-sm text-gray-600">${r.Observacoes || '—'}</td>
                             <td class="p-3 text-center">
@@ -1059,11 +1550,23 @@ const RHModule = {
     },
 
     modalFrequencia: (id = null) => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios; // Dropdown usa lista completa
         const today = new Date().toISOString().split('T')[0];
         
         const record = id ? RHModule.state.cache.frequencia.find(r => r.ID === id) : {};
         const title = id ? 'Editar Frequência' : 'Registrar Ponto';
+
+        // Função para calcular status em tempo real no modal
+        window.calcStatusPresenca = () => {
+            const entrada = document.querySelector('input[name="Entrada"]').value;
+            const statusSelect = document.querySelector('select[name="Status"]');
+            
+            if (entrada) {
+                // Regra: 08:00 + 15min tolerância
+                if (entrada > "08:15") statusSelect.value = "Atraso";
+                else statusSelect.value = "Presente";
+            }
+        };
 
         Utils.openModal(title, `
             <form onsubmit="RHModule.save(event, 'Frequencia')">
@@ -1079,8 +1582,8 @@ const RHModule = {
                 <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" value="${record.Data || today}" class="border p-2 rounded w-full" required></div>
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="text-xs">Entrada</label>
-                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full"><button type="button" onclick="RHModule.setCurrentTime('Entrada')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <label class="text-xs font-bold">Entrada (Limite 08:15)</label>
+                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full" onchange="calcStatusPresenca()"><button type="button" onclick="RHModule.setCurrentTime('Entrada');calcStatusPresenca()" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
                     </div>
                     <div>
                         <label class="text-xs">Saída</label>
@@ -1088,7 +1591,7 @@ const RHModule = {
                     </div>
                 </div>
                 <div class="mb-4">
-                    <label class="text-xs font-bold">Status do Dia</label>
+                    <label class="text-xs font-bold">Status (Calculado)</label>
                     <select name="Status" class="border p-2 rounded w-full bg-gray-50">
                         <option value="Presente" ${record.Status === 'Presente' ? 'selected' : ''}>Presente</option>
                         <option value="Atraso" ${record.Status === 'Atraso' ? 'selected' : ''}>Atraso</option>
@@ -1121,12 +1624,14 @@ const RHModule = {
     applyFrequenciaFilter: () => {
         RHModule.state.filterFrequenciaStart = document.getElementById('freq-start-date').value;
         RHModule.state.filterFrequenciaEnd = document.getElementById('freq-end-date').value;
+        RHModule.state.filterFrequenciaTurno = document.getElementById('freq-turno').value;
         RHModule.renderFrequencia();
     },
 
     clearFrequenciaFilter: () => {
         RHModule.state.filterFrequenciaStart = '';
         RHModule.state.filterFrequenciaEnd = '';
+        RHModule.state.filterFrequenciaTurno = '';
         // Não precisa limpar os inputs manualmente, o re-render já fará isso
         // ao ler o estado vazio.
         RHModule.renderFrequencia();
@@ -1148,7 +1653,7 @@ const RHModule = {
                 <tbody>
                     ${data.map(r => `
                         <tr class="border-t">
-                            <td class="p-3">${r.ID}</td>
+                            <td class="p-3 font-bold text-gray-700">${r.Codigo || r.ID.slice(0,8)}</td>
                             <td class="p-3">${r.FuncionarioNome || '-'}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataInicio)}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataFim)}</td>
@@ -1171,7 +1676,7 @@ const RHModule = {
     updateSubsidioFerias: () => {
         const funcId = document.querySelector('select[name="FuncionarioID"]').value;
         const dias = Number(document.querySelector('input[name="Dias"]').value || 0);
-        const f = RHModule.state.cache.funcionarios.find(x => x.ID === funcId);
+        const f = RHModule.state.cache.allFuncionarios.find(x => x.ID === funcId);
         const inst = RHModule.state.cache.instituicao[0] || {};
         const percentual = Number(inst.SubsidioFeriasPorcentagem || 50) / 100;
         
@@ -1192,7 +1697,7 @@ const RHModule = {
     },
 
     modalFerias: () => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios;
         
         Utils.openModal('Solicitar Férias', `
             <form onsubmit="RHModule.save(event, 'Ferias')">
@@ -1261,7 +1766,7 @@ const RHModule = {
         const ferias = RHModule.state.cache.ferias.find(f => f.ID === id);
         if (!ferias) return Utils.toast('Registro não encontrado.', 'error');
 
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === ferias.FuncionarioID) || {};
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === ferias.FuncionarioID) || {};
         const inst = RHModule.state.cache.instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
 
@@ -1294,7 +1799,7 @@ const RHModule = {
                     </div>
                     <div class="text-right">
                         <h2 class="text-xl font-bold">GUIA DE FÉRIAS</h2>
-                        <p class="text-sm">Ref: ${new Date().getFullYear()}/${ferias.ID.slice(0,4)}</p>
+                        <p class="text-sm">Ref: ${ferias.Codigo || ferias.ID.slice(0,8)}</p>
                     </div>
                 </div>
 
@@ -1305,7 +1810,8 @@ const RHModule = {
                         <div><span class="font-bold text-sm">Nome:</span> <span class="text-lg block">${func.Nome || ferias.FuncionarioNome}</span></div>
                         <div><span class="font-bold text-sm">Cargo/Função:</span> <span class="text-lg block">${func.Cargo || '-'}</span></div>
                         <div><span class="font-bold text-sm">Departamento:</span> <span class="block">${func.Departamento || '-'}</span></div>
-                        <div><span class="font-bold text-sm">Nº Funcionário:</span> <span class="block">${func.ID.slice(0,8)}</span></div>
+                        <div><span class="font-bold text-sm">Nº Funcionário:</span> <span class="block">${func.ID.length > 10 ? func.ID.slice(0,8) : func.ID}</span></div>
+                        <div><span class="font-bold text-sm">Matrícula:</span> <span class="block">${func.Codigo || func.ID.slice(0,8)}</span></div>
                     </div>
                 </div>
 
@@ -1348,7 +1854,7 @@ const RHModule = {
         const ferias = RHModule.state.cache.ferias.find(f => f.ID === id);
         if (!ferias) return Utils.toast('Registro não encontrado.', 'error');
 
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === ferias.FuncionarioID) || {};
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === ferias.FuncionarioID) || {};
         
         // Prepara a Mensagem
         const dataInicio = Utils.formatDate(ferias.DataInicio);
@@ -1432,7 +1938,7 @@ const RHModule = {
                 <tbody>
                     ${data.map(r => `
                         <tr class="border-t">
-                            <td class="p-3">${r.ID}</td>
+                            <td class="p-3 font-bold text-gray-700">${r.Codigo || r.ID.slice(0,8)}</td>
                             <td class="p-3">${r.FuncionarioNome}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataAvaliacao)}</td>
                             <td class="p-3 text-center font-bold">${r.MediaFinal}</td>
@@ -1451,14 +1957,14 @@ const RHModule = {
     },
 
     modalAvaliacao: (id = null) => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios;
         const av = id ? RHModule.state.cache.avaliacoes.find(a => a.ID === id) : {};
         const details = av.DetalhesJSON || {};
         const title = id ? 'Editar Avaliação' : 'Avaliação de Desempenho';
         
         // Script para preencher dados
         const fillData = (select) => {
-            const f = RHModule.state.cache.funcionarios.find(x => x.ID === select.value);
+            const f = RHModule.state.cache.allFuncionarios.find(x => x.ID === select.value);
             if(f) {
                 select.form.FuncionarioNome.value = f.Nome;
                 document.getElementById('av-cargo').value = f.Cargo;
@@ -1549,7 +2055,7 @@ const RHModule = {
         const av = RHModule.state.cache.avaliacoes.find(a => a.ID === id);
         if (!av) return Utils.toast('Avaliação não encontrada.', 'error');
         
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === av.FuncionarioID) || {};
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === av.FuncionarioID) || {};
         const inst = RHModule.state.cache.instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
         const details = av.DetalhesJSON || {};
@@ -1568,6 +2074,7 @@ const RHModule = {
                     </div>
                     <div class="text-right">
                         <h2 class="text-xl font-bold text-gray-800 uppercase">Avaliação de Desempenho</h2>
+                        <p class="text-sm text-gray-500">Ref: ${av.Codigo || av.ID.slice(0,8)}</p>
                         <p class="text-sm text-gray-500">Data: ${Utils.formatDate(av.DataAvaliacao)}</p>
                     </div>
                 </div>
@@ -1639,7 +2146,7 @@ const RHModule = {
     shareAvaliacao: (id) => {
         const av = RHModule.state.cache.avaliacoes.find(a => a.ID === id);
         if (!av) return Utils.toast('Avaliação não encontrada.', 'error');
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === av.FuncionarioID) || {};
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === av.FuncionarioID) || {};
         
         const msg = `*AVALIAÇÃO DE DESEMPENHO*\n` +
             `Funcionário: ${func.Nome}\n` +
@@ -1708,7 +2215,7 @@ const RHModule = {
     },
 
     modalTreinamento: () => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios;
         Utils.openModal('Registro de Treinamento', `
             <form onsubmit="RHModule.save(event, 'Treinamentos')">
                 <div class="mb-3">
@@ -1791,13 +2298,13 @@ const RHModule = {
     },
 
     modalFolha: (id = null) => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios;
         const folha = id ? RHModule.state.cache.folha.find(f => f.ID === id) : {};
         const title = id ? 'Editar Folha' : 'Lançamento de Folha';
         
         // Preencher dados e Salário Base
         const fillData = (select) => {
-            const f = RHModule.state.cache.funcionarios.find(x => x.ID === select.value);
+            const f = RHModule.state.cache.allFuncionarios.find(x => x.ID === select.value);
             if(f) {
                 select.form.FuncionarioNome.value = f.Nome;
                 document.getElementById('folha-cargo').value = f.Cargo;
@@ -1811,6 +2318,36 @@ const RHModule = {
 
                 calcFolha();
             }
+        };
+
+        // Função para calcular descontos automaticamente baseado na frequência
+        window.calcDescontosAuto = () => {
+            const funcId = document.querySelector('select[name="FuncionarioID"]').value;
+            const periodo = document.querySelector('input[name="Periodo"]').value; // YYYY-MM
+            const salario = Number(document.getElementById('folha-base').value || 0);
+            
+            if (!funcId || !periodo) return Utils.toast('Selecione funcionário e período.', 'warning');
+
+            const freq = RHModule.state.cache.frequencia || [];
+            const recs = freq.filter(r => r.FuncionarioID === funcId && r.Data.startsWith(periodo));
+            
+            const faltas = recs.filter(r => r.Status === 'Falta').length;
+            const atrasos = recs.filter(r => r.Status === 'Atraso').length;
+            
+            // Regra: 1 Falta = 1 dia, 1 Atraso = 0.5 dia
+            const diasDesconto = faltas + (atrasos * 0.5);
+            const valorDia = salario / 30;
+            const totalDesconto = Math.round(diasDesconto * valorDia);
+            
+            document.getElementById('qtd-faltas').value = diasDesconto;
+            document.getElementById('val-falta').value = valorDia.toFixed(2);
+            document.getElementById('total-faltas').value = totalDesconto;
+            
+            // Recalcula totais
+            const event = new Event('input', { bubbles: true });
+            document.querySelector('form').dispatchEvent(event);
+            
+            Utils.toast(`Detectado: ${faltas} faltas e ${atrasos} atrasos.`, 'info');
         };
 
         // Cálculo em tempo real
@@ -1886,7 +2423,7 @@ const RHModule = {
                     
                     <div class="col-span-2 grid grid-cols-3 gap-2 bg-red-50 p-2 rounded border border-red-100">
                         <div>
-                            <label class="text-[10px] font-bold text-red-800 block mb-1">Qtd. Faltas</label>
+                            <label class="text-[10px] font-bold text-red-800 block mb-1 cursor-pointer hover:underline" onclick="calcDescontosAuto()" title="Clique para calcular automático">Qtd. Faltas (Auto ↻)</label>
                             <input type="number" id="qtd-faltas" placeholder="Dias/Horas" class="border p-2 w-full bg-white text-xs">
                         </div>
                         <div>
@@ -1922,7 +2459,7 @@ const RHModule = {
         const folha = RHModule.state.cache.folha.find(f => f.ID === id);
         if (!folha) return Utils.toast('Recibo não encontrado.', 'error');
 
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === folha.FuncionarioID) || {};
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === folha.FuncionarioID) || {};
         const inst = RHModule.state.cache.instituicao[0] || {};
         const showLogo = inst.ExibirLogoRelatorios;
 
@@ -1953,7 +2490,8 @@ const RHModule = {
                     <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <div><span class="font-bold text-gray-600">Funcionário:</span> ${func.Nome}</div>
                         <div><span class="font-bold text-gray-600">Cargo:</span> ${func.Cargo || '-'}</div>
-                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.ID.slice(0,8).toUpperCase()}</div>
+                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.ID.length > 10 ? func.ID.slice(0,8).toUpperCase() : func.ID}</div>
+                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.Codigo || func.ID.slice(0,8)}</div>
                         <div><span class="font-bold text-gray-600">Departamento:</span> ${func.Departamento || '-'}</div>
                         <div><span class="font-bold text-gray-600">Admissão:</span> ${Utils.formatDate(func.Admissao)}</div>
                         <div><span class="font-bold text-gray-600">NIF/BI:</span> ${func.BI || '-'}</div>
@@ -2074,7 +2612,7 @@ const RHModule = {
     },
 
     modalLicencas: () => {
-        const funcs = RHModule.state.cache.funcionarios;
+        const funcs = RHModule.state.cache.allFuncionarios;
         
         // Lógica Dinâmica de Exibição
         const toggleForm = (select) => {
@@ -2252,7 +2790,7 @@ const RHModule = {
         const start = document.getElementById('rel-inicio').value;
         const end = document.getElementById('rel-fim').value;
         const mesAniversario = document.getElementById('rel-mes-aniversario') ? document.getElementById('rel-mes-aniversario').value : (new Date().getMonth() + 1);
-        let funcs = RHModule.state.cache.funcionarios || [];
+        let funcs = RHModule.state.cache.allFuncionarios || []; // Relatórios usam lista completa
         const ferias = RHModule.state.cache.ferias || [];
         const frequencia = RHModule.state.cache.frequencia || [];
 
@@ -2544,7 +3082,7 @@ const RHModule = {
         const mes = Number(mesSelect.value);
         const mesNome = mesSelect.options[mesSelect.selectedIndex].text;
         
-        const funcs = RHModule.state.cache.funcionarios.filter(f => {
+        const funcs = RHModule.state.cache.allFuncionarios.filter(f => {
             if (!f.Nascimento) return false;
             const d = new Date(f.Nascimento);
             return (d.getMonth() + 1) === mes;
@@ -2590,9 +3128,17 @@ const RHModule = {
         Utils.printNative(html);
     },
 
-    printIndividualFrequency: (funcId) => {
-        const func = RHModule.state.cache.funcionarios.find(f => f.ID === funcId);
+    printIndividualFrequency: async (funcId) => {
+        const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === funcId);
         if (!func) return Utils.toast('Funcionário não encontrado.', 'error');
+
+        // Garante que a escala esteja carregada para mostrar o "Previsto"
+        if (!RHModule.state.cache.escala) {
+             try {
+                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
+            } catch (e) { RHModule.state.cache.escala = []; }
+        }
+        const escalaFunc = RHModule.state.cache.escala.filter(e => e.FuncionarioID === funcId);
 
         // Determinar o mês do relatório (baseado no filtro ou mês atual)
         let targetMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -2611,66 +3157,95 @@ const RHModule = {
         // Cálculos do Resumo
         let presencas = 0;
         let faltas = 0;
-        let faltasJustificadas = 0;
         let atrasos = 0;
         let totalHoras = 0;
-        let diasUteis = 0; // Aproximação (dias com registro ou dias úteis do mês)
+        let diasEscalados = 0;
 
         // Mapa de registros por dia para preencher a tabela completa
         const mapRecords = {};
-        records.forEach(r => {
-            mapRecords[r.Data] = r;
-            
-            if (r.Status === 'Presente') presencas++;
-            else if (r.Status === 'Falta') faltas++;
-            else if (r.Status === 'Falta Justificada') faltasJustificadas++;
-            else if (r.Status === 'Atraso') atrasos++;
-
-            // Cálculo de horas (simplificado)
-            if (r.Entrada && r.Saida) {
-                const [h1, m1] = r.Entrada.split(':').map(Number);
-                const [h2, m2] = r.Saida.split(':').map(Number);
-                let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
-                if (diff < 0) diff += 24 * 60; // Virada de dia
-                totalHoras += diff / 60;
-            }
-        });
+        records.forEach(r => mapRecords[r.Data] = r);
 
         // Gerar linhas da tabela (1 a 31)
         let rowsHtml = '';
+        const daysOfWeek = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
         for (let i = 1; i <= daysInMonth; i++) {
             const dayStr = `${year}-${month}-${String(i).padStart(2, '0')}`;
             const dateObj = new Date(dayStr);
-            const dayOfWeek = dateObj.getDay(); // 0=Dom, 6=Sab
-            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+            const jsDay = dateObj.getDay(); // 0=Dom, 1=Seg...
+            const dbDay = jsDay === 0 ? 7 : jsDay; // 1=Seg... 7=Dom
             
-            if (!isWeekend) diasUteis++;
+            // Lógica de Escala (Previsto)
+            const configEscala = escalaFunc.find(e => e.DiaSemana === dbDay);
+            let isWorkingDay = false;
+            let horarioPrevisto = 'Folga';
+
+            if (configEscala) {
+                if (configEscala.Tipo === 'Trabalho') {
+                    isWorkingDay = true;
+                    horarioPrevisto = '08:00 - 16:00'; // Padrão Diarista
+                } else if (configEscala.Tipo === 'Turno') {
+                    isWorkingDay = true;
+                    horarioPrevisto = 'Plantão 24h';
+                }
+            } else {
+                // Fallback se não tiver escala configurada
+                if (func.Turno === 'Diarista' && dbDay <= 5) {
+                    isWorkingDay = true;
+                    horarioPrevisto = '08:00 - 16:00';
+                } else if (func.Turno === 'Regime de Turno') {
+                    horarioPrevisto = 'Escala'; 
+                }
+            }
+
+            if (isWorkingDay) diasEscalados++;
 
             const r = mapRecords[dayStr] || {};
-            const entrada = r.Entrada || '—';
-            const saida = r.Saida || '—';
-            const status = r.Status || (isWeekend ? 'Folga' : '—');
-            const obs = r.Observacoes || '—';
+            const entrada = r.Entrada || '';
+            const saida = r.Saida || '';
+            let status = r.Status || '';
+            const obs = r.Observacoes || '';
             
-            let horasDia = '0h';
-            if (r.Entrada && r.Saida) {
-                const [h1, m1] = r.Entrada.split(':').map(Number);
-                const [h2, m2] = r.Saida.split(':').map(Number);
+            // Se não tem registro mas era dia de trabalho e já passou a data
+            if (!r.ID && isWorkingDay && dateObj < new Date()) {
+                status = 'Falta (N/C)'; // Não compareceu / Não cadastrado
+            } else if (!status && !isWorkingDay) {
+                status = 'Folga';
+            }
+
+            // Contadores
+            if (status === 'Presente' || (entrada && status !== 'Falta' && status !== 'Atraso')) presencas++;
+            if (status === 'Falta' || status === 'Falta (N/C)') faltas++;
+            if (status === 'Atraso') atrasos++;
+
+            let horasDia = '';
+            if (entrada && saida) {
+                const [h1, m1] = String(entrada).split(':').map(Number);
+                const [h2, m2] = String(saida).split(':').map(Number);
                 let diff = (h2 * 60 + m2) - (h1 * 60 + m1);
                 if (diff < 0) diff += 24 * 60;
                 const h = Math.floor(diff / 60);
                 const m = diff % 60;
-                horasDia = `${h}h${m > 0 ? String(m).padStart(2,'0') : ''}`;
+                horasDia = `${h}:${String(m).padStart(2,'0')}`;
+                totalHoras += diff / 60;
             }
 
+            // Estilização
+            let rowClass = '';
+            if (status.includes('Falta')) rowClass = 'bg-red-50 text-red-800';
+            else if (status === 'Atraso') rowClass = 'bg-yellow-50 text-yellow-800';
+            else if (status === 'Folga') rowClass = 'bg-gray-50 text-gray-400';
+
             rowsHtml += `
-                <tr class="${isWeekend ? 'bg-gray-100' : ''}">
-                    <td class="border p-1 text-center">${String(i).padStart(2, '0')}/${month}</td>
-                    <td class="border p-1 text-center">${entrada}</td>
-                    <td class="border p-1 text-center">${saida}</td>
-                    <td class="border p-1 text-center">${horasDia}</td>
-                    <td class="border p-1 text-center text-xs">${status}</td>
-                    <td class="border p-1 text-xs">${obs}</td>
+                <tr class="${rowClass} border-b border-gray-200">
+                    <td class="border-r p-1 text-center">${String(i).padStart(2, '0')}/${month}</td>
+                    <td class="border-r p-1 text-center text-xs">${daysOfWeek[jsDay].slice(0,3)}</td>
+                    <td class="border-r p-1 text-center text-xs">${horarioPrevisto}</td>
+                    <td class="border-r p-1 text-center font-mono">${entrada || '--:--'}</td>
+                    <td class="border-r p-1 text-center font-mono">${saida || '--:--'}</td>
+                    <td class="border-r p-1 text-center font-mono">${horasDia}</td>
+                    <td class="border-r p-1 text-center text-xs font-bold">${status}</td>
+                    <td class="p-1 text-xs truncate max-w-[150px]">${obs}</td>
                 </tr>
             `;
         }
@@ -2680,40 +3255,46 @@ const RHModule = {
 
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
+                <!-- Header -->
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
                     <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
                         ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
                         <div>
                             <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">Folha Mensal de Presença</p>
+                            <p class="text-sm text-gray-600">Espelho de Ponto</p>
                         </div>
                     </div>
                     <div class="text-right">
-                        <p class="text-sm font-bold">Mês/Ano: ${month}/${year}</p>
-                        <p class="text-xs text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
+                        <p class="text-sm font-bold">Período: ${month}/${year}</p>
+                        <p class="text-xs text-gray-500">Emissão: ${new Date().toLocaleDateString()}</p>
                     </div>
                 </div>
 
-                <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
-                    <h3 class="font-bold border-b border-gray-300 mb-2 uppercase text-sm">Dados do Funcionário</h3>
-                    <div class="grid grid-cols-2 gap-4 text-sm">
-                        <div><span class="font-bold">Nome:</span> ${func.Nome}</div>
+                <!-- Info Funcionário -->
+                <div class="mb-6 bg-gray-50 p-3 rounded border border-gray-200 text-sm">
+                    <div class="flex justify-between mb-2">
+                        <div><span class="font-bold">Funcionário:</span> ${func.Nome}</div>
+                        <div><span class="font-bold">ID:</span> ${func.ID}</div>
+                        <div><span class="font-bold">Matrícula:</span> ${func.Codigo || func.ID.slice(0,8)}</div>
+                    </div>
+                    <div class="flex justify-between">
                         <div><span class="font-bold">Cargo:</span> ${func.Cargo || '-'}</div>
-                        <div><span class="font-bold">ID:</span> ${func.ID.slice(0,8).toUpperCase()}</div>
-                        <div><span class="font-bold">Turno:</span> ${func.Turno || '-'}</div>
+                        <div><span class="font-bold">Departamento:</span> ${func.Departamento || '-'}</div>
                     </div>
                 </div>
 
-                <h3 class="font-bold text-gray-800 mb-2 text-sm uppercase">Frequência Mensal</h3>
+                <!-- Tabela -->
                 <table class="w-full text-sm border-collapse border border-gray-300 mb-6">
                     <thead class="bg-gray-100">
                         <tr>
-                            <th class="border p-2 text-center">Data</th>
-                            <th class="border p-2 text-center">Entrada</th>
-                            <th class="border p-2 text-center">Saída</th>
-                            <th class="border p-2 text-center">Horas</th>
-                            <th class="border p-2 text-center">Status</th>
-                            <th class="border p-2 text-left">Observação</th>
+                            <th class="border p-2 w-16">Data</th>
+                            <th class="border p-2 w-12">Dia</th>
+                            <th class="border p-2">Escala</th>
+                            <th class="border p-2">Entrada</th>
+                            <th class="border p-2">Saída</th>
+                            <th class="border p-2">Horas</th>
+                            <th class="border p-2">Status</th>
+                            <th class="border p-2">Obs</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2721,32 +3302,35 @@ const RHModule = {
                     </tbody>
                 </table>
 
-                <div class="flex gap-8 mb-8">
-                    <div class="w-1/2">
-                        <h3 class="font-bold text-gray-800 mb-2 text-sm uppercase">Resumo do Mês</h3>
-                        <table class="w-full text-sm border-collapse border border-gray-300">
-                            <tr><td class="border p-2 bg-gray-50">Dias Úteis (Est.)</td><td class="border p-2 text-right">${diasUteis}</td></tr>
-                            <tr><td class="border p-2 bg-gray-50">Presenças</td><td class="border p-2 text-right">${presencas}</td></tr>
-                            <tr><td class="border p-2 bg-gray-50">Faltas</td><td class="border p-2 text-right">${faltas}</td></tr>
-                            <tr><td class="border p-2 bg-gray-50">Faltas Justificadas</td><td class="border p-2 text-right">${faltasJustificadas}</td></tr>
-                            <tr><td class="border p-2 bg-gray-50">Atrasos</td><td class="border p-2 text-right">${atrasos}</td></tr>
-                            <tr class="font-bold"><td class="border p-2 bg-gray-100">Total Horas</td><td class="border p-2 text-right">${totalHoras.toFixed(2)}h</td></tr>
-                        </table>
+                <!-- Resumo -->
+                <div class="flex gap-4 mb-8 text-sm">
+                    <div class="border rounded p-2 flex-1 bg-gray-50">
+                        <div class="font-bold border-b pb-1 mb-1">Resumo de Dias</div>
+                        <div class="flex justify-between"><span>Dias Escalados:</span> <strong>${diasEscalados}</strong></div>
+                        <div class="flex justify-between"><span>Presenças:</span> <strong>${presencas}</strong></div>
                     </div>
-                    <div class="w-1/2 flex flex-col justify-end">
-                        <div class="mb-8 text-center">
-                            <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
-                            <p class="text-xs font-bold">Funcionário</p>
-                        </div>
-                        <div class="text-center">
-                            <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
-                            <p class="text-xs font-bold">RH / Supervisor</p>
-                        </div>
+                    <div class="border rounded p-2 flex-1 bg-red-50 border-red-100">
+                        <div class="font-bold border-b pb-1 mb-1 text-red-800">Ocorrências</div>
+                        <div class="flex justify-between"><span>Faltas:</span> <strong class="text-red-600">${faltas}</strong></div>
+                        <div class="flex justify-between"><span>Atrasos:</span> <strong class="text-yellow-600">${atrasos}</strong></div>
+                    </div>
+                    <div class="border rounded p-2 flex-1 bg-blue-50 border-blue-100">
+                        <div class="font-bold border-b pb-1 mb-1 text-blue-800">Banco de Horas</div>
+                        <div class="flex justify-between"><span>Horas Trabalhadas:</span> <strong>${totalHoras.toFixed(2)}h</strong></div>
                     </div>
                 </div>
 
-                <div class="mt-4 text-center text-xs text-gray-400 border-t pt-2">
-                    &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+                <!-- Assinaturas -->
+                <div class="mt-12 grid grid-cols-2 gap-16 text-center text-xs">
+                    <div>
+                        <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
+                        <p class="font-bold">Responsável RH</p>
+                    </div>
+                    <div>
+                        <div class="border-t border-gray-400 w-3/4 mx-auto mb-1"></div>
+                        <p class="font-bold">Funcionário</p>
+                        <p class="text-gray-500">Declaro que recebi o espelho de ponto e conferi os lançamentos.</p>
+                    </div>
                 </div>
             </div>
         `;
@@ -2779,7 +3363,7 @@ const RHModule = {
             title = 'Lista de Funcionários';
             filename = 'funcionarios.pdf';
             orientation = 'landscape';
-            let data = RHModule.state.cache.funcionarios || [];
+            let data = RHModule.state.cache.allFuncionarios || []; // Exportar todos, não só a página
             
             // Aplicar filtros atuais
             if (RHModule.state.filterTerm) {
@@ -2792,8 +3376,8 @@ const RHModule = {
             }
             data.sort((a, b) => a.Nome.localeCompare(b.Nome));
 
-            const headers = ['ID', 'Nome', 'Cargo', 'Departamento', 'Turno', 'Telefone', 'Admissão', 'Status'];
-            const rows = data.map(f => [f.ID, f.Nome, f.Cargo, f.Departamento || '-', f.Turno || '-', f.Telefone || '-', Utils.formatDate(f.Admissao), f.Status]);
+            const headers = ['Matrícula', 'Nome', 'Cargo', 'Departamento', 'Turno', 'Telefone', 'Admissão', 'Status'];
+            const rows = data.map(f => [f.Codigo || '-', f.Nome, f.Cargo, f.Departamento || '-', f.Turno || '-', f.Telefone || '-', Utils.formatDate(f.Admissao), f.Status]);
             content = buildTable(headers, rows);
         }
         else if (type === 'frequencia') {
@@ -2812,9 +3396,9 @@ const RHModule = {
 
             data.sort((a,b) => new Date(b.Data) - new Date(a.Data));
             
-            const headers = ['ID', 'Nome', 'Data', 'Entrada', 'Saída', 'Total', 'Status'];
+            const headers = ['Matrícula', 'Nome', 'Data', 'Entrada', 'Saída', 'Total', 'Status'];
             const rows = data.map(r => {
-                const func = RHModule.state.cache.funcionarios.find(f => f.ID === r.FuncionarioID);
+                const func = RHModule.state.cache.allFuncionarios.find(f => f.ID === r.FuncionarioID);
                 const is24h = func && func.Turno === 'Regime de Turno';
                 const refHours = is24h ? 24 : 8;
                 
@@ -2836,7 +3420,7 @@ const RHModule = {
                 else if (diff < 0) statusText = `Meia Falta (${diff.toFixed(1)}h)`;
                 else if (diff > 0) statusText = `Extra: +${diff.toFixed(1)}h`;
                 
-                return [r.ID, r.FuncionarioNome, Utils.formatDate(r.Data), r.Entrada, r.Saida, total.toFixed(2)+'h', statusText];
+                return [func ? (func.Codigo || '-') : '-', r.FuncionarioNome, Utils.formatDate(r.Data), r.Entrada, r.Saida, total.toFixed(2)+'h', statusText];
             });
             content = buildTable(headers, rows);
         } 
@@ -2844,16 +3428,16 @@ const RHModule = {
             title = 'Relatório de Férias';
             filename = 'ferias.pdf';
             const data = RHModule.state.cache.ferias || [];
-            const headers = ['ID', 'Nome', 'Início', 'Retorno', 'Dias', 'Status'];
-            const rows = data.map(r => [r.ID, r.FuncionarioNome, Utils.formatDate(r.DataInicio), Utils.formatDate(r.DataFim), r.Dias, r.Status]);
+            const headers = ['Código', 'Nome', 'Início', 'Retorno', 'Dias', 'Status'];
+            const rows = data.map(r => [r.Codigo || '-', r.FuncionarioNome, Utils.formatDate(r.DataInicio), Utils.formatDate(r.DataFim), r.Dias, r.Status]);
             content = buildTable(headers, rows);
         }
         else if (type === 'avaliacoes') {
             title = 'Relatório de Avaliações';
             filename = 'avaliacoes.pdf';
             const data = RHModule.state.cache.avaliacoes || [];
-            const headers = ['ID', 'Funcionário', 'Data', 'Média', 'Conclusão'];
-            const rows = data.map(r => [r.ID, r.FuncionarioNome, Utils.formatDate(r.DataAvaliacao), r.MediaFinal, r.Conclusao]);
+            const headers = ['Código', 'Funcionário', 'Data', 'Média', 'Conclusão'];
+            const rows = data.map(r => [r.Codigo || '-', r.FuncionarioNome, Utils.formatDate(r.DataAvaliacao), r.MediaFinal, r.Conclusao]);
             content = buildTable(headers, rows);
         }
         else if (type === 'treinamento') {
@@ -2907,6 +3491,45 @@ const RHModule = {
         Utils.printNative(html, orientation);
     },
 
+    // Função auxiliar para gerar ID de Funcionário (Iniciais + Sequencial)
+    generateEmployeeId: (nomeCompleto, listaIdsExistentes) => {
+        const parts = nomeCompleto.trim().split(/\s+/).filter(p => p.length > 0);
+        if (parts.length === 0) return 'FUNC-01';
+        
+        const first = parts[0][0].toUpperCase();
+        // Se tiver apenas um nome, repete a inicial (ex: "Maria" -> "MM")
+        const last = parts.length > 1 ? parts[parts.length - 1][0].toUpperCase() : first;
+        const prefix = first + last;
+
+        let seq = 1;
+        let newId = `${prefix}-${String(seq).padStart(2, '0')}`;
+
+        while (listaIdsExistentes.includes(newId)) {
+            seq++;
+            newId = `${prefix}-${String(seq).padStart(2, '0')}`;
+        }
+        return newId;
+    },
+
+    // Função para gerar ID de Férias (Iniciais + Sequencial)
+    gerarIdFuncionario: (nomeCompleto, idsExistentes) => {
+        const partes = nomeCompleto.trim().split(" ");
+        const primeira = partes[0][0].toUpperCase();
+        const ultima = partes[partes.length - 1][0].toUpperCase();
+
+        const base = `${primeira}${ultima}`;
+
+        let contador = 1;
+        let novoId = `${base}-${String(contador).padStart(2, "0")}`;
+
+        while (idsExistentes.includes(novoId)) {
+            contador++;
+            novoId = `${base}-${String(contador).padStart(2, "0")}`;
+        }
+
+        return novoId;
+    },
+
     // --- GENÉRICOS ---
     save: async (e, table) => {
         e.preventDefault();
@@ -2930,32 +3553,40 @@ const RHModule = {
                     return Utils.toast(`⚠️ O BI/NIF ${bi} já está cadastrado para: ${duplicado.Nome}`, 'error');
                 }
             }
+            
+            // Validação de Nome Duplicado
+            const nome = data.Nome ? data.Nome.trim() : '';
+            if (nome) {
+                const duplicadoNome = RHModule.state.cache.allFuncionarios.find(f => 
+                    f.Nome && f.Nome.trim().toLowerCase() === nome.toLowerCase() && f.ID !== data.ID
+                );
+                if (duplicadoNome) {
+                    return Utils.toast(`⚠️ O funcionário "${nome}" já está cadastrado.`, 'error');
+                }
+            }
         }
 
 
-        // Geração Automática de ID para Funcionários (Iniciais + Sequencial Global)
+        // Geração Automática de ID para Funcionários
         if (table === 'Funcionarios' && !data.ID) {
-            const nome = data.Nome.trim();
-            if (nome) {
-                const parts = nome.split(' ');
-                const first = parts[0][0].toUpperCase();
-                // Lida com nomes de uma só palavra (ex: "Maria" -> "MM")
-                const last = parts.length > 1 ? parts[parts.length - 1][0].toUpperCase() : first;
-                const prefix = first + last;
- 
-                // Lógica Corrigida: Busca o MAIOR número sequencial já existente em qualquer ID
-                // Isso garante a ordem histórica (ex: se existe o 05, o próximo será 06, independente de quantos ativos existem)
-                let maxSeq = 0;
-                RHModule.state.cache.funcionarios.forEach(f => {
-                    if (f.ID && f.ID.includes('-')) {
-                        const partsId = f.ID.split('-');
-                        const seq = parseInt(partsId[partsId.length - 1]); // Pega o número final
-                        if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
-                    }
- });
-                
-                data.ID = `${prefix}-${String(maxSeq + 1).padStart(2, '0')}`;
-            }
+            const existingIds = RHModule.state.cache.allFuncionarios.map(f => f.ID);
+            data.ID = RHModule.generateEmployeeId(data.Nome, existingIds);
+            const existingCodes = RHModule.state.cache.allFuncionarios.map(f => f.Codigo);
+            data.Codigo = RHModule.generateEmployeeId(data.Nome, existingCodes);
+        }
+
+        // Geração Automática de ID para Férias (Novo Padrão)
+        if (table === 'Ferias' && !data.ID) {
+            const existingCodes = RHModule.state.cache.ferias.map(f => f.Codigo).filter(c => c);
+            const nome = data.FuncionarioNome || 'Funcionario Desconhecido';
+            data.Codigo = RHModule.gerarIdFuncionario(nome, existingCodes);
+        }
+
+        // Geração Automática de ID para Avaliações (Novo Padrão)
+        if (table === 'Avaliacoes' && !data.ID) {
+            const existingCodes = RHModule.state.cache.avaliacoes.map(a => a.Codigo).filter(c => c);
+            const nome = data.FuncionarioNome || 'Funcionario Desconhecido';
+            data.Codigo = RHModule.gerarIdFuncionario(nome, existingCodes);
         }
 
         // Lógica de Upload de Foto (Funcionários)

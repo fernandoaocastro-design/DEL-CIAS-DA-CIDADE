@@ -7,6 +7,15 @@ const BackupsModule = {
     init: () => {
         console.log("Iniciando módulo de backups...");
         BackupsModule.fetchData();
+        BackupsModule.updateHeaderPhoto();
+    },
+
+    updateHeaderPhoto: () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const img = document.getElementById('user-photo'); 
+        if (user && user.FotoURL && img) {
+            img.src = user.FotoURL;
+        }
     },
 
     fetchData: async () => {

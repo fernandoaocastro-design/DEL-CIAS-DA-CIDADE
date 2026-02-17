@@ -180,20 +180,6 @@ ALTER TABLE "ItensPedidoCompra" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Acesso API Pedidos" ON "PedidosCompra" FOR ALL USING (true);
 CREATE POLICY "Acesso API ItensPedido" ON "ItensPedidoCompra" FOR ALL USING (true);
 
--- 1.11. Listas de Itens do Dia (Estoque -> Produção)
-CREATE TABLE IF NOT EXISTS "ListasProducaoDia" (
-    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    "Data" DATE NOT NULL,
-    "Categoria" VARCHAR(50) NOT NULL, -- 'Almoço', 'Jantar', 'SopaChaDia', 'SopaChaNoite'
-    "ItensJSON" JSONB DEFAULT '[]', -- Array de objetos {id, nome, qtd, unidade}
-    "Status" VARCHAR(20) DEFAULT 'Rascunho', -- 'Rascunho', 'Enviado'
-    "CriadoEm" TIMESTAMP DEFAULT NOW(),
-    UNIQUE("Data", "Categoria") -- Garante apenas uma lista por categoria por dia
-);
-
-ALTER TABLE "ListasProducaoDia" ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Acesso API ListasProducao" ON "ListasProducaoDia" FOR ALL USING (true);
-
 -- ==============================================================================
 -- PARTE 2: COMO FAZER CÓPIA DOS DADOS (BACKUP DE EMERGÊNCIA)
 -- ==============================================================================
@@ -581,3 +567,465 @@ ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "QuantidadeReservada" DECIMAL(12,
 -- CORREÇÃO DE CONSTRAINT (ORDENS DE PRODUÇÃO)
 -- Remove a restrição antiga que ligava OrdensProducao à tabela antiga PlanejamentoProducao
 ALTER TABLE "OrdensProducao" DROP CONSTRAINT IF EXISTS "OrdensProducao_PlanejamentoID_fkey";
+
+-- ==============================================================================
+-- PARTE 15: CORREÇÃO DE ERRO (FREQUÊNCIA)
+-- ==============================================================================
+-- Garante que a tabela existe e tem as colunas necessárias
+CREATE TABLE IF NOT EXISTS "Frequencia" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID REFERENCES "Funcionarios"("ID"),
+    "Data" DATE DEFAULT CURRENT_DATE,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Status" VARCHAR(50);
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Entrada" TIME;
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Saida" TIME;
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Observacao" TEXT;
+-- Correção: O código JS usa 'Observacoes' (plural) e precisa do Nome do Funcionário gravado
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Observacoes" TEXT;
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "FuncionarioNome" VARCHAR(255);
+ALTER TABLE "Frequencia" ADD COLUMN IF NOT EXISTS "Assinatura" TEXT;
+
+ALTER TABLE "Frequencia" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API Frequencia" ON "Frequencia";
+CREATE POLICY "Acesso API Frequencia" ON "Frequencia" FOR ALL USING (true);
+
+-- ==============================================================================
+-- PARTE 16: TABELAS FALTANTES (RH, FINANCEIRO, SISTEMA)
+-- ==============================================================================
+-- Estas tabelas são usadas no código (business.js/rh.js) mas não existiam no banco.
+
+-- 1. Fornecedores (Módulo Estoque)
+CREATE TABLE IF NOT EXISTS "Fornecedores" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(255) NOT NULL,
+    "Contato" VARCHAR(255),
+    "Endereco" TEXT,
+    "ProdutosFornecidos" TEXT,
+    "Status" VARCHAR(50) DEFAULT 'Ativo',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Fornecedores" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Fornecedores" ON "Fornecedores" FOR ALL USING (true);
+
+-- 2. Férias (Módulo RH)
+CREATE TABLE IF NOT EXISTS "Ferias" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID REFERENCES "Funcionarios"("ID"),
+    "FuncionarioNome" VARCHAR(255),
+    "DataInicio" DATE,
+    "DataFim" DATE,
+    "Dias" INTEGER,
+    "Fracionadas" VARCHAR(10),
+    "Pagamento13" VARCHAR(10),
+    "Adiantamento13" VARCHAR(10),
+    "DataPagamento" DATE,
+    "ComprovativoURL" TEXT,
+    "Observacoes" TEXT,
+    "AssinaturaFunc" TEXT,
+    "AssinaturaRH" TEXT,
+    "Status" VARCHAR(50) DEFAULT 'Solicitado',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Ferias" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Ferias" ON "Ferias" FOR ALL USING (true);
+
+-- 3. Folha de Pagamento (Módulo RH)
+CREATE TABLE IF NOT EXISTS "Folha" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID REFERENCES "Funcionarios"("ID"),
+    "FuncionarioNome" VARCHAR(255),
+    "Periodo" VARCHAR(20), -- YYYY-MM
+    "SalarioBase" DECIMAL(12,2),
+    "Bonus" DECIMAL(12,2),
+    "QtdHoraExtra" DECIMAL(10,2),
+    "ValorHoraExtra" DECIMAL(12,2),
+    "OutrosVencimentos" DECIMAL(12,2),
+    "INSS" DECIMAL(12,2),
+    "IRT" DECIMAL(12,2),
+    "Faltas" DECIMAL(12,2),
+    "OutrosDescontos" DECIMAL(12,2),
+    "TotalVencimentos" DECIMAL(12,2),
+    "TotalDescontos" DECIMAL(12,2),
+    "SalarioLiquido" DECIMAL(12,2),
+    "Banco" VARCHAR(100),
+    "Iban" VARCHAR(100),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Folha" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Folha" ON "Folha" FOR ALL USING (true);
+
+-- 4. Licenças e Ausências (Módulo RH)
+CREATE TABLE IF NOT EXISTS "Licencas" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID REFERENCES "Funcionarios"("ID"),
+    "FuncionarioNome" VARCHAR(255),
+    "Tipo" VARCHAR(100),
+    "Inicio" DATE,
+    "Retorno" DATE,
+    "Motivo" TEXT,
+    "Justificativa" TEXT,
+    "DataFalta" DATE,
+    "ObsFalta" TEXT,
+    "Medico" VARCHAR(255),
+    "InicioMat" DATE,
+    "TerminoMat" DATE,
+    "InicioPat" DATE,
+    "TerminoPat" DATE,
+    "DataCasamento" DATE,
+    "DiasLicenca" INTEGER,
+    "DataAusencia" DATE,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Licencas" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Licencas" ON "Licencas" FOR ALL USING (true);
+
+-- 5. Avaliações de Desempenho (Módulo RH)
+CREATE TABLE IF NOT EXISTS "Avaliacoes" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID REFERENCES "Funcionarios"("ID"),
+    "FuncionarioNome" VARCHAR(255),
+    "DataAvaliacao" DATE,
+    "Avaliador" VARCHAR(255),
+    "MediaFinal" DECIMAL(5,2),
+    "Conclusao" VARCHAR(100),
+    "DetalhesJSON" JSONB,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Avaliacoes" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Avaliacoes" ON "Avaliacoes" FOR ALL USING (true);
+
+-- 6. Treinamentos (Módulo RH)
+CREATE TABLE IF NOT EXISTS "Treinamentos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID, -- Pode ser 'Todos' (null) ou específico
+    "FuncionarioNome" VARCHAR(255),
+    "Titulo" VARCHAR(255),
+    "Tipo" VARCHAR(50),
+    "Instrutor" VARCHAR(255),
+    "Local" VARCHAR(255),
+    "Inicio" DATE,
+    "Termino" DATE,
+    "Carga" INTEGER,
+    "Status" VARCHAR(50),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Treinamentos" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Treinamentos" ON "Treinamentos" FOR ALL USING (true);
+
+-- 7. Cargos & Departamentos (Auxiliares RH)
+CREATE TABLE IF NOT EXISTS "Cargos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(100) NOT NULL,
+    "DepartamentoID" UUID,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Cargos" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Cargos" ON "Cargos" FOR ALL USING (true);
+
+CREATE TABLE IF NOT EXISTS "Departamentos" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(100) NOT NULL,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Departamentos" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Departamentos" ON "Departamentos" FOR ALL USING (true);
+
+-- 8. Logs de Auditoria e Notificações (Sistema)
+CREATE TABLE IF NOT EXISTS "LogsAuditoria" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "UsuarioID" UUID,
+    "UsuarioNome" VARCHAR(255),
+    "Modulo" VARCHAR(100),
+    "Acao" VARCHAR(50),
+    "Descricao" TEXT,
+    "DetalhesJSON" JSONB,
+    "DataHora" TIMESTAMP DEFAULT NOW(),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "LogsAuditoria" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API LogsAuditoria" ON "LogsAuditoria" FOR ALL USING (true);
+
+CREATE TABLE IF NOT EXISTS "Notificacoes" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Mensagem" TEXT,
+    "Lida" BOOLEAN DEFAULT FALSE,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "Notificacoes" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API Notificacoes" ON "Notificacoes" FOR ALL USING (true);
+
+-- 9. Listas de Produção do Dia (Módulo Produção)
+CREATE TABLE IF NOT EXISTS "ListasProducaoDia" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Data" DATE,
+    "Categoria" VARCHAR(100),
+    "ItensJSON" JSONB,
+    "Status" VARCHAR(50) DEFAULT 'Rascunho',
+    "Prato" VARCHAR(255),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "ListasProducaoDia" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API ListasProducaoDia" ON "ListasProducaoDia" FOR ALL USING (true);
+
+-- 10. Financeiro Avançado (Metas e Contas)
+CREATE TABLE IF NOT EXISTS "MetasFinanceiras" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Mes" VARCHAR(7) UNIQUE, -- YYYY-MM
+    "ReceitaEsperada" DECIMAL(12,2),
+    "DespesaMaxima" DECIMAL(12,2),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "MetasFinanceiras" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API MetasFinanceiras" ON "MetasFinanceiras" FOR ALL USING (true);
+
+CREATE TABLE IF NOT EXISTS "ContasPagar" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Fornecedor" VARCHAR(255),
+    "ValorTotal" DECIMAL(12,2),
+    "Descricao" TEXT,
+    "DataVencimento" DATE,
+    "Status" VARCHAR(50) DEFAULT 'Pendente',
+    "Categoria" VARCHAR(100),
+    "Subcategoria" VARCHAR(100),
+    "FormaPagamento" VARCHAR(100),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "ContasPagar" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API ContasPagar" ON "ContasPagar" FOR ALL USING (true);
+
+CREATE TABLE IF NOT EXISTS "ContasReceber" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Cliente" VARCHAR(255),
+    "ValorTotal" DECIMAL(12,2),
+    "Descricao" TEXT,
+    "DataVencimento" DATE,
+    "Status" VARCHAR(50) DEFAULT 'Pendente',
+    "Categoria" VARCHAR(100),
+    "Subcategoria" VARCHAR(100),
+    "FormaPagamento" VARCHAR(100),
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+ALTER TABLE "ContasReceber" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Acesso API ContasReceber" ON "ContasReceber" FOR ALL USING (true);
+
+-- 11. Colunas Faltantes em Tabelas Existentes
+-- Funcionários
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Turno" VARCHAR(50);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Iban" VARCHAR(100);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "BI" VARCHAR(50);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Nascimento" DATE;
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Admissao" DATE;
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "TipoContrato" VARCHAR(50);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Departamento" VARCHAR(100);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Telefone" VARCHAR(50);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Email" VARCHAR(100);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Banco" VARCHAR(100);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "BancoHoras" DECIMAL(10,2) DEFAULT 0;
+
+-- Estoque
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Subtipo" VARCHAR(100);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Categoria" VARCHAR(100);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Lote" VARCHAR(100);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Validade" DATE;
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Localizacao" VARCHAR(100);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Codigo" VARCHAR(50);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Minimo" DECIMAL(12,2);
+ALTER TABLE "Estoque" ADD COLUMN IF NOT EXISTS "Unidade" VARCHAR(20);
+
+-- ListasProducaoDia
+ALTER TABLE "ListasProducaoDia" ADD COLUMN IF NOT EXISTS "Prato" VARCHAR(255);
+
+-- ==============================================================================
+-- CORREÇÃO DE ERRO: RLS EM PRODUCTION_PLANS
+-- ==============================================================================
+-- Corrige o erro "new row violates row-level security policy" ao salvar planejamento
+ALTER TABLE "production_plans" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API Production Plans" ON "production_plans";
+CREATE POLICY "Acesso API Production Plans" ON "production_plans" FOR ALL USING (true) WITH CHECK (true);
+
+-- ==============================================================================
+-- PARTE 17: MÓDULO CASO SOCIAL
+-- ==============================================================================
+-- 1. Limpeza preventiva para garantir tipos corretos
+DROP TABLE IF EXISTS "Dietas" CASCADE;
+
+-- 2. Correção/Criação da tabela Pacientes
+DO $$
+BEGIN
+    -- Se ID for TEXT, dropa para recriar corretamente como UUID
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'Pacientes' AND column_name = 'ID' AND data_type = 'text') THEN
+        DROP TABLE "Pacientes" CASCADE;
+    END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "Pacientes" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Nome" VARCHAR(255) NOT NULL,
+    "Idade" INTEGER,
+    "Sexo" VARCHAR(20),
+    "Grupo" VARCHAR(100),
+    "CondicaoMedica" TEXT,
+    "Observacoes" TEXT,
+    "Restricoes" TEXT,
+    "Status" VARCHAR(50) DEFAULT 'Ativo',
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+-- GARANTIA DE COLUNAS (Caso a tabela já existisse sem elas)
+ALTER TABLE "Pacientes" ADD COLUMN IF NOT EXISTS "CondicaoMedica" TEXT;
+ALTER TABLE "Pacientes" ADD COLUMN IF NOT EXISTS "Restricoes" TEXT;
+ALTER TABLE "Pacientes" ADD COLUMN IF NOT EXISTS "Observacoes" TEXT;
+ALTER TABLE "Pacientes" ADD COLUMN IF NOT EXISTS "Grupo" VARCHAR(100);
+
+CREATE TABLE IF NOT EXISTS "Dietas" (
+    "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "PacienteID" UUID REFERENCES "Pacientes"("ID") ON DELETE CASCADE,
+    "DiaSemana" VARCHAR(20),
+    "Refeicao" VARCHAR(50),
+    "AlimentosJSON" JSONB,
+    "CriadoEm" TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE "Pacientes" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API Pacientes" ON "Pacientes";
+CREATE POLICY "Acesso API Pacientes" ON "Pacientes" FOR ALL USING (true);
+
+ALTER TABLE "Dietas" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API Dietas" ON "Dietas";
+CREATE POLICY "Acesso API Dietas" ON "Dietas" FOR ALL USING (true);
+
+-- Atualiza o cache do esquema da API para reconhecer as novas colunas
+NOTIFY pgrst, 'reload schema';
+
+-- ==============================================================================
+-- PARTE 18: GERAÇÃO DE CÓDIGOS CURTOS (MATRÍCULA)
+-- ==============================================================================
+-- Adiciona coluna para o ID curto (Ex: FC-01)
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Codigo" VARCHAR(50);
+
+-- Script para gerar códigos para funcionários existentes
+DO $$
+DECLARE
+    r RECORD;
+    parts TEXT[];
+    prefix TEXT;
+    seq INT;
+    new_code TEXT;
+BEGIN
+    FOR r IN SELECT * FROM "Funcionarios" WHERE "Codigo" IS NULL ORDER BY "CriadoEm" LOOP
+        -- Gera Prefixo (Iniciais)
+        parts := regexp_split_to_array(trim(r."Nome"), '\s+');
+        prefix := upper(substring(parts[1] from 1 for 1));
+        IF array_length(parts, 1) > 1 THEN
+            prefix := prefix || upper(substring(parts[array_length(parts, 1)] from 1 for 1));
+        ELSE
+            prefix := prefix || prefix; -- Se só tem um nome, duplica a inicial
+        END IF;
+
+        -- Encontra Sequencial Livre
+        seq := 1;
+        LOOP
+            new_code := prefix || '-' || lpad(seq::text, 2, '0');
+            IF NOT EXISTS (SELECT 1 FROM "Funcionarios" WHERE "Codigo" = new_code) THEN
+                EXIT;
+            END IF;
+            seq := seq + 1;
+        END LOOP;
+
+        -- Atualiza
+        UPDATE "Funcionarios" SET "Codigo" = new_code WHERE "ID" = r."ID";
+    END LOOP;
+END $$;
+
+-- ==============================================================================
+-- PARTE 19: GERAÇÃO DE CÓDIGOS PARA FÉRIAS (NOVO PADRÃO)
+-- ==============================================================================
+-- Adiciona coluna para o ID curto de Férias (Ex: FC-01)
+ALTER TABLE "Ferias" ADD COLUMN IF NOT EXISTS "Codigo" VARCHAR(50);
+
+-- Script para gerar códigos para férias existentes
+DO $$
+DECLARE
+    r RECORD;
+    parts TEXT[];
+    prefix TEXT;
+    seq INT;
+    new_code TEXT;
+BEGIN
+    FOR r IN SELECT * FROM "Ferias" WHERE "Codigo" IS NULL ORDER BY "CriadoEm" LOOP
+        -- Gera Prefixo (Iniciais do Nome do Funcionário)
+        IF r."FuncionarioNome" IS NOT NULL THEN
+            parts := regexp_split_to_array(trim(r."FuncionarioNome"), '\s+');
+            prefix := upper(substring(parts[1] from 1 for 1));
+            IF array_length(parts, 1) > 1 THEN
+                prefix := prefix || upper(substring(parts[array_length(parts, 1)] from 1 for 1));
+            ELSE
+                prefix := prefix || prefix;
+            END IF;
+
+            -- Encontra Sequencial Livre
+            seq := 1;
+            LOOP
+                new_code := prefix || '-' || lpad(seq::text, 2, '0');
+                IF NOT EXISTS (SELECT 1 FROM "Ferias" WHERE "Codigo" = new_code) THEN
+                    EXIT;
+                END IF;
+                seq := seq + 1;
+            END LOOP;
+
+            -- Atualiza
+            UPDATE "Ferias" SET "Codigo" = new_code WHERE "ID" = r."ID";
+        END IF;
+    END LOOP;
+END $$;
+
+-- ==============================================================================
+-- PARTE 20: GERAÇÃO DE CÓDIGOS PARA AVALIAÇÕES (NOVO PADRÃO)
+-- ==============================================================================
+-- Adiciona coluna para o ID curto de Avaliações (Ex: FC-01)
+ALTER TABLE "Avaliacoes" ADD COLUMN IF NOT EXISTS "Codigo" VARCHAR(50);
+
+-- Script para gerar códigos para avaliações existentes
+DO $$
+DECLARE
+    r RECORD;
+    parts TEXT[];
+    prefix TEXT;
+    seq INT;
+    new_code TEXT;
+BEGIN
+    FOR r IN SELECT * FROM "Avaliacoes" WHERE "Codigo" IS NULL ORDER BY "CriadoEm" LOOP
+        -- Gera Prefixo (Iniciais do Nome do Funcionário)
+        IF r."FuncionarioNome" IS NOT NULL THEN
+            parts := regexp_split_to_array(trim(r."FuncionarioNome"), '\s+');
+            prefix := upper(substring(parts[1] from 1 for 1));
+            IF array_length(parts, 1) > 1 THEN
+                prefix := prefix || upper(substring(parts[array_length(parts, 1)] from 1 for 1));
+            ELSE
+                prefix := prefix || prefix;
+            END IF;
+
+            -- Encontra Sequencial Livre
+            seq := 1;
+            LOOP
+                new_code := prefix || '-' || lpad(seq::text, 2, '0');
+                IF NOT EXISTS (SELECT 1 FROM "Avaliacoes" WHERE "Codigo" = new_code) THEN
+                    EXIT;
+                END IF;
+                seq := seq + 1;
+            END LOOP;
+
+            -- Atualiza
+            UPDATE "Avaliacoes" SET "Codigo" = new_code WHERE "ID" = r."ID";
+        END IF;
+    END LOOP;
+END $$;
+
+-- ==============================================================================
+-- PARTE 21: HABILITAR REALTIME (MONITOR DE COZINHA)
+-- ==============================================================================
+-- Permite que o frontend receba atualizações instantâneas da tabela de Ordens
+ALTER PUBLICATION supabase_realtime ADD TABLE "OrdensProducao";

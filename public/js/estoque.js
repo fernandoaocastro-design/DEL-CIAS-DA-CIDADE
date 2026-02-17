@@ -15,7 +15,21 @@ const EstoqueModule = {
     },
 
     init: () => {
+        // Verifica se há uma view específica na URL (ex: Itens Recebidos)
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('view') === 'recebidos') {
+            EstoqueModule.state.activeTab = 'recebidos';
+        }
         EstoqueModule.fetchData();
+        EstoqueModule.updateHeaderPhoto();
+    },
+
+    updateHeaderPhoto: () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const img = document.getElementById('user-photo'); 
+        if (user && user.FotoURL && img) {
+            img.src = user.FotoURL;
+        }
     },
 
     fetchData: async () => {
@@ -85,6 +99,17 @@ const EstoqueModule = {
     },
 
     render: () => {
+        // Atualiza visual das abas (Garante estado correto no F5/Reload)
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.className = 'tab-btn px-4 py-2 text-gray-500 hover:text-gray-700 transition';
+            btn.style.borderBottom = 'none';
+        });
+        const activeBtn = document.getElementById(`tab-${EstoqueModule.state.activeTab}`);
+        if (activeBtn) {
+            activeBtn.className = 'tab-btn px-4 py-2 font-bold text-yellow-600 transition';
+            activeBtn.style.borderBottom = '2px solid #EAB308';
+        }
+
         if (EstoqueModule.state.activeTab === 'dashboard') {
             EstoqueModule.renderDashboard();
             return;
@@ -103,6 +128,12 @@ const EstoqueModule = {
         }
         else if (EstoqueModule.state.activeTab === 'lista-dia') {
             // Não faz nada, deixa o DailyListModule controlar a tela
+            return;
+        }
+        else if (EstoqueModule.state.activeTab === 'recebidos') {
+            if (typeof ReceivedItemsModule !== 'undefined') {
+                ReceivedItemsModule.init();
+            }
             return;
         }
         // --- RENDERIZAÇÃO DA ABA PRODUTOS (Padrão) ---
@@ -165,6 +196,9 @@ const EstoqueModule = {
                     <button onclick="EstoqueModule.modalSaida()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded shadow transition"><i class="fas fa-arrow-up"></i> Saída</button>
                     <button onclick="EstoqueModule.modalItem()" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded shadow transition">
                         <i class="fas fa-plus"></i> Novo Produto
+                    </button>
+                    <button onclick="EstoqueModule.modalReceberPedidos()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded shadow transition">
+                        <i class="fas fa-truck-loading"></i> Receber Pedidos
                     </button>` : ''}
                 </div>
             </div>
@@ -754,6 +788,211 @@ const EstoqueModule = {
                 <button class="w-full bg-red-600 text-white py-3 rounded font-bold">Confirmar Saída</button>
             </form>
         `);
+    },
+
+    modalReceberPedidos: async (filter = 'Pendente') => {
+        try {
+            const pedidos = await Utils.api('getAll', 'PedidosCompra');
+            const filtrados = pedidos.filter(p => p.Status === filter).sort((a,b) => new Date(b.CriadoEm) - new Date(a.CriadoEm));
+
+            let html = `
+                <div class="flex border-b mb-4">
+                    <button onclick="EstoqueModule.modalReceberPedidos('Pendente')" class="flex-1 py-2 text-sm font-bold ${filter === 'Pendente' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-500 hover:text-gray-700'}">Pendentes</button>
+                    <button onclick="EstoqueModule.modalReceberPedidos('Concluído')" class="flex-1 py-2 text-sm font-bold ${filter === 'Concluído' ? 'text-purple-600 border-b-2 border-purple-600' : 'text-gray-500 hover:text-gray-700'}">Histórico</button>
+                </div>
+            `;
+
+            if (filtrados.length === 0) {
+                html += `<div class="text-center py-8 text-gray-500">Nenhum pedido ${filter === 'Pendente' ? 'pendente' : 'no histórico'}.</div>`;
+            } else {
+                html += `<div class="space-y-3 max-h-96 overflow-y-auto">
+                    ${filtrados.map(p => `
+                        <div class="border p-3 rounded flex justify-between items-center bg-gray-50">
+                            <div>
+                                <div class="font-bold text-gray-800">Pedido #${p.Codigo || p.ID.slice(0,4)}</div>
+                                <div class="text-xs text-gray-500">${Utils.formatDate(p.CriadoEm)} - ${p.Solicitante}</div>
+                                ${filter === 'Concluído' ? `<div class="text-xs text-green-600 font-bold mt-1">Recebido</div>` : ''}
+                            </div>
+                            ${filter === 'Pendente' ? `
+                            <button onclick="EstoqueModule.modalConferirPedido('${p.ID}')" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 shadow"><i class="fas fa-clipboard-check"></i> Conferir</button>` : `
+                            <button onclick="EstoqueModule.verDetalhesPedido('${p.ID}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 shadow"><i class="fas fa-eye"></i> Ver Itens</button>`}
+                        </div>
+                    `).join('')}
+                </div>`;
+            }
+            
+            Utils.openModal('Gestão de Pedidos de Compra', html);
+        } catch (e) { Utils.toast('Erro ao buscar pedidos.', 'error'); }
+    },
+
+    modalConferirPedido: async (id) => {
+        try {
+            const items = await Utils.api('getPurchaseOrderDetails', null, { id });
+            
+            const html = `
+                <div class="mb-4 text-sm text-gray-600 bg-blue-50 p-3 rounded border border-blue-100">
+                    <i class="fas fa-info-circle mr-1"></i> Confira as quantidades abaixo. Se recebeu menos do que o pedido, ajuste o valor na coluna "Qtd Recebida".
+                </div>
+                <form onsubmit="EstoqueModule.processarRecebimento(event, '${id}')">
+                    <div class="max-h-96 overflow-y-auto border rounded mb-4">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-100 sticky top-0">
+                                <tr>
+                                    <th class="p-2">Produto</th>
+                                    <th class="p-2 text-center w-24">Solicitado</th>
+                                    <th class="p-2 text-center w-24">Recebido</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${items.map(i => `
+                                    <tr class="border-b hover:bg-gray-50">
+                                        <td class="p-2">
+                                            <div class="font-bold text-gray-800">${i.ProdutoNome}</div>
+                                            <div class="text-xs text-gray-500">${i.Observacao || ''}</div>
+                                        </td>
+                                        <td class="p-2 text-center text-gray-500">${i.Quantidade}</td>
+                                        <td class="p-2 text-center">
+                                            <input type="number" step="0.01" name="qtd_${i.ID}" value="${i.Quantidade}" class="border p-1 rounded w-20 text-center font-bold text-blue-600 focus:ring-2 focus:ring-blue-500 outline-none" min="0" required>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2 border-t">
+                        <button type="button" onclick="EstoqueModule.printOrder('${id}')" class="px-4 py-2 bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded transition font-bold"><i class="fas fa-print mr-1"></i> Imprimir</button>
+                        <button type="button" onclick="EstoqueModule.modalReceberPedidos()" class="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded transition">Voltar</button>
+                        <button class="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow transition"><i class="fas fa-check mr-1"></i> Confirmar Entrada</button>
+                    </div>
+                </form>
+            `;
+            Utils.openModal('Conferência de Recebimento', html);
+        } catch (e) { Utils.toast('Erro ao carregar itens.', 'error'); }
+    },
+
+    processarRecebimento: async (e, id) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const items = [];
+        
+        for (const [key, value] of formData.entries()) {
+            if (key.startsWith('qtd_')) {
+                items.push({
+                    id: key.replace('qtd_', ''),
+                    qtd: parseFloat(value)
+                });
+            }
+        }
+
+        if(!confirm('Confirmar a entrada destes itens no estoque?')) return;
+
+        try {
+            await Utils.api('receivePurchaseOrder', null, { id, items });
+            Utils.toast('✅ Estoque atualizado com sucesso!', 'success');
+            Utils.closeModal();
+            EstoqueModule.fetchData(); // Atualiza a tela
+        } catch (e) { Utils.toast('Erro: ' + e.message, 'error'); }
+    },
+
+    verDetalhesPedido: async (id) => {
+        try {
+            const items = await Utils.api('getPurchaseOrderDetails', null, { id });
+            
+            const html = `
+                <div class="max-h-96 overflow-y-auto border rounded mb-4">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 sticky top-0">
+                            <tr><th class="p-2">Produto</th><th class="p-2 text-center">Qtd</th><th class="p-2 text-right">Custo Unit.</th></tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(i => `
+                                <tr class="border-b hover:bg-gray-50">
+                                    <td class="p-2"><div class="font-bold text-gray-800">${i.ProdutoNome}</div><div class="text-xs text-gray-500">${i.Observacao || ''}</div></td>
+                                    <td class="p-2 text-center font-bold">${i.Quantidade}</td>
+                                    <td class="p-2 text-right">${Utils.formatCurrency(i.CustoUnitario)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button onclick="EstoqueModule.printOrder('${id}')" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm font-bold shadow"><i class="fas fa-print mr-1"></i> Imprimir Requisição</button>
+                    <button onclick="EstoqueModule.modalReceberPedidos('Concluído')" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-sm font-bold text-gray-700">Voltar</button>
+                </div>
+            `;
+            Utils.openModal('Detalhes do Pedido Recebido', html);
+        } catch (e) { Utils.toast('Erro ao carregar detalhes.', 'error'); }
+    },
+
+    printOrder: async (id) => {
+        try {
+            const orders = await Utils.api('getAll', 'PedidosCompra');
+            const order = orders.find(o => o.ID === id);
+            const items = await Utils.api('getPurchaseOrderDetails', null, { id });
+            
+            if (!order) return Utils.toast('Pedido não encontrado.', 'error');
+
+            const inst = EstoqueModule.state.instituicao[0] || {};
+            const showLogo = inst.ExibirLogoRelatorios;
+
+            const html = `
+                <div class="p-8 font-sans text-gray-900 bg-white border-2 border-gray-800 max-w-2xl mx-auto">
+                    <div class="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                        <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                            ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                            <div>
+                                <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                                <p class="text-sm">REQUISIÇÃO DE ESTOQUE / PEDIDO</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <h2 class="text-xl font-bold">PEDIDO #${order.Codigo || order.ID.slice(0,4)}</h2>
+                            <p class="text-sm font-bold ${order.Status === 'Concluído' ? 'text-green-700' : 'text-gray-500'}">${order.Status.toUpperCase()}</p>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded border">
+                        <div><span class="font-bold block text-xs text-gray-500 uppercase">Solicitante</span> ${order.Solicitante || '-'}</div>
+                        <div><span class="font-bold block text-xs text-gray-500 uppercase">Data</span> ${Utils.formatDate(order.CriadoEm)}</div>
+                    </div>
+
+                    <table class="w-full text-sm mb-6 border-collapse border border-gray-300">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="border p-2 text-left">Produto</th>
+                                <th class="border p-2 text-center">Qtd</th>
+                                <th class="border p-2 text-left">Obs</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map(i => `
+                                <tr>
+                                    <td class="border p-2 font-bold">${i.ProdutoNome}</td>
+                                    <td class="border p-2 text-center">${i.Quantidade}</td>
+                                    <td class="border p-2 text-xs text-gray-500">${i.Observacao || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+
+                    <div class="mt-12 border-t border-gray-800 pt-2 flex justify-between text-xs text-gray-500">
+                        <div class="text-center w-1/3">
+                            <br>__________________________<br>
+                            Assinatura do Solicitante
+                        </div>
+                        <div class="text-center w-1/3">
+                            <br>__________________________<br>
+                            Visto do Estoque (Liberação)
+                        </div>
+                    </div>
+                </div>
+            `;
+            Utils.printNative(html);
+
+        } catch (e) {
+            console.error(e);
+            Utils.toast('Erro ao imprimir pedido.', 'error');
+        }
     },
 
     save: async (e) => {
@@ -1367,6 +1606,242 @@ const EstoqueModule = {
                 </div>
             `;
         } catch (e) { container.innerHTML = '<p class="text-red-500">Erro ao gerar previsão.</p>'; }
+    }
+};
+
+// --- MÓDULO LISTA DO DIA (INTEGRADO) ---
+const DailyListModule = {
+    state: {
+        lists: [],
+        currentCategory: 'Manhã',
+        date: new Date().toISOString().split('T')[0],
+        editingItemIndex: null // Índice do item sendo editado
+    },
+
+    init: async () => {
+        await DailyListModule.fetchLists();
+        DailyListModule.render();
+    },
+
+    fetchLists: async () => {
+        try {
+            const lists = await Utils.api('getDailyProductionLists', null, { date: DailyListModule.state.date });
+            DailyListModule.state.lists = lists || [];
+        } catch (e) { console.error(e); }
+    },
+
+    render: () => {
+        const categories = ['Manhã', 'Tarde', 'Noite', 'Eventos'];
+        const currentList = DailyListModule.state.lists.find(l => l.Categoria === DailyListModule.state.currentCategory) || { ItensJSON: [] };
+        const items = currentList.ItensJSON || [];
+        const isEnviado = currentList.Status === 'Enviado';
+
+        let html = `
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold text-gray-800">Lista de Produção do Dia</h3>
+                <input type="date" value="${DailyListModule.state.date}" onchange="DailyListModule.state.date=this.value; DailyListModule.init()" class="border p-2 rounded">
+            </div>
+
+            <div class="flex border-b mb-4">
+                ${categories.map(c => `
+                    <button onclick="DailyListModule.state.currentCategory='${c}'; DailyListModule.render()" 
+                        class="px-4 py-2 font-bold ${DailyListModule.state.currentCategory === c ? 'text-yellow-600 border-b-2 border-yellow-600' : 'text-gray-500 hover:text-gray-700'}">
+                        ${c}
+                    </button>
+                `).join('')}
+            </div>
+
+            <div class="bg-white rounded shadow p-4">
+                <div class="flex justify-between mb-4">
+                    <div class="text-sm text-gray-600">
+                        Status: <span class="font-bold ${isEnviado ? 'text-green-600' : 'text-yellow-600'}">${currentList.Status || 'Rascunho'}</span>
+                        ${currentList.Prato ? `<span class="ml-4">Prato: <b>${currentList.Prato}</b></span>` : ''}
+                    </div>
+                    ${!isEnviado ? `
+                        <div class="flex gap-2">
+                            <button onclick="DailyListModule.modalPrato()" class="bg-gray-100 text-gray-700 px-3 py-1 rounded hover:bg-gray-200"><i class="fas fa-utensils"></i> Definir Prato</button>
+                            <button onclick="DailyListModule.modalItem()" class="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"><i class="fas fa-plus"></i> Adicionar Item</button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-2">Produto</th>
+                            <th class="p-2 text-center">Qtd</th>
+                            <th class="p-2">Obs</th>
+                            <th class="p-2 text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${items.map((item, idx) => `
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="p-2 font-medium">${item.nome}</td>
+                                <td class="p-2 text-center">${item.qtd} ${item.unidade || ''}</td>
+                                <td class="p-2 text-gray-500 text-xs">${item.obs || '-'}</td>
+                                <td class="p-2 text-center">
+                                    ${!isEnviado ? `
+                                        <button onclick="DailyListModule.modalItem(${idx})" class="text-blue-500 hover:text-blue-700 mr-2" title="Editar"><i class="fas fa-edit"></i></button>
+                                        <button onclick="DailyListModule.deleteItem(${idx})" class="text-red-500 hover:text-red-700" title="Remover"><i class="fas fa-trash"></i></button>
+                                    ` : '<span class="text-gray-400"><i class="fas fa-lock"></i></span>'}
+                                </td>
+                            </tr>
+                        `).join('')}
+                        ${items.length === 0 ? '<tr><td colspan="4" class="p-4 text-center text-gray-400">Nenhum item na lista.</td></tr>' : ''}
+                    </tbody>
+                </table>
+
+                ${!isEnviado && items.length > 0 ? `
+                    <div class="mt-4 text-right">
+                        <button onclick="DailyListModule.finalizeList('${currentList.ID}')" class="bg-green-600 text-white px-6 py-2 rounded font-bold hover:bg-green-700 shadow">
+                            <i class="fas fa-check-double mr-2"></i> Finalizar e Enviar para Cozinha
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+        
+        document.getElementById('estoque-content').innerHTML = html;
+    },
+
+    modalItem: (index = null) => {
+        const currentList = DailyListModule.state.lists.find(l => l.Categoria === DailyListModule.state.currentCategory) || {};
+        const items = currentList.ItensJSON || [];
+        const item = index !== null ? items[index] : {};
+        const products = EstoqueModule.state.items || [];
+
+        // Define qual item está sendo editado
+        DailyListModule.state.editingItemIndex = index;
+
+        Utils.openModal(index !== null ? 'Editar Item' : 'Adicionar Item à Lista', `
+            <form onsubmit="DailyListModule.saveItem(event)">
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1">Produto</label>
+                    ${index !== null ? `
+                        <input type="hidden" name="id" value="${item.id}">
+                        <input type="hidden" name="nome" value="${item.nome}">
+                        <input type="hidden" name="unidade" value="${item.unidade}">
+                        <input class="border p-2 rounded w-full bg-gray-100" value="${item.nome}" readonly>
+                    ` : `
+                        <select name="id" class="border p-2 rounded w-full" required onchange="this.form.nome.value=this.options[this.selectedIndex].text.split(' (')[0]; this.form.unidade.value=this.options[this.selectedIndex].getAttribute('data-unit')">
+                            <option value="">Selecione...</option>
+                            ${products.map(p => `<option value="${p.ID}" data-unit="${p.Unidade}">${p.Nome} (${p.Unidade}) - Atual: ${p.Quantidade}</option>`).join('')}
+                        </select>
+                        <input type="hidden" name="nome">
+                        <input type="hidden" name="unidade">
+                    `}
+                </div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-bold mb-1">Quantidade</label>
+                        <input type="number" step="0.01" name="qtd" value="${item.qtd || ''}" class="border p-2 rounded w-full" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold mb-1">Observação</label>
+                        <input name="obs" value="${item.obs || ''}" class="border p-2 rounded w-full" placeholder="Ex: Sem sal">
+                    </div>
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar Item</button>
+            </form>
+        `);
+    },
+
+    saveItem: async (e) => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        const cat = DailyListModule.state.currentCategory;
+        const date = DailyListModule.state.date;
+        
+        let list = DailyListModule.state.lists.find(l => l.Categoria === cat);
+        if (!list) {
+            list = { Data: date, Categoria: cat, ItensJSON: [] };
+            DailyListModule.state.lists.push(list);
+        }
+        
+        const items = list.ItensJSON || [];
+        
+        if (DailyListModule.state.editingItemIndex !== null) {
+            // Edição: Atualiza o item existente
+            items[DailyListModule.state.editingItemIndex] = { ...items[DailyListModule.state.editingItemIndex], ...data };
+        } else {
+            // Novo: Adiciona ao final
+            items.push(data);
+        }
+        
+        list.ItensJSON = items;
+
+        try {
+            const saved = await Utils.api('saveDailyProductionList', null, list);
+            // Atualiza estado local com dados salvos (para pegar ID se for novo)
+            if(saved && saved.length > 0) {
+                const idx = DailyListModule.state.lists.findIndex(l => l.Categoria === cat);
+                DailyListModule.state.lists[idx] = saved[0];
+            }
+            Utils.toast('Lista atualizada!');
+            Utils.closeModal();
+            DailyListModule.render();
+        } catch (err) { Utils.toast('Erro ao salvar: ' + err.message, 'error'); }
+    },
+
+    deleteItem: async (index) => {
+        if(!confirm('Remover este item?')) return;
+        const cat = DailyListModule.state.currentCategory;
+        const list = DailyListModule.state.lists.find(l => l.Categoria === cat);
+        if(list && list.ItensJSON) {
+            list.ItensJSON.splice(index, 1);
+            try {
+                await Utils.api('saveDailyProductionList', null, list);
+                Utils.toast('Item removido.');
+                DailyListModule.render();
+            } catch (err) { Utils.toast('Erro ao salvar.', 'error'); }
+        }
+    },
+
+    modalPrato: () => {
+        const cat = DailyListModule.state.currentCategory;
+        const list = DailyListModule.state.lists.find(l => l.Categoria === cat) || {};
+        Utils.openModal('Definir Prato do Dia', `
+            <form onsubmit="DailyListModule.savePrato(event)">
+                <div class="mb-4">
+                    <label class="block text-sm font-bold mb-1">Nome do Prato / Refeição</label>
+                    <input name="Prato" value="${list.Prato || ''}" class="border p-2 rounded w-full" placeholder="Ex: Feijoada Completa">
+                </div>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Salvar</button>
+            </form>
+        `);
+    },
+
+    savePrato: async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const prato = formData.get('Prato');
+        const cat = DailyListModule.state.currentCategory;
+        const date = DailyListModule.state.date;
+        
+        let list = DailyListModule.state.lists.find(l => l.Categoria === cat);
+        if (!list) {
+            list = { Data: date, Categoria: cat, ItensJSON: [] };
+            DailyListModule.state.lists.push(list);
+        }
+        
+        list.Prato = prato;
+
+        try {
+            await Utils.api('saveDailyProductionList', null, list);
+            Utils.toast('Prato definido!');
+            Utils.closeModal();
+            DailyListModule.render();
+        } catch (err) { Utils.toast('Erro ao salvar.', 'error'); }
+    },
+
+    finalizeList: async (id) => {
+        if(!confirm('Confirma o envio para a cozinha? Isso irá baixar os itens do estoque.')) return;
+        try {
+            await Utils.api('finalizeDailyProductionList', null, { id });
+            Utils.toast('Lista enviada com sucesso!', 'success');
+            DailyListModule.init(); // Reload
+        } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
     }
 };
 

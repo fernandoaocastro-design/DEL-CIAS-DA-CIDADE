@@ -7,21 +7,106 @@ const DashboardModule = {
         DashboardModule.loadData();
     },
 
+    renderLayout: () => {
+        // Tenta encontrar o container principal (suporta dashboard.html ou index.html genérico)
+        const container = document.getElementById('dashboard-content') || document.getElementById('app-content');
+        if (!container) {
+            console.error('Erro: Container do Dashboard não encontrado.');
+            return;
+        }
+
+        container.innerHTML = `
+            <div id="dashboard-filters"></div>
+            
+            <!-- 1. RESUMO DO DIA (Cards Principais) -->
+            <div id="daily-summary-section" class="mb-6"></div>
+
+            <!-- NOVO: Quadro de Aniversariantes -->
+            <div id="birthday-section" class="mb-6"></div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <!-- 2. LISTA DE PRODUÇÃO (Central) -->
+                <div id="production-section" class="lg:col-span-2 space-y-6"></div>
+                
+                <!-- 3. ESTOQUE RÁPIDO & 4. RECEBIMENTOS -->
+                <div class="space-y-6">
+                    <div id="stock-section"></div>
+                    <div id="receiving-section"></div>
+                </div>
+            </div>
+
+            <!-- 5. EVENTOS & PEDIDOS -->
+            <div id="events-orders-section" class="mb-6"></div>
+
+            <!-- 6. FINANÇAS -->
+            <div id="finance-section" class="mb-6"></div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- 7. DESPERDÍCIO -->
+                <div id="waste-section"></div>
+                <!-- 8. RH -->
+                <div id="rh-section"></div>
+            </div>
+
+            <!-- 9. ML PAIN -->
+            <div id="mlpain-section" class="mb-6"></div>
+
+            <!-- 10. GRÁFICOS -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <div class="bg-white p-4 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Vendas por Categoria</h4>
+                    <div class="h-64"><canvas id="chartAtendimento"></canvas></div>
+                </div>
+                <div class="bg-white p-4 rounded shadow lg:col-span-2">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Lucratividade Anual</h4>
+                    <div class="h-64"><canvas id="chartLucratividade"></canvas></div>
+                </div>
+            </div>
+            <div id="charts-section" class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-white p-4 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Fluxo Financeiro</h4>
+                    <div class="h-64"><canvas id="chartFinanceiro"></canvas></div>
+                </div>
+                <div class="bg-white p-4 rounded shadow">
+                    <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Refeições Servidas</h4>
+                    <div class="h-64"><canvas id="chartRefeicoes"></canvas></div>
+                </div>
+            </div>
+            
+            <!-- 11. ALERTAS & AVISOS -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div id="alerts-section"></div>
+                <div id="quadro-avisos-section"></div>
+            </div>
+            
+            <div id="tarefas-section" class="mt-6"></div>
+        `;
+    },
+
     loadData: async () => {
         try {
             DashboardModule.renderFilters(); // Renderiza o filtro antes de carregar
             const data = await Utils.api('getDashboardStats', null, { filterDate: DashboardModule.state.filterDate });
             
-            if (data.kpis) DashboardModule.renderKPIs(data.kpis);
-            if (data.dre) DashboardModule.renderDRE(data.dre);
+            if (data.monitoramento) DashboardModule.renderDailySummary(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderProductionList(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderStockQuick(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderReceiving(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderEventsOrders(data.monitoramento);
+            if (data.kpis && data.dre) DashboardModule.renderFinance(data.kpis, data.dre, data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderWaste(data.monitoramento);
+            if (data.monitoramento && data.kpis) DashboardModule.renderRH(data.monitoramento, data.kpis);
+            if (data.monitoramento) DashboardModule.renderMLPain(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderAlerts(data.monitoramento);
             if (data.monitoramento) DashboardModule.renderQuadroAvisos(data.monitoramento.avisos);
-            if (data.monitoramento) DashboardModule.renderMonitoramento(data.monitoramento);
             DashboardModule.loadTarefas(); // Carrega tarefas separadamente
-            DashboardModule.fetchWeather();
             DashboardModule.renderCharts(data.charts);
             
             // Verifica aniversariantes e envia e-mail (Silenciosamente)
             Utils.api('checkBirthdayEmails').then(res => { if(res.sent > 0) console.log(`${res.sent} e-mails de aniversário enviados.`); });
+            
+            // Verifica contas a pagar vencendo hoje e gera notificações
+            Utils.api('checkFinancialAlerts').then(res => { if(res.alertsGenerated > 0) console.log(`${res.alertsGenerated} alertas financeiros gerados.`); });
         } catch (e) {
             console.error(e);
             Utils.toast("Erro ao carregar dashboard.");
@@ -29,16 +114,10 @@ const DashboardModule = {
     },
 
     renderFilters: () => {
-        const container = document.getElementById('dashboard-content');
         let filterDiv = document.getElementById('dashboard-filters');
+        if (!filterDiv) return;
         
-        // Cria o container do filtro se não existir
-        if (!filterDiv) {
-            filterDiv = document.createElement('div');
-            filterDiv.id = 'dashboard-filters';
-            filterDiv.className = 'flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-3 rounded shadow-sm border border-gray-100';
-            container.insertBefore(filterDiv, container.firstChild);
-        }
+        filterDiv.className = 'flex flex-col md:flex-row justify-between items-center mb-6 bg-white p-3 rounded shadow-sm border border-gray-100';
 
         // Gera opções de meses (Últimos 12 meses + Futuro próximo)
         let options = `<option value="all">📅 Todo o Período</option>`;
@@ -67,21 +146,440 @@ const DashboardModule = {
         `;
     },
 
+    renderDailySummary: (mon) => {
+        const container = document.getElementById('daily-summary-section');
+        if (!container) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Cálculos
+        const pedidosHoje = (mon.productionPlans.length) + (mon.eventos.filter(e => e.Data === today).length);
+        
+        // Itens nas listas de produção
+        const listaAlmoco = mon.listasDia.find(l => l.Categoria === 'Almoço');
+        const itensAlmoco = listaAlmoco && listaAlmoco.ItensJSON ? listaAlmoco.ItensJSON.length : 0;
+        
+        const listaJantar = mon.listasDia.find(l => l.Categoria === 'Jantar');
+        const itensJantar = listaJantar && listaJantar.ItensJSON ? listaJantar.ItensJSON.length : 0;
+
+        const estoqueCritico = mon.estoqueBaixo ? mon.estoqueBaixo.length : 0;
+        
+        // Refeições Planejadas vs Servidas
+        let refeicoesPlanejadas = 0;
+        mon.productionPlans.forEach(p => {
+            refeicoesPlanejadas += (p.staff_count_day || 0) + (p.staff_count_night || 0) + (p.patient_solid || 0) + (p.patient_liquid || 0);
+        });
+        mon.eventos.filter(e => e.Data === today).forEach(e => refeicoesPlanejadas += (e.Pessoas || 0));
+
+        const equipePresente = mon.frequencia.filter(f => f.Status === 'Presente').length;
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                <div class="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
+                    <h3 class="font-bold text-lg flex items-center gap-2"><i class="fas fa-tachometer-alt text-yellow-400"></i> RESUMO DO DIA</h3>
+                    <span class="text-xs bg-gray-700 px-3 py-1 rounded-full">${Utils.formatDate(today)}</span>
+                </div>
+                <div class="p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <!-- Tabela Resumo -->
+                        <div class="col-span-1 md:col-span-2">
+                            <h4 class="text-sm font-bold text-gray-500 uppercase mb-3">Indicadores Operacionais</h4>
+                            <table class="w-full text-sm border-collapse">
+                                <tr class="border-b"><td class="py-2 text-gray-600">Pedidos Hoje</td><td class="py-2 text-right font-bold text-gray-800">${pedidosHoje}</td></tr>
+                                <tr class="border-b"><td class="py-2 text-gray-600">Produção Almoço</td><td class="py-2 text-right font-bold text-blue-600">${itensAlmoco} itens</td></tr>
+                                <tr class="border-b"><td class="py-2 text-gray-600">Produção Jantar</td><td class="py-2 text-right font-bold text-indigo-600">${itensJantar} itens</td></tr>
+                                <tr><td class="py-2 text-gray-600">Estoque Crítico</td><td class="py-2 text-right font-bold text-red-600">${estoqueCritico} produtos</td></tr>
+                            </table>
+                        </div>
+
+                        <!-- Cards de Destaque -->
+                        <div class="bg-orange-50 rounded-lg p-4 border border-orange-100 flex flex-col justify-center items-center text-center">
+                            <span class="text-orange-600 text-3xl font-bold">${refeicoesPlanejadas}</span>
+                            <span class="text-xs text-orange-800 font-bold uppercase mt-1">Refeições em Produção</span>
+                            <span class="text-[10px] text-orange-600 mt-1">Servidas: ${mon.refeicoesHoje}</span>
+                        </div>
+
+                        <div class="bg-blue-50 rounded-lg p-4 border border-blue-100 flex flex-col justify-center items-center text-center">
+                            <span class="text-blue-600 text-3xl font-bold">${equipePresente}</span>
+                            <span class="text-xs text-blue-800 font-bold uppercase mt-1">Equipe Presente</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // NOVO: QUADRO DE ANIVERSARIANTES
+    renderBirthdayBoard: (mon) => {
+        const container = document.getElementById('birthday-section');
+        if (!container) return;
+
+        const dia = mon.aniversariantes || [];
+        const mes = mon.aniversariantesMes || [];
+        const proximos = mon.aniversariantesProximos || [];
+
+        // Se não houver nada relevante, esconde a seção para não poluir
+        if (dia.length === 0 && mes.length === 0 && proximos.length === 0) {
+            container.innerHTML = '';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-pink-200 overflow-hidden">
+                <div class="bg-pink-50 px-6 py-3 border-b border-pink-100 flex justify-between items-center">
+                    <h3 class="font-bold text-lg text-pink-700 flex items-center gap-2"><i class="fas fa-birthday-cake"></i> Aniversariantes</h3>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Do Dia -->
+                    <div class="bg-pink-100 rounded-lg p-4 border border-pink-200 text-center flex flex-col justify-center">
+                        <h4 class="font-bold text-pink-800 mb-2 uppercase text-xs">🎉 Hoje!</h4>
+                        ${dia.length > 0 ? dia.map(f => `<div class="font-bold text-lg text-pink-900">${f.Nome}</div><div class="text-xs text-pink-700">${f.Departamento || ''}</div>`).join('<hr class="border-pink-200 my-2">') : '<div class="text-sm text-pink-400 italic">Ninguém hoje</div>'}
+                    </div>
+
+                    <!-- Próximos 7 Dias -->
+                    <div class="bg-white rounded-lg p-4 border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 uppercase text-xs border-b pb-1">⏳ Próximos 7 Dias</h4>
+                        <div class="space-y-2">
+                            ${proximos.length > 0 ? proximos.map(f => `
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="font-medium text-gray-800">${f.Nome}</span>
+                                    <span class="text-xs font-bold bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded">Faltam ${f.diasFaltam} dias</span>
+                                </div>
+                            `).join('') : '<div class="text-xs text-gray-400 italic">Nenhum próximo.</div>'}
+                        </div>
+                    </div>
+
+                    <!-- Do Mês -->
+                    <div class="bg-white rounded-lg p-4 border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-3 uppercase text-xs border-b pb-1">📅 Neste Mês</h4>
+                        <div class="max-h-32 overflow-y-auto custom-scrollbar space-y-2">
+                            ${mes.length > 0 ? mes.map(f => `
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="text-gray-600">${f.Nome}</span>
+                                    <span class="text-xs text-gray-400">${new Date(f.Nascimento).getDate()}/${new Date(f.Nascimento).getMonth()+1}</span>
+                                </div>
+                            `).join('') : '<div class="text-xs text-gray-400 italic">Nenhum neste mês.</div>'}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // 2. LISTA DE PRODUÇÃO DO DIA
+    renderProductionList: (mon) => {
+        const container = document.getElementById('production-section');
+        if (!container) return;
+
+        const renderList = (title, cat, color) => {
+            const list = mon.listasDia.find(l => l.Categoria === cat);
+            const items = list && list.ItensJSON ? list.ItensJSON : [];
+            const status = list ? list.Status : 'Pendente';
+            const statusBadge = status === 'Enviado' 
+                ? `<span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold">Concluído</span>` 
+                : `<span class="bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded font-bold">Em andamento</span>`;
+
+            return `
+                <div class="bg-white rounded-lg shadow-sm border-t-4 border-${color}-500 overflow-hidden">
+                    <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                        <h4 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-utensils text-${color}-500"></i> ${title}</h4>
+                        ${statusBadge}
+                    </div>
+                    <div class="max-h-64 overflow-y-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-50 text-xs uppercase text-gray-500"><tr><th class="p-2 pl-4">Item</th><th class="p-2 text-center">Qtd</th><th class="p-2 text-center">Medida</th></tr></thead>
+                            <tbody class="divide-y">
+                                ${items.map(i => `
+                                    <tr>
+                                        <td class="p-2 pl-4 font-medium">${i.nome}</td>
+                                        <td class="p-2 text-center font-bold">${i.qtd}</td>
+                                        <td class="p-2 text-center text-xs text-gray-500">${i.unidade}</td>
+                                    </tr>
+                                `).join('')}
+                                ${items.length === 0 ? '<tr><td colspan="3" class="p-4 text-center text-gray-400 italic">Nenhum item listado.</td></tr>' : ''}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        };
+
+        container.innerHTML = `
+            ${renderList('Produção do Almoço', 'Almoço', 'orange')}
+            ${renderList('Produção do Jantar', 'Jantar', 'indigo')}
+        `;
+    },
+
+    // 3. ESTOQUE RÁPIDO
+    renderStockQuick: (mon) => {
+        const container = document.getElementById('stock-section');
+        if (!container) return;
+
+        const criticos = mon.estoqueBaixo || [];
+        const vencendo = mon.estoqueVencendo || [];
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-red-100">
+                <div class="p-3 border-b border-red-100 bg-red-50 flex justify-between items-center">
+                    <h4 class="font-bold text-red-800 text-sm"><i class="fas fa-box-open mr-2"></i> Estoque Rápido</h4>
+                    <span class="text-xs bg-white px-2 py-0.5 rounded border border-red-200 text-red-600 font-bold">${criticos.length + vencendo.length} alertas</span>
+                </div>
+                <div class="p-3 space-y-2 max-h-64 overflow-y-auto">
+                    ${criticos.slice(0, 5).map(i => `
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-gray-700"><i class="fas fa-exclamation-triangle text-red-500 mr-1"></i> ${i.Nome}</span>
+                            <span class="font-bold text-red-600">${i.Quantidade} ${i.Unidade}</span>
+                        </div>
+                    `).join('')}
+                    ${vencendo.slice(0, 3).map(i => {
+                        const diff = Math.ceil((new Date(i.Validade) - new Date()) / (1000 * 60 * 60 * 24));
+                        return `
+                        <div class="flex justify-between items-center text-sm">
+                            <span class="text-gray-700"><i class="fas fa-hourglass-half text-yellow-500 mr-1"></i> ${i.Nome}</span>
+                            <span class="font-bold text-yellow-600 text-xs">Vence em ${diff} dias</span>
+                        </div>`;
+                    }).join('')}
+                    ${(criticos.length === 0 && vencendo.length === 0) ? '<div class="text-center text-gray-400 text-xs">Estoque regular.</div>' : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    // 4. ITENS RECEBIDOS HOJE
+    renderReceiving: (mon) => {
+        const container = document.getElementById('receiving-section');
+        if (!container) return;
+
+        const entradas = mon.entradasHoje || [];
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-green-100">
+                <div class="p-3 border-b border-green-100 bg-green-50 flex justify-between items-center">
+                    <h4 class="font-bold text-green-800 text-sm"><i class="fas fa-truck mr-2"></i> Recebidos Hoje</h4>
+                    <span class="text-xs bg-white px-2 py-0.5 rounded border border-green-200 text-green-600 font-bold">${entradas.length} itens</span>
+                </div>
+                <div class="max-h-64 overflow-y-auto">
+                    <table class="w-full text-xs text-left">
+                        <tbody class="divide-y">
+                            ${entradas.map(e => `
+                                <tr>
+                                    <td class="p-2">
+                                        <div class="font-bold text-gray-700">${e.Estoque ? e.Estoque.Nome : 'Item'}</div>
+                                        <div class="text-gray-500">${e.Estoque ? e.Estoque.Fornecedor : '-'}</div>
+                                    </td>
+                                    <td class="p-2 text-right font-bold text-green-700">+${e.Quantidade}</td>
+                                </tr>
+                            `).join('')}
+                            ${entradas.length === 0 ? '<tr><td colspan="2" class="p-4 text-center text-gray-400">Nenhuma entrada hoje.</td></tr>' : ''}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    },
+
+    // 5. EVENTOS & PEDIDOS
+    renderEventsOrders: (mon) => {
+        const container = document.getElementById('events-orders-section');
+        if (!container) return;
+
+        const pendentes = mon.pedidosCompra.length;
+        const eventosHoje = mon.eventos.filter(e => e.Data === new Date().toISOString().split('T')[0]);
+        const proximos = mon.eventos.filter(e => e.Data > new Date().toISOString().split('T')[0]);
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-calendar-check text-purple-600"></i> Eventos & Pedidos</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-purple-50 p-3 rounded border border-purple-100 text-center">
+                        <span class="block text-2xl font-bold text-purple-700">${pendentes}</span>
+                        <span class="text-xs font-bold text-purple-800 uppercase">Pedidos Pendentes</span>
+                    </div>
+                    <div class="col-span-2">
+                        <h5 class="text-xs font-bold text-gray-500 uppercase mb-2">Próximos Eventos</h5>
+                        <div class="space-y-2">
+                            ${[...eventosHoje, ...proximos].slice(0, 3).map(e => `
+                                <div class="flex justify-between items-center text-sm border-b pb-1 last:border-0">
+                                    <span class="font-medium text-gray-700">${e.Titulo}</span>
+                                    <span class="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">${Utils.formatDate(e.Data)}</span>
+                                </div>
+                            `).join('')}
+                            ${(eventosHoje.length + proximos.length) === 0 ? '<div class="text-xs text-gray-400 italic">Nenhum evento próximo.</div>' : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    // 6. FINANÇAS
+    renderFinance: (kpis, dre, mon) => {
+        const container = document.getElementById('finance-section');
+        if (!container) return;
+
+        // Dados do dia (simulados ou reais se houver transações hoje)
+        // Para "Receita Hoje" e "Custo Hoje", precisaríamos filtrar as transações do dia.
+        // Como getDashboardStats já processa o mês, vamos usar os KPIs mensais e A Receber/Pagar Hoje.
+        
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-coins text-green-600"></i> Finanças (Controle Diário)</h3>
+                    <span class="text-xs bg-green-100 text-green-800 px-3 py-1 rounded-full font-bold">Mês Atual</span>
+                </div>
+                
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="p-3 bg-gray-50 rounded border">
+                        <div class="text-xs text-gray-500 uppercase font-bold">Receita (Mês)</div>
+                        <div class="text-lg font-bold text-green-600">${Utils.formatCurrency(kpis.receitaMensal)}</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded border">
+                        <div class="text-xs text-gray-500 uppercase font-bold">Despesas (Mês)</div>
+                        <div class="text-lg font-bold text-red-600">${Utils.formatCurrency(kpis.despesaMensal)}</div>
+                    </div>
+                    <div class="p-3 bg-gray-50 rounded border">
+                        <div class="text-xs text-gray-500 uppercase font-bold">Lucro Líquido</div>
+                        <div class="text-lg font-bold ${kpis.lucroLiquido >= 0 ? 'text-blue-600' : 'text-red-600'}">${Utils.formatCurrency(kpis.lucroLiquido)}</div>
+                    </div>
+                    <div class="p-3 bg-blue-50 rounded border border-blue-100">
+                        <div class="text-xs text-blue-800 uppercase font-bold">A Receber (Hoje)</div>
+                        <div class="text-lg font-bold text-blue-700">${Utils.formatCurrency(kpis.aReceberHoje)}</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm border-t pt-4">
+                    <div class="flex justify-between"><span>📉 Custo Produção (Est.):</span> <span class="font-bold text-gray-700">${Utils.formatCurrency(dre.cmv)}</span></div>
+                    <div class="flex justify-between"><span>📈 Receita Bruta:</span> <span class="font-bold text-gray-700">${Utils.formatCurrency(dre.receitaBruta)}</span></div>
+                    <div class="flex justify-between"><span>💵 Lucro Estimado:</span> <span class="font-bold text-green-600">${Utils.formatCurrency(dre.lucroBruto)}</span></div>
+                </div>
+            </div>
+        `;
+    },
+
+    // 7. DESPERDÍCIO
+    renderWaste: (mon) => {
+        const container = document.getElementById('waste-section');
+        if (!container) return;
+
+        const today = new Date().toISOString().split('T')[0];
+        const wasteToday = mon.desperdicio.filter(d => d.Data.startsWith(today));
+        const totalWaste = wasteToday.reduce((acc, d) => acc + Number(d.Quantidade), 0);
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-red-100 p-4 h-full">
+                <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-trash-alt text-red-500"></i> Desperdício Hoje</h3>
+                <div class="flex items-center justify-between mb-4">
+                    <div class="text-3xl font-bold text-red-600">${totalWaste} <span class="text-sm text-gray-500 font-normal">itens</span></div>
+                    <div class="text-xs text-right text-gray-500">Reduza perdas para<br>aumentar o lucro.</div>
+                </div>
+                <div class="space-y-2 max-h-40 overflow-y-auto">
+                    ${wasteToday.map(w => `
+                        <div class="flex justify-between text-xs border-b pb-1">
+                            <span>${w.Item}</span>
+                            <span class="text-red-500 font-bold">${w.Quantidade} (${w.Motivo})</span>
+                        </div>
+                    `).join('')}
+                    ${wasteToday.length === 0 ? '<div class="text-center text-green-600 text-xs font-bold py-2">Zero desperdício hoje! 👏</div>' : ''}
+                </div>
+            </div>
+        `;
+    },
+
+    // 8. RH
+    renderRH: (mon, kpis) => {
+        const container = document.getElementById('rh-section');
+        if (!container) return;
+
+        const presentes = mon.frequencia.filter(f => f.Status === 'Presente').length;
+        const ferias = mon.ferias.length;
+        const total = kpis.totalFuncionarios;
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-blue-100 p-4 h-full">
+                <h3 class="font-bold text-gray-800 mb-4 flex items-center gap-2"><i class="fas fa-users text-blue-600"></i> RH — Equipe Hoje</h3>
+                <div class="grid grid-cols-3 gap-2 mb-4 text-center">
+                    <div class="bg-gray-50 p-2 rounded">
+                        <div class="text-xl font-bold text-gray-700">${total}</div>
+                        <div class="text-[10px] text-gray-500 uppercase">Cadastrados</div>
+                    </div>
+                    <div class="bg-yellow-50 p-2 rounded">
+                        <div class="text-xl font-bold text-yellow-700">${ferias}</div>
+                        <div class="text-[10px] text-yellow-600 uppercase">Férias</div>
+                    </div>
+                    <div class="bg-green-50 p-2 rounded">
+                        <div class="text-xl font-bold text-green-700">${presentes}</div>
+                        <div class="text-[10px] text-green-600 uppercase">Presentes</div>
+                    </div>
+                </div>
+                <div class="text-xs text-gray-500">
+                    <p>Turno Manhã: <span class="font-bold text-gray-700">${mon.frequencia.filter(f => f.Entrada && f.Entrada < '12:00').length}</span></p>
+                    <p>Turno Noite: <span class="font-bold text-gray-700">${mon.frequencia.filter(f => f.Entrada && f.Entrada >= '12:00').length}</span></p>
+                </div>
+            </div>
+        `;
+    },
+
+    // 9. ML PAIN
+    renderMLPain: (mon) => {
+        const container = document.getElementById('mlpain-section');
+        if (!container) return;
+
+        const diets = mon.dietasHoje || [];
+        const totalDiets = diets.reduce((acc, d) => acc + Number(d.Quantidade), 0);
+        const special = diets.filter(d => d.Subtipo !== 'Geral').reduce((acc, d) => acc + Number(d.Quantidade), 0);
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-green-200 p-4 flex justify-between items-center">
+                <div>
+                    <h3 class="font-bold text-gray-800 flex items-center gap-2"><i class="fas fa-heartbeat text-green-600"></i> M.L. Pain — Dietas</h3>
+                    <p class="text-xs text-gray-500">Controle de Pacientes e Dietas</p>
+                </div>
+                <div class="flex gap-6 text-center">
+                    <div><span class="block text-xl font-bold text-gray-800">${totalDiets}</span><span class="text-xs text-gray-500 uppercase">Dietas Hoje</span></div>
+                    <div><span class="block text-xl font-bold text-red-600">${special}</span><span class="text-xs text-gray-500 uppercase">Especiais</span></div>
+                </div>
+            </div>
+        `;
+    },
+
+    // 11. ALERTAS
+    renderAlerts: (mon) => {
+        const container = document.getElementById('alerts-section');
+        if (!container) return;
+
+        const alerts = [];
+        if (mon.estoqueBaixo.length > 0) alerts.push({ icon: 'fa-box', text: `${mon.estoqueBaixo.length} produtos com estoque crítico`, color: 'red' });
+        if (mon.estoqueVencendo && mon.estoqueVencendo.length > 0) alerts.push({ icon: 'fa-hourglass-end', text: `${mon.estoqueVencendo.length} produtos vencendo`, color: 'yellow' });
+        if (mon.pedidosCompra.length > 0) alerts.push({ icon: 'fa-shopping-cart', text: `${mon.pedidosCompra.length} pedidos de compra pendentes`, color: 'yellow' });
+        
+        // Check for absent employees
+        const faltas = mon.frequencia.filter(f => f.Status === 'Falta').length;
+        if (faltas > 0) alerts.push({ icon: 'fa-user-times', text: `${faltas} funcionários ausentes hoje`, color: 'red' });
+
+        container.innerHTML = `
+            <div class="bg-white rounded-lg shadow-sm border border-red-100 h-full">
+                <div class="p-3 border-b border-red-100 bg-red-50">
+                    <h3 class="font-bold text-red-800 flex items-center gap-2"><i class="fas fa-bell"></i> Alertas Automáticos</h3>
+                </div>
+                <div class="p-4 space-y-3">
+                    ${alerts.map(a => `
+                        <div class="flex items-center gap-3 text-sm text-gray-700">
+                            <div class="w-8 h-8 rounded-full bg-${a.color}-100 flex items-center justify-center text-${a.color}-600"><i class="fas ${a.icon}"></i></div>
+                            <span>${a.text}</span>
+                        </div>
+                    `).join('')}
+                    ${alerts.length === 0 ? '<div class="text-center text-gray-400 text-sm">Nenhum alerta crítico.</div>' : ''}
+                </div>
+            </div>
+        `;
+    },
+
     renderQuadroAvisos: (avisos) => {
         if (!avisos) avisos = []; // Garante array vazio se nulo
 
-        const container = document.getElementById('dashboard-content'); // Assumindo que existe um container principal ou injetamos no topo
-        // Verifica se já existe a seção para não duplicar
         let section = document.getElementById('quadro-avisos-section');
-        
-        if (!section) {
-            section = document.createElement('div');
-            section.id = 'quadro-avisos-section';
-            section.className = 'mb-6';
-            // Insere logo no início do dashboard
-            const firstChild = container.firstElementChild;
-            container.insertBefore(section, firstChild);
-        }
+        if (!section) return;
+        section.className = 'mb-6';
 
         const canCreate = Utils.checkPermission('Dashboard', 'criar') || Utils.getUser().Cargo === 'Administrador';
 
@@ -137,18 +635,9 @@ const DashboardModule = {
     },
 
     renderTarefas: (tarefas) => {
-        const container = document.getElementById('dashboard-content');
         let section = document.getElementById('tarefas-section');
-        
-        if (!section) {
-            section = document.createElement('div');
-            section.id = 'tarefas-section';
-            section.className = 'mb-6 grid grid-cols-1 lg:grid-cols-3 gap-6';
-            // Insere após o quadro de avisos
-            const avisos = document.getElementById('quadro-avisos-section');
-            if (avisos) avisos.insertAdjacentElement('afterend', section);
-            else container.insertBefore(section, container.firstElementChild);
-        }
+        if (!section) return;
+        section.className = 'mb-6 grid grid-cols-1 lg:grid-cols-3 gap-6';
 
         const canCreate = Utils.checkPermission('Dashboard', 'criar') || true; // Aberto para equipe
 
@@ -231,95 +720,8 @@ const DashboardModule = {
         `);
     },
 
-    renderKPIs: (kpis) => {
-        if (!kpis) return;
-
-        // Atualiza labels para refletir o filtro (opcional, mas bom para UX)
-        const labelPeriodo = DashboardModule.state.filterDate === 'all' ? 'Total Acumulado' : 'Neste Mês';
-        
-        document.getElementById('kpi-receita').innerText = Utils.formatCurrency(kpis.receitaMensal);
-        document.getElementById('kpi-despesa').innerText = Utils.formatCurrency(kpis.despesaMensal);
-        document.getElementById('kpi-lucro').innerText = Utils.formatCurrency(kpis.lucroLiquido);
-
-        if(document.getElementById('kpi-funcionarios')) document.getElementById('kpi-funcionarios').innerText = kpis.totalFuncionarios;
-        if(document.getElementById('kpi-fornecedores')) document.getElementById('kpi-fornecedores').innerText = kpis.totalFornecedores;
-        if(document.getElementById('kpi-refeicoes')) document.getElementById('kpi-refeicoes').innerText = kpis.totalRefeicoes;
-    },
-
-    renderDRE: (dre) => {
-        if (!dre) return;
-
-        document.getElementById('dre-bruta').innerText = Utils.formatCurrency(dre.receitaBruta);
-        document.getElementById('dre-impostos').innerText = Utils.formatCurrency(dre.impostos);
-        document.getElementById('dre-liquida').innerText = Utils.formatCurrency(dre.receitaLiquida);
-        document.getElementById('dre-cmv').innerText = Utils.formatCurrency(dre.cmv);
-        document.getElementById('dre-desp').innerText = Utils.formatCurrency(dre.despOp);
-        document.getElementById('dre-lucro-bruto').innerText = Utils.formatCurrency(dre.lucroBruto);
-        document.getElementById('dre-final').innerText = Utils.formatCurrency(dre.lucroFinal);
-    },
-
-    renderMonitoramento: (mon) => {
-        if (!mon) return;
-
-        const list = document.getElementById('monitoramento-list');
-        let html = '';
-
-        if (mon.eventos && mon.eventos.length > 0) {
-            html += `<div class="p-3 bg-indigo-50 rounded border-l-4 border-indigo-500">
-                <div class="font-bold text-indigo-700">📅 Próximos Eventos</div>
-                ${mon.eventos.map(e => `<div class="text-sm flex justify-between"><span>${e.Titulo}</span> <span class="text-xs text-gray-500">${Utils.formatDate(e.Data)}</span></div>`).join('')}
-            </div>`;
-        }
-
-        if (mon.aniversariantes.length > 0) {
-            html += `<div class="p-3 bg-blue-50 rounded border-l-4 border-blue-500">
-                <div class="font-bold text-blue-700">🎂 Aniversariantes do Dia</div>
-                ${mon.aniversariantes.map(a => `<div class="text-sm">${a.Nome}</div>`).join('')}
-            </div>`;
-        }
-
-        if (mon.jubileu && mon.jubileu.length > 0) {
-            html += `<div class="p-3 bg-purple-50 rounded border-l-4 border-purple-500">
-                <div class="font-bold text-purple-700">🎉 Jubileu de Casa (Hoje)</div>
-                ${mon.jubileu.map(j => `<div class="text-sm">${j.Nome} (${j.Anos} anos)</div>`).join('')}
-            </div>`;
-        }
-
-        if (mon.estoqueBaixo.length > 0) {
-            html += `<div class="p-3 bg-red-50 rounded border-l-4 border-red-500">
-                <div class="font-bold text-red-700">⚠️ Estoque Baixo</div>
-                ${mon.estoqueBaixo.map(e => `<div class="text-sm">${e.Nome} (${e.Quantidade})</div>`).join('')}
-            </div>`;
-        }
-
-        if (mon.ferias.length > 0) {
-            html += `<div class="p-3 bg-yellow-50 rounded border-l-4 border-yellow-500">
-                <div class="font-bold text-yellow-700">🏖️ Em Férias</div>
-                ${mon.ferias.map(f => `<div class="text-sm">${f.FuncionarioNome}</div>`).join('')}
-            </div>`;
-        }
-
-        if (html === '') html = '<div class="text-gray-500 text-center py-4">Nenhum aviso importante hoje.</div>';
-        list.innerHTML = html;
-    },
-
     renderCharts: (charts) => {
         if (!charts) return;
-
-        // Injeta container para Lucratividade se não existir
-        if (!document.getElementById('chartLucratividade')) {
-            const container = document.getElementById('dashboard-content');
-            const div = document.createElement('div');
-            div.className = 'bg-white p-4 rounded shadow mb-6 border border-gray-100';
-            div.innerHTML = `
-                <h4 class="font-bold text-gray-700 mb-4 border-b pb-2">Lucratividade Anual (Últimos 12 Meses)</h4>
-                <div class="h-64"><canvas id="chartLucratividade"></canvas></div>
-            `;
-            // Insere antes das tarefas (se existirem) ou no final
-            const tarefas = document.getElementById('tarefas-section');
-            if (tarefas) container.insertBefore(div, tarefas);
-            else container.appendChild(div);
-        }
 
         // Destruir gráficos anteriores
         if (DashboardModule.charts.financeiro) DashboardModule.charts.financeiro.destroy();
@@ -338,7 +740,7 @@ const DashboardModule = {
         if (DashboardModule.charts.lucratividade) DashboardModule.charts.lucratividade.destroy();
 
         // Gráfico de Lucratividade
-        if (charts.lucratividade) {
+        if (charts.lucratividade && document.getElementById('chartLucratividade')) {
             DashboardModule.charts.lucratividade = new Chart(document.getElementById('chartLucratividade'), {
                 type: 'bar',
                 data: {
@@ -357,16 +759,18 @@ const DashboardModule = {
         if (DashboardModule.charts.atendimento) DashboardModule.charts.atendimento.destroy();
 
         // Gráfico Atendimento (Categorias)
-        DashboardModule.charts.atendimento = new Chart(document.getElementById('chartAtendimento'), {
-            type: 'doughnut',
-            data: {
-                labels: charts.pratos.labels,
-                datasets: [{
-                    data: charts.pratos.data,
-                    backgroundColor: ['#F59E0B', '#3B82F6', '#10B981', '#6366F1', '#8B5CF6']
-                }]
-            }
-        });
+        if (charts.pratos && document.getElementById('chartAtendimento')) {
+            DashboardModule.charts.atendimento = new Chart(document.getElementById('chartAtendimento'), {
+                type: 'doughnut',
+                data: {
+                    labels: charts.pratos.labels,
+                    datasets: [{
+                        data: charts.pratos.data,
+                        backgroundColor: ['#F59E0B', '#3B82F6', '#10B981', '#6366F1', '#8B5CF6']
+                    }]
+                }
+            });
+        }
 
         if (DashboardModule.charts.refeicoes) DashboardModule.charts.refeicoes.destroy();
 

@@ -27,8 +27,10 @@ modalStyle.innerHTML = `
 
     /* --- SIDEBAR INTELIGENTE & TOOLTIPS --- */
     /* Esconde texto e logo quando recolhido */
-    #sidebar.w-20 .sidebar-text, 
+    #sidebar.w-20 .sidebar-text { display: none; }
     #sidebar.w-20 #sidebar-logo { display: none; }
+    /* Centraliza o botão de toggle quando recolhido */
+    #sidebar.w-20 #sidebar-header { justify-content: center; }
 
     /* Transforma o texto em Tooltip ao passar o mouse (apenas quando recolhido) */
     #sidebar.w-20 nav a, #sidebar.w-20 nav button { position: relative; }
@@ -82,6 +84,23 @@ const Utils = {
         } catch (e) {
             return {};
         }
+    },
+
+    // SUPABASE CLIENT (Frontend - Realtime)
+    supabaseClient: null,
+
+    initSupabase: () => {
+        if (typeof supabase === 'undefined' || !supabase.createClient) return;
+        
+        // ⚠️ SUBSTITUA PELAS SUAS CHAVES DO SUPABASE (Project Settings > API) ⚠️
+        const SUPABASE_URL = 'https://shuhvwespebsdyipsaou.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNodWh2d2VzcGVic2R5aXBzYW91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk4NzM2NjUsImV4cCI6MjA4NTQ0OTY2NX0.EEi0ChHbTUt2QdDD45wHDwKkuxqnued2ASW9b3WstKo';
+
+        if (SUPABASE_URL.includes('SUA_URL')) {
+            console.warn('⚠️ Supabase não configurado em js/utils.js. O Realtime não funcionará.');
+            return;
+        }
+        Utils.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     },
 
     // Nova API Centralizada com Token
@@ -241,33 +260,25 @@ const Utils = {
         if(menu) menu.classList.toggle('hidden');
         else {
             const user = Utils.getUser();
-            // Atualiza o botão principal com a foto se existir
-            const profileBtn = document.getElementById('profile-btn');
-            if (profileBtn && user.FotoURL) {
-                const avatarDiv = profileBtn.querySelector('div');
-                if (avatarDiv) {
-                    avatarDiv.innerHTML = `<img src="${user.FotoURL}" class="w-full h-full object-cover">`;
-                }
-            }
 
             // Cria o menu se não existir (Injeção dinâmica)
-            const btn = document.querySelector('button[onclick="Utils.toggleProfileMenu()"]');
+            const btn = document.getElementById('profile-btn');
             if(btn) {
                 const div = document.createElement('div');
                 div.id = 'profile-menu';
-                div.className = 'absolute right-8 top-20 w-56 bg-white rounded-lg shadow-xl border z-50 py-2 animate-fade-in-down';
+                div.className = 'absolute right-0 top-full mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 z-50 py-2 animate-fade-in-down';
                 div.innerHTML = `
-                    <div class="px-4 py-2 border-b mb-2">
+                    <div class="px-4 py-3 border-b border-gray-100 mb-2 bg-gray-50">
                         <p class="text-sm font-bold text-gray-800">${user.Nome || 'Usuário'}</p>
                         <p class="text-xs text-gray-500 truncate">${user.Email || ''}</p>
                     </div>
-                    <a href="#" onclick="Utils.modalEditProfile()" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-user mr-2"></i> Meu Perfil</a>
-                    <a href="configuracoes.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"><i class="fas fa-cog mr-2"></i> Configurações</a>
-                    <div class="border-t mt-2 pt-2">
-                        <a href="#" onclick="Utils.confirmLogout()" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50"><i class="fas fa-sign-out-alt mr-2"></i> Sair</a>
+                    <a href="perfil.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><i class="fas fa-user mr-2 w-5 text-center"></i> Meu Perfil</a>
+                    <a href="configuracoes.html" class="block px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><i class="fas fa-cog mr-2 w-5 text-center"></i> Configurações</a>
+                    <div class="border-t border-gray-100 mt-2 pt-2">
+                        <a href="#" onclick="Utils.confirmLogout()" class="block px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"><i class="fas fa-sign-out-alt mr-2 w-5 text-center"></i> Sair</a>
                     </div>
                 `;
-                document.body.appendChild(div);
+                btn.parentElement.appendChild(div);
             }
         }
     },
@@ -419,6 +430,143 @@ const Utils = {
 
     // --- SISTEMA DE PERMISSÕES ---
     
+    // RENDERIZADOR DE SIDEBAR ÚNICO (Substitui Sidebar.jsx)
+    renderSidebar: () => {
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+
+        const user = Utils.getUser();
+        const isAdmin = user.Cargo === 'Administrador';
+        // Normaliza o path para identificar a página ativa
+        const path = window.location.pathname.split('/').pop() || 'index.html';
+        const search = window.location.search;
+
+        // ESTRUTURA OBRIGATÓRIA DO MENU EM BLOCOS
+        const menuStructure = [
+            {
+                title: 'PRINCIPAL',
+                items: [
+                    { label: 'Dashboard', icon: 'fa-chart-pie', href: 'dashboard.html' }
+                ]
+            },
+            {
+                title: 'GESTÃO EMPRESARIAL',
+                items: [
+                    { label: 'Recursos Humanos', icon: 'fa-users', href: 'rh.html' },
+                    { label: 'Patrimônio', icon: 'fa-qrcode', href: 'inventario.html' },
+                    { label: 'Finanças', icon: 'fa-coins', href: 'financas.html' }
+                ]
+            },
+            {
+                title: 'OPERAÇÕES',
+                items: [
+                    { label: 'Estoque', icon: 'fa-boxes', href: 'estoque.html' },
+                    { label: 'Caso Social', icon: 'fa-hand-holding-heart', href: 'social.html' },
+                    { label: 'Lista do Dia', icon: 'fa-clipboard-list', href: 'lista_dia.html' },
+                    { label: 'Produção', icon: 'fa-utensils', href: 'producao.html' },
+                    { label: 'Monitor Cozinha', icon: 'fa-tv', href: 'cozinha_realtime.html' },
+                    { label: 'Eventos & Pedidos', icon: 'fa-calendar-alt', href: 'eventos.html' }
+                ]
+            },
+            {
+                title: 'CONTROLE E RELATÓRIOS',
+                items: [
+                    { label: 'M.L.PAIN', icon: 'fa-heartbeat', href: 'mlpain.html' },
+                    { label: 'Auditoria', icon: 'fa-shield-alt', href: 'auditoria.html', adminOnly: true },
+                    { label: 'Backups', icon: 'fa-database', href: 'backups.html', adminOnly: true }
+                ]
+            },
+            {
+                title: 'SISTEMA',
+                items: [
+                    { label: 'Configurações', icon: 'fa-cog', href: 'configuracoes.html' }
+                ]
+            }
+        ];
+
+        // Mapeamento de permissões (Nome do arquivo -> Nome do Módulo no Banco)
+        const moduleMap = {
+            'dashboard.html': 'Dashboard',
+            'rh.html': 'RH',
+            'estoque.html': 'Estoque',
+            'social.html': 'Social',
+            'lista_dia.html': 'ListaDia',
+            'producao.html': 'Producao',
+            'cozinha_realtime.html': 'Producao',
+            'inventario.html': 'Inventario',
+            'financas.html': 'Financas',
+            'eventos.html': 'Eventos',
+            'mlpain.html': 'MLPain',
+            'configuracoes.html': 'Configuracoes'
+        };
+
+        let navHtml = '<nav class="flex-1 overflow-y-auto py-4 space-y-1">';
+
+        menuStructure.forEach((section, index) => {
+            // Filtra itens visíveis baseados em permissão
+            const visibleItems = section.items.filter(item => {
+                if (item.adminOnly && !isAdmin) return false;
+                const moduleName = moduleMap[item.href];
+                if (moduleName && !isAdmin && !Utils.checkPermission(moduleName, 'ver')) return false;
+                return true;
+            });
+
+            if (visibleItems.length === 0) return;
+
+            // Separador e Título
+            if (index > 0) {
+                navHtml += '<div class="my-2 border-t border-slate-800 mx-4"></div>';
+            }
+            
+            navHtml += `
+                <div class="px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider sidebar-text">
+                    ${section.title}
+                </div>
+            `;
+
+            visibleItems.forEach(item => {
+                const isActive = path === item.href;
+                const activeClass = isActive 
+                    ? 'bg-slate-800 text-white border-l-4 border-yellow-500' 
+                    : 'text-slate-300 hover:bg-slate-800 hover:text-white hover:border-l-4 hover:border-yellow-500 border-l-4 border-transparent';
+
+                navHtml += `
+                    <a href="${item.href}" class="flex items-center px-4 py-3 transition-all duration-200 group ${activeClass}">
+                        <i class="fas ${item.icon} w-6 text-center"></i>
+                        <span class="ml-3 font-medium sidebar-text group-hover:translate-x-1 transition-transform">${item.label}</span>
+                    </a>
+                `;
+            });
+        });
+
+        navHtml += '</nav>';
+
+        // Header Fixo
+        const headerHtml = `
+            <div id="sidebar-header" class="p-6 flex items-center justify-between h-20">
+                <div class="flex items-center gap-3" id="sidebar-logo">
+                    <div class="w-8 h-8 bg-yellow-500 rounded-lg flex items-center justify-center font-bold text-slate-900 flex-shrink-0">K</div>
+                    <span class="font-bold text-lg tracking-wide sidebar-text">Kitchen OS</span>
+                </div>
+                <button onclick="Utils.toggleSidebar()" class="text-slate-400 hover:text-white transition"><i class="fas fa-bars"></i></button>
+            </div>
+        `;
+
+        // Footer Fixo
+        const footerHtml = `
+            <div class="p-4 border-t border-slate-800">
+                <button onclick="Utils.confirmLogout()" class="flex items-center w-full text-slate-400 hover:text-white transition group">
+                    <i class="fas fa-sign-out-alt w-6 text-center"></i> <span class="ml-3 font-medium sidebar-text group-hover:translate-x-1 transition-transform">Sair</span>
+                </button>
+            </div>
+        `;
+
+        sidebar.innerHTML = headerHtml + navHtml + footerHtml;
+        
+        // Reaplica estado visual (colapsado/expandido)
+        Utils.initSidebar();
+    },
+
     // Verifica se o usuário tem permissão para uma ação específica em um módulo
     checkPermission: (module, action) => {
         const user = Utils.getUser();
@@ -436,64 +584,55 @@ const Utils = {
         return modPerms[action] === true;
     },
 
-    // Injeta botão de Backups para Administradores
-    injectAdminMenu: () => {
-        const user = Utils.getUser();
-        if (user.Cargo !== 'Administrador') return;
+    // RENDERIZADOR DE HEADER DO USUÁRIO (Componente Global de Perfil)
+    renderUserProfile: () => {
+        const header = document.querySelector('header');
+        if (!header) return;
 
-        const nav = document.querySelector('#sidebar nav');
-        if (!nav) return;
-
-        if (nav.querySelector('a[href="backups.html"]')) return;
-
-        // Link de Backups
-        const linkBackup = document.createElement('a');
-        linkBackup.href = 'backups.html';
-        linkBackup.className = 'flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200';
-        linkBackup.innerHTML = '<i class="fas fa-database w-6 text-center"></i><span class="ml-3 sidebar-text">Backups</span>';
-
-        // Link de Auditoria
-        const linkAudit = document.createElement('a');
-        linkAudit.href = 'auditoria.html';
-        linkAudit.className = 'flex items-center px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white transition-colors duration-200';
-        linkAudit.innerHTML = '<i class="fas fa-shield-alt w-6 text-center"></i><span class="ml-3 sidebar-text">Auditoria</span>';
-
-        const configBtn = nav.querySelector('a[href="configuracoes.html"]');
-        if (configBtn) {
-            nav.insertBefore(linkBackup, configBtn);
-            nav.insertBefore(linkAudit, configBtn);
-        } else {
-            nav.appendChild(linkBackup);
-            nav.appendChild(linkAudit);
+        // Tenta encontrar o container da direita (onde ficam os botões)
+        // Se não tiver classe específica, pega o último div (padrão do layout)
+        let rightContainer = header.querySelector('.header-user-area');
+        if (!rightContainer) {
+            const divs = header.querySelectorAll('div');
+            if (divs.length > 0) rightContainer = divs[divs.length - 1];
         }
-    },
 
-    // Aplica regras visuais na barra lateral
-    applySidebarPermissions: () => {
+        if (!rightContainer) return;
+        
+        // Marca para estilização e evita duplicidade
+        rightContainer.className = 'header-user-area flex items-center justify-end gap-6';
+
         const user = Utils.getUser();
-        if (user.Cargo === 'Administrador') return;
+        // Avatar padrão se não tiver foto (Gera iniciais)
+        const avatarUrl = user.FotoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.Nome || 'User')}&background=random&color=fff&size=128`;
 
-        const mapping = {
-            'dashboard.html': 'Dashboard',
-            'rh.html': 'RH',
-            'estoque.html': 'Estoque',
-            'producao.html': 'Producao',
-            'eventos.html': 'Eventos',
-            'mlpain.html': 'MLPain',
-            'financas.html': 'Financas',
-            'inventario.html': 'Inventario',
-            'configuracoes.html': 'Configuracoes'
-        };
-
-        document.querySelectorAll('#sidebar nav a').forEach(link => {
-            const href = link.getAttribute('href');
-            const module = mapping[href];
+        rightContainer.innerHTML = `
+            <!-- Botão de Notificações (Único) -->
+            <button id="notif-btn" onclick="Utils.toggleNotifications()" class="relative p-2 text-gray-400 hover:text-indigo-600 transition-colors focus:outline-none">
+                <i class="fas fa-bell text-xl"></i>
+                <span class="absolute top-0 right-0 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full hidden border-2 border-white">0</span>
+            </button>
             
-            // Se o módulo existe no mapa e o usuário não tem permissão de 'ver', esconde
-            if (module && !Utils.checkPermission(module, 'ver')) {
-                link.classList.add('hidden');
-            }
-        });
+            <!-- Perfil do Usuário (Sem ícones extras) -->
+            <div class="relative">
+                <button id="profile-btn" onclick="Utils.toggleProfileMenu()" class="flex items-center gap-3 focus:outline-none group text-left">
+                    <div class="hidden md:flex flex-col items-end">
+                        <span class="text-sm font-bold text-gray-700 leading-tight group-hover:text-indigo-600 transition-colors whitespace-nowrap">${user.Nome || 'Usuário'}</span>
+                        <span class="text-xs text-gray-400 uppercase tracking-wide font-medium whitespace-nowrap">${user.Cargo || 'Colaborador'}</span>
+                    </div>
+                    
+                    <div class="relative flex-shrink-0">
+                        <img src="${avatarUrl}" class="w-10 h-10 rounded-full object-cover border border-gray-200 shadow-sm group-hover:border-indigo-50 transition-all" alt="Avatar">
+                        <span class="absolute bottom-0 right-0 block w-3 h-3 bg-green-500 border-2 border-white rounded-full"></span>
+                    </div>
+
+                    <i class="fas fa-chevron-down text-sm text-gray-400 ml-1 group-hover:text-indigo-500 transition-colors"></i>
+                </button>
+            </div>
+        `;
+
+        // Busca notificações para atualizar o badge recém-criado
+        Utils.fetchNotifications();
     },
 
     // --- CHAT INTERNO ---
@@ -648,21 +787,15 @@ document.addEventListener('DOMContentLoaded', () => {
         setInterval(() => Utils.fetchNotifications(), 15000);
     }
     
-    // Aplica permissões na sidebar
-    Utils.applySidebarPermissions();
-    Utils.injectAdminMenu();
+    // RENDERIZA O SIDEBAR ÚNICO (Centralizado)
+    Utils.renderSidebar();
 
-    // Restaura estado do menu lateral
-    Utils.initSidebar();
+    // RENDERIZA O HEADER DO USUÁRIO (Global)
+    Utils.renderUserProfile();
 
     // Inicializa Chat
     if (localStorage.getItem('user')) Utils.initChat();
 
-    // Atualiza avatar no header se existir
-    const user = Utils.getUser();
-    const profileBtn = document.getElementById('profile-btn');
-    if (profileBtn && user.FotoURL) {
-        const avatarDiv = profileBtn.querySelector('div');
-        if (avatarDiv) avatarDiv.innerHTML = `<img src="${user.FotoURL}" class="w-full h-full object-cover">`;
-    }
+    // Inicializa Supabase Frontend
+    Utils.initSupabase();
 });

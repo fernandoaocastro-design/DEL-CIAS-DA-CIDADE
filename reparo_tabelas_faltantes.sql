@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS "Avaliacoes" (
     "Avaliador" VARCHAR(100),
     "MediaFinal" DECIMAL(4,2),
     "Conclusao" VARCHAR(100),
-    "DetalhesJSON" JSONB, -- Para guardar as notas individuais (N1, N2...)
+    "DetalhesJSON" JSONB,
     "CriadoEm" TIMESTAMP DEFAULT NOW()
 );
 

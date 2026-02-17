@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "LogsAuditoria" (
 -- 3. Habilitar acesso para a API
 ALTER TABLE "LogsAuditoria" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso API Auditoria" ON "LogsAuditoria";
-CREATE POLICY "Acesso API Auditoria" ON "LogsAuditoria" FOR ALL USING (true);
+CREATE POLICY "Acesso API Auditoria" ON "LogsAuditoria" TO service_role USING (true) WITH CHECK (true);
 
 -- Atualizar cache do esquema
 NOTIFY pgrst, 'reload config';

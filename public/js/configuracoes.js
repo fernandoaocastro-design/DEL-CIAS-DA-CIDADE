@@ -257,7 +257,7 @@ const ConfigModule = {
         const perfis = await Utils.api('getAll', 'PerfisAcesso') || [];
 
         // Geração da Tabela de Permissões
-        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Social', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
         const actions = ['ver', 'criar', 'editar', 'excluir'];
         const perms = user.Permissoes || {};
 
@@ -350,7 +350,7 @@ const ConfigModule = {
         
         // Processar Permissões
         const permissoes = {};
-        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Social', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
         const actions = ['ver', 'criar', 'editar', 'excluir'];
 
         modules.forEach(mod => {
@@ -410,7 +410,7 @@ const ConfigModule = {
     },
 
     modalPerfil: () => {
-        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Social', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
         const actions = ['ver', 'criar', 'editar', 'excluir'];
         
         let permsHtml = '<div class="mt-4 border-t pt-4"><h5 class="font-bold text-gray-700 mb-2">Definir Permissões do Perfil</h5><div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto border p-2 rounded bg-gray-50">';
@@ -446,7 +446,7 @@ const ConfigModule = {
         const data = Object.fromEntries(formData.entries());
         
         const permissoes = {};
-        const modules = ['Dashboard', 'RH', 'Estoque', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
+        const modules = ['Dashboard', 'RH', 'Estoque', 'Social', 'Producao', 'Eventos', 'MLPain', 'Financas', 'Inventario', 'Configuracoes'];
         const actions = ['ver', 'criar', 'editar', 'excluir'];
 
         modules.forEach(mod => {

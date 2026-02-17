@@ -67,6 +67,56 @@ export const handler = async (event) => {
 
             ({ data: result, error } = await query);
 
+        } else if (action === 'getEmployees') {
+            // PAGINAÇÃO DE FUNCIONÁRIOS (RH - Tabela Principal)
+            const { page, limit, term } = data;
+            const from = (page - 1) * limit;
+            const to = from + limit - 1;
+
+            let query = supabase
+                .from('Funcionarios')
+                .select('*', { count: 'exact' })
+                .order('Nome', { ascending: true })
+                .range(from, to);
+
+            if (term) {
+                query = query.or(`Nome.ilike.%${term}%,Cargo.ilike.%${term}%,Departamento.ilike.%${term}%,Email.ilike.%${term}%`);
+            }
+
+            const { data: rows, count, error: err } = await query;
+            if (err) throw err;
+            result = { data: rows, total: count };
+
+        } else if (action === 'getEmployeesList') {
+            // LISTA LEVE PARA DROPDOWNS (Sem FotoURL que pesa o JSON)
+            const { data: rows, error: err } = await supabase
+                .from('Funcionarios')
+                .select('ID, Nome, Cargo, Departamento, BI, Admissao, Salario, Turno, Email, Telefone, Status')
+                .order('Nome');
+            if (err) throw err;
+            result = rows;
+
+        } else if (action === 'getEmployee') {
+            // BUSCA INDIVIDUAL (Para Edição - Garante dados completos)
+            const { id } = data;
+            const { data: user, error: err } = await supabase.from('Funcionarios').select('*').eq('ID', id).single();
+            if (err) throw err;
+            result = user;
+
+        } else if (action === 'searchProducts') {
+            // BUSCA OTIMIZADA DE PRODUTOS (Performance do Select)
+            const { term } = data;
+            const searchTerm = term ? term.trim() : '';
+
+            let query = supabase
+                .from('Estoque')
+                .select('ID, Nome, Unidade, Quantidade, CustoUnitario')
+                .limit(50); // Limita a 50 itens para não travar o navegador
+
+            if (searchTerm) query = query.ilike('Nome', `%${searchTerm}%`);
+            
+            ({ data: result, error } = await query);
+
         } else if (action === 'getMovimentacoesEstoque') {
             // PAGINAÇÃO OTIMIZADA COM FILTRO DE SUBTIPO (JOIN)
             const { page, limit, subtipo, term } = data;
@@ -176,6 +226,22 @@ export const handler = async (event) => {
 
                 payload.TotalDescontos = inss + irt + faltas + outrosD;
                 payload.SalarioLiquido = payload.TotalVencimentos - payload.TotalDescontos;
+            }
+
+            // --- CÁLCULO AUTOMÁTICO DE PRESENÇA (ERP) ---
+            if (table === 'Frequencia') {
+                // Se informou entrada e não forçou um status manual (ex: Justificado)
+                if (payload.Entrada && (!payload.Status || payload.Status === 'Presente' || payload.Status === 'Atraso')) {
+                    const entrada = payload.Entrada; // HH:mm
+                    const limite = "08:15"; // Tolerância de 15 min sobre 08:00
+                    
+                    if (entrada > limite) {
+                        payload.Status = 'Atraso';
+                    } else {
+                        payload.Status = 'Presente';
+                    }
+                }
+                // Se não tiver entrada nem saída e status vazio, impede salvar (ou define pendente)
             }
 
             if (payload.ID) {
@@ -483,6 +549,7 @@ export const handler = async (event) => {
             if (Itens && Itens.length > 0) {
                 const itensParaInserir = Itens.map(item => ({
                     PedidoID: pedido.ID,
+                    ProdutoID: item.id, // Salva o ID para vincular ao estoque
                     ProdutoNome: item.name,
                     Quantidade: item.qty,
                     CustoUnitario: item.price,
@@ -498,6 +565,51 @@ export const handler = async (event) => {
             const { data: itens, error } = await supabase.from('ItensPedidoCompra').select('*').eq('PedidoID', id);
             if (error) throw error;
             result = itens;
+
+        } else if (action === 'receivePurchaseOrder') {
+            // RECEBER PEDIDO DE COMPRA (Entrada Automática no Estoque)
+            const { id, items: receivedItems } = data;
+            
+            // 1. Buscar o Pedido e Itens
+            const { data: pedido, error: errPed } = await supabase.from('PedidosCompra').select('*').eq('ID', id).single();
+            if (errPed || !pedido) throw new Error('Pedido não encontrado.');
+            if (pedido.Status === 'Concluído') throw new Error('Este pedido já foi recebido.');
+
+            // 1.1 Atualizar quantidades se houver edição na conferência
+            if (receivedItems && Array.isArray(receivedItems)) {
+                for (const item of receivedItems) {
+                    if (item.id && item.qtd >= 0) {
+                        await supabase.from('ItensPedidoCompra')
+                            .update({ Quantidade: item.qtd })
+                            .eq('ID', item.id);
+                    }
+                }
+            }
+
+            const { data: itens, error: errItens } = await supabase.from('ItensPedidoCompra').select('*').eq('PedidoID', id);
+            if (errItens) throw new Error('Erro ao buscar itens do pedido.');
+
+            // 2. Processar Entrada de Cada Item
+            for (const item of itens) {
+                // Tenta achar o produto pelo ID ou Nome
+                let prodQuery = supabase.from('Estoque').select('*');
+                if (item.ProdutoID) prodQuery = prodQuery.eq('ID', item.ProdutoID);
+                else prodQuery = prodQuery.ilike('Nome', item.ProdutoNome);
+                
+                const { data: prod } = await prodQuery.maybeSingle();
+                
+                if (prod) {
+                    const novaQtd = Number(prod.Quantidade) + Number(item.Quantidade);
+                    // Atualiza Estoque
+                    await supabase.from('Estoque').update({ Quantidade: novaQtd, UltimaAtualizacao: new Date() }).eq('ID', prod.ID);
+                    // Registra Movimentação
+                    await supabase.from('MovimentacoesEstoque').insert({ ProdutoID: prod.ID, Tipo: 'Entrada', Quantidade: item.Quantidade, Responsavel: userSession ? userSession.nome : 'Sistema', Observacoes: `Recebimento Pedido #${pedido.Codigo || id.slice(0,4)}`, Data: new Date() });
+                }
+            }
+
+            // 3. Atualizar Status do Pedido
+            await supabase.from('PedidosCompra').update({ Status: 'Concluído' }).eq('ID', id);
+            result = { success: true };
 
         } else if (action === 'getMLPainRecords') {
             // Otimização Frontend: Baixa apenas o mês selecionado
@@ -598,6 +710,50 @@ export const handler = async (event) => {
                         Lida: false,
                         CriadoEm: new Date()
                     });
+                    count++;
+                }
+            }
+            result = { success: true, alertsGenerated: count };
+
+        } else if (action === 'checkFinancialAlerts') {
+            // AÇÃO AUTOMÁTICA: Verifica contas a pagar vencendo hoje
+            const today = new Date().toISOString().split('T')[0];
+            
+            const { data: contas, error } = await supabase
+                .from('ContasPagar')
+                .select('ID, Fornecedor, ValorTotal, Descricao')
+                .eq('DataVencimento', today)
+                .neq('Status', 'Pago');
+
+            if (error) throw error;
+
+            let count = 0;
+            for (const conta of contas) {
+                // Verifica se já existe notificação hoje para esta conta (evita spam)
+                const { data: existing } = await supabase
+                    .from('Notificacoes')
+                    .select('ID')
+                    .ilike('Mensagem', `%${conta.Descricao}%`)
+                    .gte('CriadoEm', today + 'T00:00:00')
+                    .limit(1);
+
+                if (!existing || existing.length === 0) {
+                    await supabase.from('Notificacoes').insert({
+                        Mensagem: `💸 Vencimento Hoje: ${conta.Descricao} (${conta.Fornecedor}) - ${conta.ValorTotal}`,
+                        Lida: false,
+                        CriadoEm: new Date()
+                    });
+
+                    // --- NOVO: Envio de E-mail para o Financeiro ---
+                    console.log(`📧 [EMAIL FINANCEIRO] ALERTA DE VENCIMENTO: ${conta.Descricao} - Valor: ${conta.ValorTotal}`);
+                    
+                    // Registra que o e-mail foi "enviado" para controle
+                    await supabase.from('EmailLogs').insert({
+                        DestinatarioID: conta.ID, // Usa o ID da conta como referência
+                        Tipo: 'VencimentoConta',
+                        Ano: new Date().getFullYear()
+                    });
+
                     count++;
                 }
             }
@@ -1064,6 +1220,13 @@ export const handler = async (event) => {
             const sevenDaysAgo = new Date();
             sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
             const strSevenDaysAgo = sevenDaysAgo.toISOString().split('T')[0];
+
+            // Cálculo do Próximo Mês para Projeção
+            const nextMonthDate = new Date();
+            nextMonthDate.setDate(1); // Vai para o dia 1 para evitar problemas com meses de 30/31 dias
+            nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
+            const nextMonthStart = nextMonthDate.toISOString().split('T')[0];
+            const nextMonthEnd = new Date(nextMonthDate.getFullYear(), nextMonthDate.getMonth() + 1, 0).toISOString().split('T')[0];
             
             // Otimização: Buscar apenas finanças dos últimos 12 meses para não pesar o sistema
             // Se o filtro for 'all' ou um mês antigo, precisamos garantir que a busca pegue esses dados
@@ -1084,14 +1247,23 @@ export const handler = async (event) => {
                 supabase.from('Funcionarios').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
                 supabase.from('Fornecedores').select('*', { count: 'exact', head: true }).eq('Status', 'Ativo'),
                 supabase.from('Financas').select('*').gte('Data', startOfFinanceData),
-                supabase.from('Funcionarios').select('Nome, Nascimento, Admissao, ValidadeBI, Departamento').eq('Status', 'Ativo'), // Adicionado Departamento
+                supabase.from('Funcionarios').select('Nome, Nascimento, Admissao, ValidadeBI, Departamento, Cargo, Turno').eq('Status', 'Ativo'), // Adicionado Cargo/Turno
                 supabase.from('Ferias').select('*').eq('Status', 'Aprovado'),
-                supabase.from('Estoque').select('Nome, Quantidade, Minimo'),
+                supabase.from('Estoque').select('Nome, Quantidade, Minimo, Validade, Unidade'), // Adicionado Validade/Unidade
                 supabase.from('Eventos').select('*').gte('Data', today).neq('Status', 'Cancelado').order('Data', { ascending: true }).limit(5),
                 supabase.rpc('get_refeicoes_grafico', { data_inicio: strSevenDaysAgo }),
                 supabase.rpc('get_total_refeicoes_mes', { data_inicio: startOfPeriod }), // Usa o filtro
                 supabase.from('OrdensProducao').select('Codigo, Status, Responsavel').neq('Status', 'Concluída'),
-                supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5)
+                supabase.from('QuadroAvisos').select('*').order('CriadoEm', { ascending: false }).limit(5),
+                supabase.from('ListasProducaoDia').select('*').eq('Data', today), // 13
+                supabase.from('PedidosCompra').select('*').eq('Status', 'Pendente'), // 14
+                supabase.from('ContasPagar').select('ValorTotal').gte('DataVencimento', nextMonthStart).lte('DataVencimento', nextMonthEnd).neq('Status', 'Pago'), // 15: Projeção Despesa
+                supabase.from('ContasReceber').select('ValorTotal').gte('DataVencimento', nextMonthStart).lte('DataVencimento', nextMonthEnd).neq('Status', 'Recebido'), // 16: Projeção Receita
+                supabase.from('production_plans').select('*').eq('planning_date', today), // 17: Planejamento Hoje
+                supabase.from('ControleDesperdicio').select('*').gte('Data', startOfPeriod), // 18: Desperdício Mês
+                supabase.from('Frequencia').select('*').eq('Data', today), // 19: Equipe Hoje
+                supabase.from('MovimentacoesEstoque').select('*, Estoque(Nome, Fornecedor, CustoUnitario)').gte('Data', today + 'T00:00:00').lte('Data', today + 'T23:59:59'), // 20: Movimentações Hoje (Entrada/Saida)
+                supabase.from('MLPain_Registros').select('*').eq('Data', today) // 21: Dietas Hoje
             ];
 
             const results = await Promise.allSettled(queries);
@@ -1109,24 +1281,36 @@ export const handler = async (event) => {
             };
 
             const totalClientes = getCount(0);
-            const totalProdutos = getCount(1);
+            const totalReceitas = getCount(1); // Fichas Técnicas
             const totalFuncionarios = getCount(2);
             const totalFornecedores = getCount(3);
             const financas = getVal(4);
             const aniversariantes = getVal(5);
             const ferias = getVal(6);
-            const estoqueBaixo = getVal(7);
+            const todosProdutos = getVal(7); // Renomeado para clareza (contém todos os itens)
             const eventosProximos = getVal(8);
             const refeicoesData = getVal(9);
             // RPC retorna valor escalar em 'data', não array
             const totalRefeicoes = (results[10].status === 'fulfilled' && !results[10].value.error) ? (results[10].value.data || 0) : 0;
             const ordensPendentes = getVal(11);
             const quadroAvisos = getVal(12);
-            const pratos = getVal(1); // CORREÇÃO: Definindo a variável pratos que estava faltando
+            const listasDia = getVal(13);
+            const pedidosCompra = getVal(14);
+            const contasPagarProj = getVal(15);
+            const contasReceberProj = getVal(16);
+            const productionPlansToday = getVal(17);
+            const desperdicio = getVal(18);
+            const frequenciaHoje = getVal(19);
+            const movimentacoesHoje = getVal(20);
+            const dietasHoje = getVal(21);
+            const pratos = getVal(1); 
+            const totalProdutos = todosProdutos.length; // Contagem real do estoque
 
             // Processamento Financeiro (DRE e KPIs)
             let receitaMensal = 0, despesaMensal = 0, aReceberHoje = 0, aPagarHoje = 0;
             let receitaBruta = 0, impostos = 0, cmv = 0, despOp = 0;
+            let receitaDia = 0, despesaComprasDia = 0;
+
             const despesasMap = {};
 
             financas.forEach(f => {
@@ -1143,10 +1327,15 @@ export const handler = async (event) => {
                 if (f.Tipo === 'Receita') {
                     if (isMonth) { receitaMensal += val; receitaBruta += val; }
                     if (isToday && f.Status === 'Pendente') aReceberHoje += val;
+                    if (isToday) receitaDia += val;
                 } else if (f.Tipo === 'Despesa') {
                     if (isMonth) { despesaMensal += val; }
                     if (isToday && f.Status === 'Pendente') aPagarHoje += val;
                     
+                    if (isToday && (f.Categoria === 'Compras' || f.Categoria === 'Fornecedores' || f.Categoria === 'Estoque')) {
+                        despesaComprasDia += val;
+                    }
+
                     if (isMonth) {
                         const cat = f.Categoria || 'Outros';
                         despesasMap[cat] = (despesasMap[cat] || 0) + val;
@@ -1162,12 +1351,37 @@ export const handler = async (event) => {
             // Filtros de Monitoramento
             const month = new Date().getMonth() + 1;
             const day = new Date().getDate();
+            
+            // Helper para cálculo de dias faltantes
+            const getDaysUntilBirthday = (birthDate) => {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const bday = new Date(birthDate);
+                bday.setFullYear(today.getFullYear());
+                if (bday < today) bday.setFullYear(today.getFullYear() + 1);
+                const diffTime = bday - today;
+                return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            };
+
             const aniversariantesDia = aniversariantes.filter(f => {
                 if(!f.Nascimento) return false;
                 const d = new Date(f.Nascimento);
                 return (d.getMonth() + 1) === month && (d.getDate()) === day;
             });
             
+            const aniversariantesMes = aniversariantes.filter(f => {
+                if(!f.Nascimento) return false;
+                const d = new Date(f.Nascimento);
+                return (d.getMonth() + 1) === month;
+            }).sort((a, b) => new Date(a.Nascimento).getDate() - new Date(b.Nascimento).getDate());
+
+            const aniversariantesProximos = aniversariantes.map(f => {
+                if(!f.Nascimento) return null;
+                const days = getDaysUntilBirthday(f.Nascimento);
+                if (days > 0 && days <= 7) return { ...f, diasFaltam: days };
+                return null;
+            }).filter(f => f !== null).sort((a,b) => a.diasFaltam - b.diasFaltam);
+
             const jubileuDia = aniversariantes.filter(f => {
                 if(!f.Admissao) return false;
                 const d = new Date(f.Admissao);
@@ -1183,7 +1397,16 @@ export const handler = async (event) => {
                 return diff <= 30; // Vencendo em 30 dias ou vencido
             }).map(f => ({ ...f, Dias: Math.ceil((new Date(f.ValidadeBI) - new Date()) / (1000 * 60 * 60 * 24)) }));
 
-            const estoqueCritico = estoqueBaixo.filter(e => e.Quantidade <= e.Minimo);
+            // Processamento de Estoque
+            const estoqueCritico = todosProdutos.filter(e => Number(e.Quantidade) <= Number(e.Minimo));
+            
+            const estoqueVencendo = todosProdutos.filter(e => {
+                if(!e.Validade) return false;
+                const val = new Date(e.Validade);
+                const now = new Date();
+                const diff = Math.ceil((val - now) / (1000 * 60 * 60 * 24));
+                return diff <= 30; // Vencendo em 30 dias ou vencido
+            });
 
             // Dados para Gráfico de Departamentos (RH)
             const deptMap = {};
@@ -1191,6 +1414,12 @@ export const handler = async (event) => {
                 const dept = f.Departamento || 'Sem Departamento';
                 deptMap[dept] = (deptMap[dept] || 0) + 1;
             });
+
+            // Processamento Movimentações Hoje
+            const entradasHoje = movimentacoesHoje.filter(m => m.Tipo === 'Entrada');
+            const saidasHoje = movimentacoesHoje.filter(m => m.Tipo === 'Saida');
+            // Custo de Produção Estimado (Baseado nas saídas de estoque do dia)
+            const custoProducaoDia = saidasHoje.reduce((acc, m) => acc + (Number(m.Quantidade) * Number(m.Estoque?.CustoUnitario || 0)), 0);
 
             // Dados para Gráficos
             // 1. Tendência Financeira (Últimos 6 meses)
@@ -1251,6 +1480,16 @@ export const handler = async (event) => {
                     receitas: sortedKeys.map(k => finMap[k].r),
                     despesas: sortedKeys.map(k => finMap[k].d)
                 };
+
+                // Adiciona Projeção do Próximo Mês ao Gráfico
+                const projReceita = contasReceberProj.reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+                const projDespesa = contasPagarProj.reduce((acc, c) => acc + Number(c.ValorTotal), 0);
+                
+                if (projReceita > 0 || projDespesa > 0) {
+                    chartFin.labels.push(months[nextMonthDate.getMonth()] + ' (Proj.)');
+                    chartFin.receitas.push(projReceita);
+                    chartFin.despesas.push(projDespesa);
+                }
             }
 
             // 1.2 Lucratividade Anual (Últimos 12 meses)
@@ -1270,6 +1509,7 @@ export const handler = async (event) => {
             // 3. Refeições Servidas (Últimos 7 dias)
             const refMap = {};
             // Inicializa os últimos 7 dias com 0
+            let refeicoesHoje = 0;
             for(let i=6; i>=0; i--) {
                 const d = new Date();
                 d.setDate(d.getDate() - i);
@@ -1278,14 +1518,23 @@ export const handler = async (event) => {
             }
             refeicoesData.forEach(r => {
                 const d = r.Data; // RPC já retorna data formatada ou objeto Date dependendo do driver, mas string ISO é padrão
-                if(refMap[d] !== undefined) refMap[d] += Number(r.Quantidade);
+                if(refMap[d] !== undefined) {
+                    refMap[d] += Number(r.Quantidade);
+                    if (d === today) refeicoesHoje = Number(r.Quantidade);
+                }
             });
 
             result = {
                 kpis: {
                     receitaMensal, despesaMensal, lucroLiquido: receitaMensal - despesaMensal,
                     aReceberHoje, aPagarHoje,
-                    totalProdutos, totalClientes, totalFuncionarios, totalFornecedores, totalRefeicoes
+                    financeiroDia: {
+                        receita: receitaDia,
+                        despesaCompras: despesaComprasDia,
+                        custoProducao: custoProducaoDia,
+                        lucroEstimado: receitaDia - (despesaComprasDia + custoProducaoDia) // Simplificado
+                    },
+                    totalProdutos, totalReceitas, totalClientes, totalFuncionarios, totalFornecedores, totalRefeicoes
                 },
                 dre: {
                     receitaBruta, impostos, receitaLiquida: receitaBruta - impostos,
@@ -1294,13 +1543,24 @@ export const handler = async (event) => {
                 },
                 monitoramento: {
                     aniversariantes: aniversariantesDia,
+                    aniversariantesMes: aniversariantesMes,
+                    aniversariantesProximos: aniversariantesProximos,
                     jubileu: jubileuDia,
                     validadeBI: validadeBI,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
-                    estoqueBaixo: estoqueCritico,
+                    estoqueBaixo: estoqueCritico, // Apenas os críticos
+                    estoqueVencendo: estoqueVencendo, // Apenas os vencendo
                     eventos: eventosProximos,
                     ordensProducao: ordensPendentes,
-                    avisos: quadroAvisos
+                    avisos: quadroAvisos,
+                    listasDia: listasDia,
+                    pedidosCompra: pedidosCompra,
+                    productionPlans: productionPlansToday,
+                    desperdicio: desperdicio,
+                    frequencia: frequenciaHoje,
+                    refeicoesHoje: refeicoesHoje,
+                    entradasHoje: entradasHoje,
+                    dietasHoje: dietasHoje
                 },
                 charts: {
                     financeiro: chartFin,
@@ -1447,17 +1707,37 @@ export const handler = async (event) => {
 
         } else if (action === 'getDailyProductionLists') {
             // Busca as 4 listas de um dia específico
-            const { date } = data;
+            const { date } = data || {};
+            if (!date) throw new Error('Data obrigatória para buscar listas.');
+
             const { data: lists, error } = await supabase.from('ListasProducaoDia').select('*').eq('Data', date);
+            if (error) throw error;
+            result = lists;
+
+        } else if (action === 'getProductionHistory') {
+            // Histórico de itens enviados para produção (Itens Recebidos pela Cozinha)
+            const { startDate, endDate } = data;
+            const { data: lists, error } = await supabase
+                .from('ListasProducaoDia')
+                .select('*')
+                .eq('Status', 'Enviado')
+                .gte('Data', startDate)
+                .lte('Data', endDate)
+                .order('Data', { ascending: false });
             if (error) throw error;
             result = lists;
 
         } else if (action === 'saveDailyProductionList') {
             // Salva ou Atualiza uma lista (Rascunho)
-            const { Data, Categoria, ItensJSON } = data;
+            const { ID, Data, Categoria, ItensJSON, Prato } = data;
+            
+            const payload = { Data, Categoria, ItensJSON, Status: 'Rascunho' };
+            if (Prato !== undefined) payload.Prato = Prato; // Salva o nome do prato se enviado
+            if (ID) payload.ID = ID; // Garante que o ID seja usado se existir para update correto
+
             const { data: saved, error } = await supabase
                 .from('ListasProducaoDia')
-                .upsert({ Data, Categoria, ItensJSON, Status: 'Rascunho' }, { onConflict: 'Data,Categoria' })
+                .upsert(payload, { onConflict: 'Data,Categoria' })
                 .select();
             if (error) throw error;
             result = saved;

@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 -- Esta função cria tabelas novas com a data do dia (Ex: Backup_Estoque_2023_10_25)
 CREATE OR REPLACE FUNCTION backup_rotina_diaria() RETURNS void AS $$
 DECLARE
-    data_txt text := to_char(now(), 'YYYY_MM_DD');
+    data_txt text := to_char(now() AT TIME ZONE 'America/Sao_Paulo', 'YYYY_MM_DD');
     tabela text;
     -- Lista completa de tabelas para backup diário
     tabelas text[] := ARRAY[
@@ -24,92 +24,119 @@ DECLARE
         'MLPain_Registros', 'Tarefas', 'ChecklistLimpeza', 'Ferias', 'Frequencia', 
         'Folha', 'PedidosCompra', 'ItensPedidoCompra', 'ContasPagar', 'ContasReceber'
     ];
+    -- Variáveis para limpeza de backups antigos
+    r record;
+    data_backup date;
+    data_limite date := current_date - 7; -- Mantém apenas os últimos 7 dias
 BEGIN
+    -- 1. CRIAR NOVOS BACKUPS
     FOREACH tabela IN ARRAY tabelas LOOP
         IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = tabela AND table_schema = 'public') THEN
             EXECUTE format('CREATE TABLE IF NOT EXISTS %I AS SELECT * FROM %I', 'Backup_' || tabela || '_' || data_txt, tabela);
         END IF;
+    END LOOP;
+
+    -- 2. LIMPAR BACKUPS ANTIGOS (Rotina de Retenção)
+    FOR r IN 
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name LIKE 'Backup_%'
+    LOOP
+        BEGIN
+            -- Tenta extrair a data do nome da tabela (formato esperado: ..._YYYY_MM_DD)
+            data_backup := to_date(right(r.table_name, 10), 'YYYY_MM_DD');
+            
+            -- Se a data do backup for mais antiga que o limite, apaga a tabela
+            IF data_backup < data_limite THEN
+                EXECUTE format('DROP TABLE IF EXISTS %I', r.table_name);
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            -- Ignora tabelas que não tenham data no nome ou formato inválido
+            CONTINUE;
+        END;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
 -- 3. Agendar a Tarefa
 -- Formato Cron: minuto hora dia mes dia_semana
--- Exemplo: '0 3 * * *' = Todo dia às 03:00 da manhã (Horário UTC)
-SELECT cron.schedule('backup_diario_delicia', '0 3 * * *', 'SELECT backup_rotina_diaria()');
+-- Ajustado para 04:00 UTC (01:00 Horário de Brasília) para garantir que o dia acabou
+SELECT cron.schedule('backup_diario_delicia', '0 4 * * *', 'SELECT backup_rotina_diaria()');
 
 -- COMANDOS ÚTEIS:
 -- Ver agendamentos: SELECT * FROM cron.job;
 -- Remover agendamento: SELECT cron.unschedule('backup_diario_delicia');
 
-
 -- ==============================================================================
--- PARTE 2: AUTOMAÇÃO DE FALTAS (ROTINA INTELIGENTE)
+-- PARTE 2: PROCESSAMENTO DE PRESENÇA (ERP REAL)
 -- ==============================================================================
+-- Esta função roda diariamente para calcular o status final do dia anterior.
+-- Regras:
+-- 1. Verifica se estava escalado.
+-- 2. Se não bateu ponto e não tem justificativa/férias -> FALTA.
+-- 3. Se bateu ponto > 08:15 -> ATRASO.
 
--- Função que verifica quem faltou ontem e insere na tabela de Licenças/Ausências
-CREATE OR REPLACE FUNCTION rotina_marcar_faltas() RETURNS void AS $$
+CREATE OR REPLACE FUNCTION processar_presenca_diaria() RETURNS void AS $$
 DECLARE
-    funcionario record;
-    ultima_freq record;
-    escala_dia record;
-    data_ontem date := current_date - 1; -- Verifica sempre o dia anterior
-    dias_desde_ultimo int;
+    func record;
+    escala_item record;
+    freq_item record;
+    data_proc date := (now() AT TIME ZONE 'America/Sao_Paulo')::date - 1; -- Processa o dia de ontem
     dia_semana int;
+    esta_escalado boolean;
+    horario_limite time := '08:15:00'; -- 08:00 + 15min tolerância
 BEGIN
-    -- Percorre todos os funcionários ativos
-    FOR funcionario IN SELECT * FROM "Funcionarios" WHERE "Status" = 'Ativo' LOOP
+    -- 1=Segunda ... 7=Domingo (ISO)
+    dia_semana := EXTRACT(ISODOW FROM data_proc);
+
+    FOR func IN SELECT * FROM "Funcionarios" WHERE "Status" = 'Ativo' LOOP
+        esta_escalado := false;
+
+        -- 1. VERIFICAR SE ESTAVA ESCALADO
+        SELECT * INTO escala_item FROM "Escala" WHERE "FuncionarioID" = func."ID" AND "DiaSemana" = dia_semana;
         
-        -- 1. Verifica se trabalhou ontem (Se tem registro em Frequencia)
-        PERFORM 1 FROM "Frequencia" WHERE "FuncionarioID" = funcionario."ID" AND "Data" = data_ontem;
+        IF FOUND THEN
+            IF escala_item."Tipo" = 'Trabalho' OR escala_item."Tipo" = 'Turno' THEN
+                esta_escalado := true;
+            END IF;
+        ELSE
+            -- Fallback: Se não tem escala específica, assume Diarista (Seg-Sex)
+            IF func."Turno" = 'Diarista' AND dia_semana BETWEEN 1 AND 5 THEN
+                esta_escalado := true;
+            END IF;
+        END IF;
+
+        -- Se não estava escalado, ignora (Folga)
+        IF NOT esta_escalado THEN CONTINUE; END IF;
+
+        -- 2. VERIFICAR SE ESTÁ EM FÉRIAS OU LICENÇA (Exceções)
+        PERFORM 1 FROM "Ferias" WHERE "FuncionarioID" = func."ID" AND "Status" = 'Aprovado' AND data_proc BETWEEN "DataInicio" AND "DataFim";
+        IF FOUND THEN CONTINUE; END IF;
+
+        PERFORM 1 FROM "Licencas" WHERE "FuncionarioID" = func."ID" AND (data_proc = "DataFalta" OR data_proc BETWEEN "Inicio" AND "Retorno");
+        IF FOUND THEN CONTINUE; END IF;
+
+        -- 3. VERIFICAR REGISTRO DE PONTO
+        SELECT * INTO freq_item FROM "Frequencia" WHERE "FuncionarioID" = func."ID" AND "Data" = data_proc;
         
-        -- Se NÃO achou registro de trabalho E NÃO tem licença/atestado cadastrado para a data
-        IF NOT FOUND THEN
-            PERFORM 1 FROM "Licencas" WHERE "FuncionarioID" = funcionario."ID" AND ("DataFalta" = data_ontem OR (data_ontem BETWEEN "Inicio" AND "Retorno"));
-            
-            IF NOT FOUND THEN
-                dia_semana := extract(isodow from data_ontem); -- 1=Seg, 6=Sab, 7=Dom
-                
-                -- 3. Verifica Tabela de Escala (Prioridade Máxima)
-                SELECT * INTO escala_dia FROM "Escala" WHERE "FuncionarioID" = funcionario."ID" AND "DiaSemana" = dia_semana;
-                
-                IF escala_dia."Tipo" IS NOT NULL THEN
-                    -- Se tem escala definida explicitamente, segue a regra
-                    IF escala_dia."Tipo" = 'Trabalho' THEN
-                        INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
-                        VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Escala Definida)');
-                    END IF;
-                    -- Se for 'Folga', não faz nada.
-                
+        IF FOUND THEN
+            -- Se registrou entrada, verifica atraso (se status ainda não foi definido manualmente)
+            IF freq_item."Entrada" IS NOT NULL AND (freq_item."Status" IS NULL OR freq_item."Status" = 'Presente') THEN
+                IF freq_item."Entrada" > horario_limite THEN
+                    UPDATE "Frequencia" SET "Status" = 'Atraso' WHERE "ID" = freq_item."ID";
                 ELSE
-                    -- 4. Fallback para Regras Padrão (Se não tiver escala definida)
-                    
-                    -- LÓGICA PARA DIARISTAS (Padrão Comercial Seg-Sex)
-                    IF funcionario."Turno" = 'Diarista' THEN
-                        -- Se for dia de semana (1 a 5), marca falta.
-                        IF dia_semana BETWEEN 1 AND 5 THEN
-                            INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
-                            VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Padrão Diarista)');
-                        END IF;
-                    
-                    -- LÓGICA PARA TURNO 24H (Trabalha 1, Folga 2) -> Ciclo de 3 dias
-                    ELSIF funcionario."Turno" = 'Regime de Turno' THEN
-                        SELECT "Data" INTO ultima_freq FROM "Frequencia" WHERE "FuncionarioID" = funcionario."ID" ORDER BY "Data" DESC LIMIT 1;
-                        
-                        IF ultima_freq."Data" IS NOT NULL THEN
-                            dias_desde_ultimo := data_ontem - ultima_freq."Data";
-                            IF dias_desde_ultimo >= 3 THEN
-                                 INSERT INTO "Licencas" ("FuncionarioID", "FuncionarioNome", "Tipo", "DataFalta", "ObsFalta")
-                                 VALUES (funcionario."ID", funcionario."Nome", 'Ausência Não Justificada', data_ontem, 'Falta automática (Ciclo 24/48)');
-                            END IF;
-                        END IF;
-                    END IF;
+                    UPDATE "Frequencia" SET "Status" = 'Presente' WHERE "ID" = freq_item."ID";
                 END IF;
             END IF;
+        ELSE
+            -- Não registrou ponto e estava escalado -> FALTA
+            INSERT INTO "Frequencia" ("FuncionarioID", "FuncionarioNome", "Data", "Status", "Observacoes")
+            VALUES (func."ID", func."Nome", data_proc, 'Falta', 'Falta automática (Não compareceu)');
         END IF;
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Agendar para rodar todo dia à 01:00 da manhã
-SELECT cron.schedule('rotina_faltas_diaria', '0 1 * * *', 'SELECT rotina_marcar_faltas()');
+SELECT cron.schedule('rotina_presenca_erp', '0 4 * * *', 'SELECT processar_presenca_diaria()');

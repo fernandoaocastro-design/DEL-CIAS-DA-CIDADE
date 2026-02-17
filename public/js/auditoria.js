@@ -6,6 +6,15 @@ const AuditoriaModule = {
 
     init: () => {
         AuditoriaModule.fetchData();
+        AuditoriaModule.updateHeaderPhoto();
+    },
+
+    updateHeaderPhoto: () => {
+        const user = JSON.parse(localStorage.getItem('user'));
+        const img = document.getElementById('user-photo'); 
+        if (user && user.FotoURL && img) {
+            img.src = user.FotoURL;
+        }
     },
 
     fetchData: async () => {

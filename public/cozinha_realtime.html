@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Cozinha - Realtime</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* Animação para novos pedidos */
+        @keyframes slideIn {
+            from { transform: translateY(-20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .new-order { animation: slideIn 0.5s ease-out; border-left: 5px solid #3B82F6; }
+        .status-pendente { background-color: #EFF6FF; border-color: #3B82F6; }
+        .status-producao { background-color: #FEFCE8; border-color: #F59E0B; }
+        .status-concluida { background-color: #F0FDF4; border-color: #22C55E; opacity: 0.7; }
+        
+        /* Scrollbar customizada para fundo escuro */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+    </style>
+</head>
+<body class="bg-gray-900 font-sans h-screen overflow-hidden text-white">
+    
+    <!-- Header -->
+    <header class="bg-gray-800 p-4 shadow-md flex justify-between items-center border-b border-gray-700">
+        <div class="flex items-center gap-4">
+            <a href="dashboard.html" class="text-gray-400 hover:text-white"><i class="fas fa-arrow-left"></i></a>
+            <h1 class="text-2xl font-bold text-yellow-500"><i class="fas fa-fire-burner mr-2"></i> KDS - Kitchen Display System</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <button id="btn-sound" onclick="document.getElementById('sound-new').play().catch(()=>{}); this.classList.add('hidden')" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-gray-300">
+                <i class="fas fa-volume-up mr-1"></i> Ativar Som
+            </button>
+            <div id="connection-status" class="flex items-center gap-2 text-xs text-red-500">
+                <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div> Desconectado
+            </div>
+            <div class="text-xl font-mono" id="clock">--:--</div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="p-4 h-[calc(100vh-80px)] overflow-hidden flex gap-4">
+        
+        <!-- Coluna: Pendentes -->
+        <div class="flex-1 flex flex-col bg-gray-800 rounded-lg border border-gray-700">
+            <div class="p-3 bg-blue-900/50 border-b border-gray-700 font-bold text-blue-200 flex justify-between">
+                <span><i class="fas fa-clock mr-2"></i> AGUARDANDO PREPARO</span>
+                <span id="count-pendente" class="bg-blue-600 text-white px-2 rounded text-xs flex items-center">0</span>
+            </div>
+            <div id="list-pendente" class="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
+                <!-- Cards injetados via JS -->
+            </div>
+        </div>
+
+        <!-- Coluna: Em Produção -->
+        <div class="flex-1 flex flex-col bg-gray-800 rounded-lg border border-gray-700">
+            <div class="p-3 bg-yellow-900/50 border-b border-gray-700 font-bold text-yellow-200 flex justify-between">
+                <span><i class="fas fa-fire mr-2"></i> EM PRODUÇÃO</span>
+                <span id="count-producao" class="bg-yellow-600 text-white px-2 rounded text-xs flex items-center">0</span>
+            </div>
+            <div id="list-producao" class="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
+                <!-- Cards injetados via JS -->
+            </div>
+        </div>
+
+        <!-- Coluna: Prontos / Histórico Recente -->
+        <div class="w-1/4 flex flex-col bg-gray-800 rounded-lg border border-gray-700 opacity-80">
+            <div class="p-3 bg-green-900/50 border-b border-gray-700 font-bold text-green-200 flex justify-between">
+                <span><i class="fas fa-check-circle mr-2"></i> PRONTOS (Hoje)</span>
+                <span id="count-concluido" class="bg-green-600 text-white px-2 rounded text-xs flex items-center">0</span>
+            </div>
+            <div id="list-concluido" class="flex-1 overflow-y-auto p-2 space-y-3 custom-scrollbar">
+                <!-- Cards injetados via JS -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Sons -->
+    <audio id="sound-new" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"></audio>
+
+    <script src="js/utils.js"></script>
+    <script src="js/cozinha_realtime.js"></script>
+</body>
+</html>

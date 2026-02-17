@@ -266,7 +266,10 @@ const ProducaoModule = {
                     <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                         <div class="bg-blue-600 text-white p-3 font-bold flex justify-between items-center">
                             <span>🍽️ Prato Principal</span>
-                            <span class="text-xs bg-blue-700 px-2 py-1 rounded">Meta: ${plan.meta_solid}</span>
+                            <div class="flex items-center gap-2">
+                                <button onclick="ProducaoModule.printDishProduction('${plan.id}', 'solidos')" class="text-white hover:text-blue-200 transition" title="Imprimir Prato"><i class="fas fa-print"></i></button>
+                                <span class="text-xs bg-blue-700 px-2 py-1 rounded">Meta: ${plan.meta_solid}</span>
+                            </div>
                         </div>
                         <div class="p-4">
                             <h4 class="font-bold text-lg text-gray-800 mb-2">${solidos.prato || 'Não definido'}</h4>
@@ -424,15 +427,20 @@ const ProducaoModule = {
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
                     ${fichas.map(f => `
-                        <div class="border rounded p-3 hover:shadow-md transition cursor-pointer bg-gray-50" onclick="ProducaoModule.modalFicha('${f.ID}')">
-                            <div class="flex justify-between items-start mb-2">
-                                <h4 class="font-bold text-gray-800">${f.Nome}</h4>
-                                <span class="text-xs bg-white border px-2 py-1 rounded text-gray-600">${f.Categoria || 'Geral'}</span>
+                        <div class="border rounded p-3 hover:shadow-md transition bg-gray-50 relative group">
+                            <div class="absolute top-2 right-2 z-10">
+                                <button onclick="event.stopPropagation(); ProducaoModule.printRecipe('${f.ID}')" class="text-gray-400 hover:text-blue-600 bg-white rounded-full p-1.5 shadow border border-gray-200 transition" title="Imprimir Ficha"><i class="fas fa-print"></i></button>
                             </div>
-                            <div class="text-xs text-gray-500 space-y-1">
-                                <p><i class="fas fa-clock w-4 text-center"></i> ${f.TempoPreparo || '-'}</p>
-                                <p><i class="fas fa-utensils w-4 text-center"></i> Rendimento: ${f.Rendimento || 0}</p>
-                                <p><i class="fas fa-coins w-4 text-center"></i> Custo: ${Utils.formatCurrency(f.CustoPorPorcao)}</p>
+                            <div class="cursor-pointer" onclick="ProducaoModule.modalFicha('${f.ID}')">
+                                <div class="flex justify-between items-start mb-2 pr-8">
+                                    <h4 class="font-bold text-gray-800">${f.Nome}</h4>
+                                    <span class="text-xs bg-white border px-2 py-1 rounded text-gray-600">${f.Categoria || 'Geral'}</span>
+                                </div>
+                                <div class="text-xs text-gray-500 space-y-1">
+                                    <p><i class="fas fa-clock w-4 text-center"></i> ${f.TempoPreparo || '-'}</p>
+                                    <p><i class="fas fa-utensils w-4 text-center"></i> Rendimento: ${f.Rendimento || 0}</p>
+                                    <p><i class="fas fa-coins w-4 text-center"></i> Custo: ${Utils.formatCurrency(f.CustoPorPorcao)}</p>
+                                </div>
                             </div>
                         </div>
                     `).join('')}
@@ -1626,6 +1634,130 @@ const ProducaoModule = {
             Utils.closeModal();
             ProducaoModule.fetchData();
         } catch (err) { Utils.toast('Erro: ' + err.message, 'error'); }
+    },
+
+    printDishProduction: (planId, type) => {
+        const plan = ProducaoModule.state.pedidosDia.find(p => p.id === planId);
+        if (!plan) return;
+        
+        const details = plan.production_details || {};
+        const item = details[type] || {}; // solidos, sopa, cha
+        const title = type === 'solidos' ? 'Prato Principal' : (type === 'sopa' ? 'Sopa' : 'Chá');
+        const dishName = type === 'solidos' ? (item.prato || 'Não definido') : (type === 'sopa' ? 'Sopa do Dia' : 'Chá do Dia');
+        const meta = type === 'solidos' ? plan.meta_solid : (type === 'sopa' ? plan.meta_soup : plan.meta_tea);
+        
+        const inst = ProducaoModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        let ingredientsHtml = '';
+        if (type === 'solidos') {
+            ingredientsHtml = `
+                <h3 class="font-bold border-b mb-2 pb-1">Ingredientes</h3>
+                <ul class="list-disc pl-5 text-sm">
+                    ${(item.ingredientes || []).map(i => `<li><b>${i.item}</b>: ${i.qtd}</li>`).join('')}
+                </ul>
+            `;
+        } else if (type === 'sopa') {
+             ingredientsHtml = `
+                <h3 class="font-bold border-b mb-2 pb-1">Ingredientes</h3>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    ${Object.entries(item).filter(([k,v]) => k!=='legumes' && v).map(([k,v]) => `<div><b>${k.charAt(0).toUpperCase() + k.slice(1)}:</b> ${v}</div>`).join('')}
+                </div>
+                ${item.legumes && item.legumes.length ? `<div class="mt-2"><b>Legumes:</b> ${item.legumes.join(', ')}</div>` : ''}
+             `;
+        } else {
+            ingredientsHtml = `
+                <h3 class="font-bold border-b mb-2 pb-1">Ingredientes</h3>
+                <p class="text-sm"><b>Erva:</b> ${item.erva || '-'}</p>
+                <p class="text-sm"><b>Açúcar:</b> ${item.acucar || '-'}</p>
+            `;
+        }
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white border-2 border-gray-800 max-w-2xl mx-auto">
+                <div class="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">FICHA DE PRODUÇÃO INDIVIDUAL</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <h2 class="text-xl font-bold">${title.toUpperCase()}</h2>
+                        <p class="text-sm font-bold">${Utils.formatDate(plan.planning_date)}</p>
+                    </div>
+                </div>
+
+                <div class="bg-gray-100 p-4 rounded mb-6 text-center">
+                    <h2 class="text-2xl font-bold text-gray-800">${dishName}</h2>
+                    <p class="text-sm text-gray-600 mt-1">Meta de Produção: <b>${meta}</b> porções</p>
+                </div>
+
+                <div class="mb-6">
+                    ${ingredientsHtml}
+                </div>
+
+                <div class="mt-12 border-t border-gray-800 pt-2 text-center text-xs text-gray-500">
+                    Documento de uso interno da cozinha.
+                </div>
+            </div>
+        `;
+        
+        Utils.printNative(html);
+    },
+
+    printRecipe: (id) => {
+        const ficha = ProducaoModule.state.cardapios.find(f => f.ID === id);
+        if (!ficha) return;
+        
+        const inst = ProducaoModule.state.instituicao[0] || {};
+        const showLogo = inst.ExibirLogoRelatorios;
+
+        const html = `
+            <div class="p-8 font-sans text-gray-900 bg-white border-2 border-gray-800 max-w-2xl mx-auto">
+                <div class="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
+                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
+                        <div>
+                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
+                            <p class="text-sm">FICHA TÉCNICA DE PREPARAÇÃO</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-6">
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">${ficha.Nome}</h1>
+                    <div class="flex gap-4 text-sm text-gray-600">
+                        <span class="bg-gray-100 px-2 py-1 rounded">Categoria: <b>${ficha.Categoria || 'Geral'}</b></span>
+                        <span class="bg-gray-100 px-2 py-1 rounded">Rendimento: <b>${ficha.Rendimento || '-'}</b></span>
+                        <span class="bg-gray-100 px-2 py-1 rounded">Tempo: <b>${ficha.TempoPreparo || '-'}</b></span>
+                    </div>
+                </div>
+                
+                ${ficha.IngredientesJSON ? `
+                <div class="mb-6">
+                    <h3 class="font-bold border-b border-gray-400 mb-2 uppercase text-sm">Ingredientes</h3>
+                    <table class="w-full text-sm border-collapse">
+                        <thead class="bg-gray-50 text-left"><tr><th class="p-2 border">Item</th><th class="p-2 border w-24">Qtd</th></tr></thead>
+                        <tbody>
+                            ${(ficha.IngredientesJSON || []).map(i => `<tr><td class="p-2 border">${i.nome || i.item || 'Item'}</td><td class="p-2 border">${i.quantidade || i.qtd || ''}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                ` : ''}
+
+                <div class="mb-6">
+                    <h3 class="font-bold border-b border-gray-400 mb-2 uppercase text-sm">Modo de Preparo</h3>
+                    <p class="text-sm whitespace-pre-wrap">${ficha.ModoPreparo || 'Não cadastrado.'}</p>
+                </div>
+
+                <div class="mt-8 border-t border-gray-800 pt-2 text-center text-xs text-gray-500">
+                    Custo Estimado: ${Utils.formatCurrency(ficha.CustoPorPorcao)}
+                </div>
+            </div>
+        `;
+        Utils.printNative(html);
     }
 };
 

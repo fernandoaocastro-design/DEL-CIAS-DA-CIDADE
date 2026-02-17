@@ -26,15 +26,15 @@ ALTER TABLE "ParametrosCozinha" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ParametrosEstoque" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ParametrosFinanceiro" ENABLE ROW LEVEL SECURITY;
 
--- 3. Criar Políticas de Acesso (Liberar para a API)
+-- 3. Criar Políticas de Acesso (Restrito ao Service Role/Backend)
 DROP POLICY IF EXISTS "Acesso API ParametrosCozinha" ON "ParametrosCozinha";
-CREATE POLICY "Acesso API ParametrosCozinha" ON "ParametrosCozinha" FOR ALL USING (true);
+CREATE POLICY "Acesso API ParametrosCozinha" ON "ParametrosCozinha" TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Acesso API ParametrosEstoque" ON "ParametrosEstoque";
-CREATE POLICY "Acesso API ParametrosEstoque" ON "ParametrosEstoque" FOR ALL USING (true);
+CREATE POLICY "Acesso API ParametrosEstoque" ON "ParametrosEstoque" TO service_role USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Acesso API ParametrosFinanceiro" ON "ParametrosFinanceiro";
-CREATE POLICY "Acesso API ParametrosFinanceiro" ON "ParametrosFinanceiro" FOR ALL USING (true);
+CREATE POLICY "Acesso API ParametrosFinanceiro" ON "ParametrosFinanceiro" TO service_role USING (true) WITH CHECK (true);
 
 -- 4. Atualizar Cache do Supabase
 NOTIFY pgrst, 'reload config';

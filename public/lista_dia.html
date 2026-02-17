@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configurações - Delícias da Cidade</title>
+    <title>Lista do Dia - Delícias da Cidade</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -20,8 +20,8 @@
             <main class="flex-1 overflow-y-auto bg-gray-50 p-8">
                 <header class="flex justify-between items-center mb-8">
                     <div>
-                        <h2 class="text-3xl font-bold text-gray-800">Configurações do Sistema</h2>
-                        <p class="text-gray-500">Gerencie parâmetros e acessos</p>
+                        <h2 class="text-3xl font-bold text-gray-800">Lista de Itens do Dia</h2>
+                        <p class="text-gray-500">Gestão de produção diária</p>
                     </div>
                     <div class="flex items-center gap-4">
                         <!-- User Profile Injected by Utils.renderUserProfile() -->
@@ -38,7 +38,7 @@
                 </div>
 
                 <!-- Content -->
-                <div id="config-content">
+                <div id="app-content">
                     <!-- Injected via JS -->
                     <div class="flex justify-center items-center h-64">
                         <i class="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
@@ -55,13 +55,27 @@
                 <h3 class="font-bold text-gray-800 text-lg" id="modal-title">Título</h3>
                 <button onclick="Utils.closeModal()" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-times text-xl"></i></button>
             </div>
-            <div class="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar" id="modal-body">
-                <!-- Content -->
-            </div>
+            <div class="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar" id="modal-body"></div>
         </div>
     </div>
 
     <script src="js/utils.js"></script>
-    <script src="js/configuracoes.js"></script>
+    <!-- Adicionado manipulador de erro (onerror) para diagnosticar falhas de arquivo -->
+    <script src="js/lista_dia.js" onerror="window.scriptLoadError = true; console.error('FALHA FATAL: O navegador não conseguiu carregar js/lista_dia.js');"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if(typeof DailyListModule !== 'undefined') {
+                DailyListModule.init();
+            } else {
+                const is404 = window.scriptLoadError;
+                const msg = is404 
+                    ? 'O arquivo <b>js/lista_dia.js</b> não foi encontrado (Erro 404).' 
+                    : 'O arquivo foi carregado, mas contém erros de sintaxe que impediram a execução.';
+                
+                console.error('Erro Crítico:', msg);
+                document.getElementById('app-content').innerHTML = `<div class="flex flex-col items-center justify-center h-64 text-red-600"><i class="fas fa-bug text-4xl mb-4"></i><h3 class="text-xl font-bold">Falha no Módulo</h3><p>${msg}</p><p class="text-sm mt-2 text-gray-500">Verifique o Console (F12) para detalhes.</p></div>`;
+            }
+        });
+    </script>
 </body>
 </html>

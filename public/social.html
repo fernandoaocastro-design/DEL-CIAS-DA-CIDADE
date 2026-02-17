@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Caso Social - Delícia da Cidade</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-100 font-sans h-screen overflow-hidden">
+    <div class="flex h-screen overflow-hidden">
+        <!-- SIDEBAR -->
+        <aside id="sidebar" class="w-64 bg-slate-950 text-white flex flex-col transition-all duration-300">
+            <!-- Injetado via JS -->
+        </aside>
+
+        <!-- CONTENT WRAPPER -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <main class="flex-1 overflow-y-auto bg-gray-50 p-8">
+            <header class="flex justify-between items-center mb-8">
+                <h2 class="text-3xl font-bold text-gray-800">Caso Social</h2>
+                <div class="header-user-area">
+                    <!-- Injetado via JS -->
+                </div>
+            </header>
+
+            <!-- Onde o JS vai injetar as tabelas e abas -->
+            <div id="social-content">
+                <div class="flex flex-col items-center justify-center h-64 text-blue-600">
+                    <i class="fas fa-spinner fa-spin text-5xl mb-4"></i>
+                    <p class="text-xl font-medium animate-pulse">Carregando dados...</p>
+                </div>
+            </div>
+            </main>
+
+            <footer class="bg-white border-t p-4 text-center text-xs text-gray-500">
+                &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
+            </footer>
+        </div>
+    </div>
+
+    <!-- MODAL -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto py-10">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative my-auto">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 class="text-xl font-bold text-gray-800" id="modal-title"></h3>
+                <button onclick="Utils.closeModal()" class="text-gray-500 hover:text-red-500 text-2xl">&times;</button>
+            </div>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- IFRAME DE IMPRESSÃO -->
+    <iframe id="print-iframe" style="position:fixed; right:0; bottom:0; width:0; height:0; border:0;"></iframe>
+
+    <script src="js/utils.js"></script>
+    <script src="js/social.js"></script>
+</body>
+</html>

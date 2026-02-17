@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meu Perfil - Delícia da Cidade</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 font-sans h-screen overflow-hidden">
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="bg-slate-900 text-white w-64 flex-shrink-0 transition-all duration-300 flex flex-col">
+            <!-- O conteúdo será injetado via utils.js (RenderSidebar) -->
+        </aside>
+
+        <!-- Content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <main class="flex-1 overflow-y-auto bg-gray-50 p-8">
+                <header class="flex justify-between items-center mb-8">
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-800">Meu Perfil</h2>
+                        <p class="text-gray-500">Gerencie suas informações pessoais e segurança</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <!-- User Profile Injected by Utils.renderUserProfile() -->
+                    </div>
+                </header>
+
+                <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-md overflow-hidden">
+                    <div class="p-8">
+                        <form id="profile-form" onsubmit="Utils.handleUpdateProfile(event)">
+                            <input type="hidden" name="id" id="user-id">
+                            
+                            <div class="flex flex-col items-center mb-8">
+                                <div class="relative w-32 h-32 mb-4">
+                                    <img id="profile-preview" src="" class="w-32 h-32 rounded-full object-cover border-4 border-gray-100 shadow-sm">
+                                    <label for="profile-upload" class="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700 shadow-md transition-transform hover:scale-110">
+                                        <i class="fas fa-camera"></i>
+                                    </label>
+                                    <input type="file" id="profile-upload" accept="image/*" class="hidden" onchange="Utils.previewProfileImage(this)">
+                                </div>
+                                <h3 class="text-xl font-bold text-gray-800" id="user-name-display"></h3>
+                                <p class="text-gray-500" id="user-role-display"></p>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-2">Nome Completo</label>
+                                    <input name="nome" id="user-nome" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" required>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-2">Email</label>
+                                    <input name="email" id="user-email" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-8">
+                                <label class="block text-sm font-bold text-gray-700 mb-2">Assinatura Digital (Cargo/Função)</label>
+                                <input name="assinatura" id="user-assinatura" class="w-full border border-gray-300 p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Ex: Gerente de Produção">
+                            </div>
+
+                            <div class="border-t pt-6 mb-6">
+                                <h4 class="text-lg font-bold text-gray-800 mb-4 flex items-center"><i class="fas fa-shield-alt text-blue-600 mr-2"></i> Segurança</h4>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-bold text-gray-700 mb-2">Senha Atual <span class="text-red-500">*</span></label>
+                                        <input type="password" name="senhaAtual" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" required placeholder="Necessário para salvar alterações">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold text-gray-700 mb-2">Nova Senha (Opcional)</label>
+                                        <input type="password" name="novaSenha" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" placeholder="Deixe em branco para manter a atual">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-end gap-4">
+                                <button type="button" onclick="history.back()" class="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition">Cancelar</button>
+                                <button type="submit" class="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg hover:shadow-xl transition transform hover:-translate-y-0.5">Salvar Alterações</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal Container (Necessário para Utils.js) -->
+    <div id="modal-container" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg mx-4 overflow-hidden transform transition-all scale-95 opacity-0">
+            <div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center"><h3 class="font-bold text-gray-800 text-lg" id="modal-title">Título</h3><button onclick="Utils.closeModal()" class="text-gray-400 hover:text-red-500 transition"><i class="fas fa-times text-xl"></i></button></div><div class="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar" id="modal-body"></div>
+        </div>
+    </div>
+
+    <script src="js/utils.js"></script>
+    <script>document.addEventListener('DOMContentLoaded',()=>{const user=Utils.getUser();if(user){document.getElementById('user-id').value=user.ID||'';document.getElementById('user-nome').value=user.Nome||'';document.getElementById('user-email').value=user.Email||'';document.getElementById('user-assinatura').value=user.Assinatura||'';document.getElementById('user-name-display').textContent=user.Nome||'Usuário';document.getElementById('user-role-display').textContent=user.Cargo||'';const avatarUrl=user.FotoURL||`https://ui-avatars.com/api/?name=${encodeURIComponent(user.Nome||'User')}&background=random&color=fff&size=128`;document.getElementById('profile-preview').src=avatarUrl;}});</script>
+</body>
+</html>
