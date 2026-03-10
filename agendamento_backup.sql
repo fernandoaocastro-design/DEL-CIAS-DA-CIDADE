@@ -84,17 +84,36 @@ DECLARE
     freq_item record;
     data_proc date := (now() AT TIME ZONE 'America/Sao_Paulo')::date - 1; -- Processa o dia de ontem
     dia_semana int;
+    semana_mes int;
     esta_escalado boolean;
     horario_limite time := '08:15:00'; -- 08:00 + 15min tolerância
 BEGIN
     -- 1=Segunda ... 7=Domingo (ISO)
     dia_semana := EXTRACT(ISODOW FROM data_proc);
+    semana_mes := LEAST(4, FLOOR((EXTRACT(DAY FROM data_proc) - 1) / 7)::int + 1);
 
     FOR func IN SELECT * FROM "Funcionarios" WHERE "Status" = 'Ativo' LOOP
         esta_escalado := false;
 
         -- 1. VERIFICAR SE ESTAVA ESCALADO
-        SELECT * INTO escala_item FROM "Escala" WHERE "FuncionarioID" = func."ID" AND "DiaSemana" = dia_semana;
+        SELECT *
+          INTO escala_item
+          FROM "Escala"
+         WHERE "FuncionarioID" = func."ID"
+           AND "DiaSemana" = dia_semana
+           AND COALESCE("Semana", 1) = semana_mes
+         LIMIT 1;
+
+        -- Compatibilidade: se não encontrar para a semana atual, tenta semana 1.
+        IF NOT FOUND THEN
+            SELECT *
+              INTO escala_item
+              FROM "Escala"
+             WHERE "FuncionarioID" = func."ID"
+               AND "DiaSemana" = dia_semana
+               AND COALESCE("Semana", 1) = 1
+             LIMIT 1;
+        END IF;
         
         IF FOUND THEN
             IF escala_item."Tipo" = 'Trabalho' OR escala_item."Tipo" = 'Turno' THEN

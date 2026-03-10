@@ -418,7 +418,8 @@ const EstoqueModule = {
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
         });
 
-        new Chart(document.getElementById('chartConsumo'), {
+        if (EstoqueModule.state.charts.consumo) EstoqueModule.state.charts.consumo.destroy();
+        EstoqueModule.state.charts.consumo = new Chart(document.getElementById('chartConsumo'), {
             type: 'bar',
             data: {
                 labels: Object.keys(consumoMap),
@@ -1256,6 +1257,12 @@ const EstoqueModule = {
         const tableHtml = table ? table.outerHTML : '<p>Sem dados</p>';
 
         const html = `
+            <style>
+                /* A tabela de movimentações não tem coluna de Ações — exibe todas as colunas */
+                th:last-child, td:last-child { display: table-cell !important; }
+                /* Garante que a coluna Obs não fique truncada no PDF */
+                td.truncate { overflow: visible !important; white-space: normal !important; text-overflow: unset !important; max-width: none !important; }
+            </style>
             <div class="p-8 font-sans text-gray-900 bg-white">
                 <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
                     <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">

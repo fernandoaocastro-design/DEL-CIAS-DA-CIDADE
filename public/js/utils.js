@@ -164,6 +164,30 @@ const Utils = {
         doc.close();
     },
 
+    // Verifica conexão com o Backend/Banco
+    checkConnection: async () => {
+        const footer = document.querySelector('footer');
+        if (!footer) return;
+        
+        const statusId = 'db-status-indicator';
+        if (document.getElementById(statusId)) return;
+
+        const div = document.createElement('div');
+        div.id = statusId;
+        div.className = 'mt-2 text-[10px] flex items-center justify-center gap-2 text-gray-400';
+        div.innerHTML = '<span class="w-2 h-2 rounded-full bg-gray-300 animate-pulse"></span> Verificando conexão...';
+        footer.appendChild(div);
+
+        try {
+            await Utils.api('healthCheck');
+            div.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span> Sistema Online';
+            div.className = 'mt-2 text-[10px] text-green-600 flex items-center justify-center gap-2';
+        } catch (e) {
+            div.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> Offline / Erro API';
+            div.className = 'mt-2 text-[10px] text-red-600 flex items-center justify-center gap-2';
+        }
+    },
+
     toast: (msg, type = 'info') => {
         const el = document.createElement('div');
         const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
@@ -369,7 +393,6 @@ const Utils = {
                 currentUser.Email = data.email;
                 currentUser.Assinatura = data.assinatura;
                 if(data.fotoURL) currentUser.FotoURL = data.fotoURL;
-                if(data.novaSenha) currentUser.Senha = data.novaSenha; // Em app real, não salvaria senha no localstorage
                 localStorage.setItem('user', JSON.stringify(currentUser));
                 
                 Utils.toast('Perfil atualizado com sucesso!', 'success');
@@ -798,4 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Inicializa Supabase Frontend
     Utils.initSupabase();
+
+    // Verifica Conexão
+    Utils.checkConnection();
 });

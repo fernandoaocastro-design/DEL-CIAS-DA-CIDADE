@@ -11,6 +11,7 @@
   "workspace": {
     "packageJson": {
       "dependencies": [
+        "npm:@supabase/supabase-js@^2.39.0",
         "npm:jsonwebtoken@^9.0.3",
         "npm:lucide-react@0.475",
         "npm:recharts@^2.15.1",

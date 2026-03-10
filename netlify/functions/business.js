@@ -2,6 +2,79 @@ import { supabase } from './supabase.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 const SECRET = process.env.JWT_SECRET || 'segredo-super-secreto-dev-change-me';
+const PASSWORD_PREFIX = 'scrypt';
+
+const hashPassword = (plainText) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.scryptSync(plainText, salt, 64).toString('hex');
+    return `${PASSWORD_PREFIX}$${salt}$${hash}`;
+};
+
+const verifyPassword = (plainText, storedPassword) => {
+    if (!storedPassword || !plainText) return false;
+
+    if (typeof storedPassword === 'string' && storedPassword.startsWith(`${PASSWORD_PREFIX}$`)) {
+        const parts = storedPassword.split('$');
+        if (parts.length !== 3) return false;
+
+        const salt = parts[1];
+        const expectedHex = parts[2];
+        const actualHex = crypto.scryptSync(plainText, salt, 64).toString('hex');
+        const expected = Buffer.from(expectedHex, 'hex');
+        const actual = Buffer.from(actualHex, 'hex');
+
+        if (expected.length !== actual.length) return false;
+        return crypto.timingSafeEqual(expected, actual);
+    }
+
+    // Compatibilidade com base legada (senha em texto simples)
+    return storedPassword === plainText;
+};
+
+const isLegacyPlainPassword = (storedPassword) => (
+    typeof storedPassword === 'string' && !storedPassword.startsWith(`${PASSWORD_PREFIX}$`)
+);
+
+const getEmployeeInitials = (fullName) => {
+    const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'FN';
+    const first = (parts[0][0] || 'F').toUpperCase();
+    const last = (parts.length > 1 ? parts[parts.length - 1][0] : first || 'N').toUpperCase();
+    return `${first}${last}`;
+};
+
+const parseEmployeeCodeNumber = (code) => {
+    const match = String(code || '').match(/-(\d{1,})$/);
+    return match ? Number(match[1]) : 0;
+};
+
+const buildEmployeeCode = (fullName, existingCodes, currentCode = null) => {
+    const prefix = getEmployeeInitials(fullName);
+    const currentNumber = parseEmployeeCodeNumber(currentCode);
+
+    if (currentNumber > 0) {
+        return `${prefix}-${String(currentNumber).padStart(3, '0')}`;
+    }
+
+    const maxNumber = (existingCodes || [])
+        .map(parseEmployeeCodeNumber)
+        .reduce((max, n) => Math.max(max, n), 0);
+
+    return `${prefix}-${String(maxNumber + 1).padStart(3, '0')}`;
+};
+
+const isMissingCodigoColumnError = (err) => {
+    const msg = String((err && err.message) || err || '').toLowerCase();
+    const code = String((err && err.code) || '');
+    return code === '42703' || (
+        msg.includes('codigo') && (
+            msg.includes('does not exist') ||
+            msg.includes('nao existe') ||
+            msg.includes('não existe') ||
+            msg.includes('column')
+        )
+    );
+};
 
 export const handler = async (event) => {
     // Headers para CORS (Permitir acesso do frontend) - Definidos no início para usar em todos os retornos
@@ -37,7 +110,7 @@ export const handler = async (event) => {
         }
 
         // --- 1. VERIFICAÇÃO DE SEGURANÇA (JWT) ---
-        if (action !== 'login') {
+        if (!['login', 'healthCheck'].includes(action)) {
             const token = event.headers.authorization ? event.headers.authorization.split(' ')[1] : null;
             if (!token) {
                 return { statusCode: 401, headers, body: JSON.stringify({ success: false, message: 'Acesso Negado: Token não fornecido.' }) };
@@ -49,9 +122,25 @@ export const handler = async (event) => {
             }
         }
 
-        if (action === 'getAll') {
+        if (action === 'healthCheck') {
+            result = { ok: true, now: new Date().toISOString() };
+        } else if (action === 'getAll') {
             // getAll genérico mantido para tabelas simples
-            ({ data: result, error } = await supabase.from(table).select('*'));
+            const options = data || {};
+            const columns = options.columns || '*';
+            const limit = Number(options.limit);
+            const offset = Number(options.offset || 0);
+            const orderBy = options.orderBy;
+            const ascending = options.ascending !== false;
+
+            let query = supabase.from(table).select(columns);
+            if (orderBy) query = query.order(orderBy, { ascending });
+            if (Number.isFinite(limit) && limit > 0) {
+                const safeLimit = Math.min(limit, 5000);
+                query = query.range(offset, offset + safeLimit - 1);
+            }
+
+            ({ data: result, error } = await query);
 
         } else if (action === 'searchEmployees') {
             // BUSCA AVANÇADA DE FUNCIONÁRIOS (RH)
@@ -89,10 +178,17 @@ export const handler = async (event) => {
 
         } else if (action === 'getEmployeesList') {
             // LISTA LEVE PARA DROPDOWNS (Sem FotoURL que pesa o JSON)
-            const { data: rows, error: err } = await supabase
+            let { data: rows, error: err } = await supabase
                 .from('Funcionarios')
-                .select('ID, Nome, Cargo, Departamento, BI, Admissao, Salario, Turno, Email, Telefone, Status')
+                .select('ID, Codigo, Nome, Cargo, Departamento, BI, Admissao, Salario, Turno, Email, Telefone, Status')
                 .order('Nome');
+            if (err && isMissingCodigoColumnError(err)) {
+                ({ data: rows, error: err } = await supabase
+                    .from('Funcionarios')
+                    .select('ID, Nome, Cargo, Departamento, BI, Admissao, Salario, Turno, Email, Telefone, Status')
+                    .order('Nome'));
+                if (!err) rows = (rows || []).map(r => ({ ...r, Codigo: null }));
+            }
             if (err) throw err;
             result = rows;
 
@@ -172,7 +268,17 @@ export const handler = async (event) => {
             
             // 2. Verifica se usuário existe e se a senha bate
             if (!user) throw new Error('Usuário não encontrado com este email.');
-            if (user.Senha !== password) throw new Error('Senha incorreta.');
+            if (!verifyPassword(password, user.Senha)) throw new Error('Senha incorreta.');
+
+            // Migração automática: usuário legado em texto simples passa a ficar com hash forte
+            if (isLegacyPlainPassword(user.Senha)) {
+                try {
+                    const hashed = hashPassword(password);
+                    await supabase.from('Usuarios').update({ Senha: hashed }).eq('ID', user.ID);
+                } catch (_) {
+                    // Não bloqueia login em caso de falha pontual na migração.
+                }
+            }
             
             // Segurança: Remover senha do objeto retornado
             delete user.Senha;
@@ -244,10 +350,60 @@ export const handler = async (event) => {
                 // Se não tiver entrada nem saída e status vazio, impede salvar (ou define pendente)
             }
 
+            if (table === 'Funcionarios') {
+                const nome = payload.Nome ? payload.Nome.trim() : '';
+                if (!nome) throw new Error('Nome do funcionário é obrigatório.');
+
+                try {
+                    let currentCode = null;
+                    if (payload.ID) {
+                        const { data: current, error: currentErr } = await supabase
+                            .from('Funcionarios')
+                            .select('Codigo')
+                            .eq('ID', payload.ID)
+                            .maybeSingle();
+                        if (currentErr) throw currentErr;
+                        currentCode = current ? current.Codigo : null;
+                    }
+
+                    let queryCodes = supabase
+                        .from('Funcionarios')
+                        .select('Codigo')
+                        .not('Codigo', 'is', null);
+                    if (payload.ID) queryCodes = queryCodes.neq('ID', payload.ID);
+
+                    const { data: codesRows, error: codesErr } = await queryCodes;
+                    if (codesErr) throw codesErr;
+
+                    payload.Codigo = buildEmployeeCode(
+                        nome,
+                        (codesRows || []).map(r => r.Codigo).filter(Boolean),
+                        currentCode
+                    );
+                } catch (codeErr) {
+                    if (isMissingCodigoColumnError(codeErr)) {
+                        // Banco antigo sem coluna Codigo: mantém compatibilidade sem quebrar o RH.
+                        delete payload.Codigo;
+                    } else {
+                        throw codeErr;
+                    }
+                }
+            }
+
             if (payload.ID) {
                 ({ data: result, error } = await supabase.from(table).update(payload).eq('ID', payload.ID).select());
             } else {
                 ({ data: result, error } = await supabase.from(table).insert(payload).select());
+            }
+
+            if (error && table === 'Funcionarios' && payload.Codigo !== undefined && isMissingCodigoColumnError(error)) {
+                const fallbackPayload = { ...payload };
+                delete fallbackPayload.Codigo;
+                if (fallbackPayload.ID) {
+                    ({ data: result, error } = await supabase.from(table).update(fallbackPayload).eq('ID', fallbackPayload.ID).select());
+                } else {
+                    ({ data: result, error } = await supabase.from(table).insert(fallbackPayload).select());
+                }
             }
 
             // --- LOG DE AUDITORIA ---
@@ -417,7 +573,7 @@ export const handler = async (event) => {
             // Verifica senha atual
             const { data: user, error: errUser } = await supabase.from('Usuarios').select('*').eq('ID', id).single();
             if (errUser || !user) throw new Error('Usuário não encontrado.');
-            if (user.Senha !== senhaAtual) throw new Error('Senha atual incorreta.');
+            if (!verifyPassword(senhaAtual, user.Senha)) throw new Error('Senha atual incorreta.');
 
             // VERIFICAÇÃO DE E-MAIL DUPLICADO
             if (email && email.trim().toLowerCase() !== user.Email.trim().toLowerCase()) {
@@ -431,7 +587,8 @@ export const handler = async (event) => {
             }
 
             const updates = { Nome: nome, Email: email, Assinatura: assinatura, Permissoes: user.Permissoes }; // Mantém permissões antigas ao editar perfil próprio
-            if (novaSenha) updates.Senha = novaSenha;
+            if (novaSenha) updates.Senha = hashPassword(novaSenha);
+            else if (isLegacyPlainPassword(user.Senha)) updates.Senha = hashPassword(senhaAtual);
             if (fotoURL !== undefined) updates.FotoURL = fotoURL;
 
             ({ data: result, error } = await supabase.from('Usuarios').update(updates).eq('ID', id).select());
@@ -716,6 +873,9 @@ export const handler = async (event) => {
             result = { success: true, alertsGenerated: count };
 
         } else if (action === 'checkFinancialAlerts') {
+            if (!userSession || userSession.cargo !== 'Administrador') {
+                result = { success: true, alertsGenerated: 0, skipped: true };
+            } else {
             // AÇÃO AUTOMÁTICA: Verifica contas a pagar vencendo hoje
             const today = new Date().toISOString().split('T')[0];
             
@@ -758,6 +918,7 @@ export const handler = async (event) => {
                 }
             }
             result = { success: true, alertsGenerated: count };
+            }
 
         } else if (action === 'getFinancialDashboard') {
             const { startDate, endDate } = data || {};
@@ -1349,8 +1510,10 @@ export const handler = async (event) => {
             });
 
             // Filtros de Monitoramento
-            const month = new Date().getMonth() + 1;
-            const day = new Date().getDate();
+            const nowRef = new Date();
+            const month = nowRef.getMonth() + 1;
+            const year = nowRef.getFullYear();
+            const day = nowRef.getDate();
             
             // Helper para cálculo de dias faltantes
             const getDaysUntilBirthday = (birthDate) => {
@@ -1374,6 +1537,12 @@ export const handler = async (event) => {
                 const d = new Date(f.Nascimento);
                 return (d.getMonth() + 1) === month;
             }).sort((a, b) => new Date(a.Nascimento).getDate() - new Date(b.Nascimento).getDate());
+
+            const feriasMes = ferias.filter(f => {
+                if (!f.DataInicio) return false;
+                const d = new Date(f.DataInicio);
+                return d.getFullYear() === year && (d.getMonth() + 1) === month;
+            }).sort((a, b) => new Date(a.DataInicio) - new Date(b.DataInicio));
 
             const aniversariantesProximos = aniversariantes.map(f => {
                 if(!f.Nascimento) return null;
@@ -1547,6 +1716,7 @@ export const handler = async (event) => {
                     aniversariantesProximos: aniversariantesProximos,
                     jubileu: jubileuDia,
                     validadeBI: validadeBI,
+                    feriasMes: feriasMes,
                     ferias: ferias.filter(f => f.DataInicio <= today && f.DataFim >= today),
                     estoqueBaixo: estoqueCritico, // Apenas os críticos
                     estoqueVencendo: estoqueVencendo, // Apenas os vencendo
@@ -1595,6 +1765,9 @@ export const handler = async (event) => {
                 .order('CriadoEm', { ascending: false })
                 .limit(10));
         } else if (action === 'checkBirthdayEmails') {
+            if (!userSession || userSession.cargo !== 'Administrador') {
+                result = { sent: 0, skipped: true };
+            } else {
             // --- ROTINA DE E-MAILS DE ANIVERSÁRIO ---
             const today = new Date();
             const month = today.getMonth() + 1;
@@ -1630,6 +1803,7 @@ export const handler = async (event) => {
                 sentCount++;
             }
             result = { sent: sentCount };
+            }
         } else if (action === 'markNotificationRead') {
              ({ data: result, error } = await supabase
                 .from('Notificacoes')
@@ -1691,6 +1865,35 @@ export const handler = async (event) => {
             if (error) throw error;
             result = { success: true };
 
+        } else if (action === 'deleteManutencao') {
+            ({ data: result, error } = await supabase.from('InventarioManutencoes').delete().eq('ID', data.ID));
+            if (!error && userSession) {
+                await supabase.from('LogsAuditoria').insert({
+                    UsuarioID: userSession.id, UsuarioNome: userSession.nome,
+                    Modulo: 'InventarioManutencoes', Acao: 'EXCLUIR',
+                    Descricao: `Manutenção ID ${data.ID} eliminada`
+                });
+            }
+        } else if (action === 'deleteTransferencia') {
+            ({ data: result, error } = await supabase.from('InventarioTransferencias').delete().eq('ID', data.ID));
+            if (!error && userSession) {
+                await supabase.from('LogsAuditoria').insert({
+                    UsuarioID: userSession.id, UsuarioNome: userSession.nome,
+                    Modulo: 'InventarioTransferencias', Acao: 'EXCLUIR',
+                    Descricao: `Transferência ID ${data.ID} eliminada`
+                });
+            }
+
+        } else if (action === 'deleteInventario') {
+            ({ data: result, error } = await supabase.from('Inventario').delete().eq('ID', data.ID));
+            if (!error && userSession) {
+                await supabase.from('LogsAuditoria').insert({
+                    UsuarioID: userSession.id, UsuarioNome: userSession.nome,
+                    Modulo: 'Inventario', Acao: 'EXCLUIR',
+                    Descricao: `Bem patrimonial ID ${data.ID} eliminado definitivamente`
+                });
+            }
+
         } else if (action === 'delete') {
             ({ data: result, error } = await supabase.from(table).delete().eq('ID', id));
             
@@ -1751,37 +1954,58 @@ export const handler = async (event) => {
             if (errList || !list) throw new Error('Lista não encontrada.');
             if (list.Status === 'Enviado') throw new Error('Esta lista já foi enviada para produção.');
 
-            const itens = list.ItensJSON || [];
-            
-            // 1.1 VALIDAÇÃO DE ESTOQUE (Antes de baixar qualquer coisa)
+            const itens = Array.isArray(list.ItensJSON) ? list.ItensJSON : [];
+            const productIds = [...new Set(itens.filter(item => item.id).map(item => item.id))];
+
+            // 1.1 Busca unica dos produtos para evitar N+1.
+            const { data: stockRows, error: errStock } = productIds.length
+                ? await supabase.from('Estoque').select('ID, Quantidade, Nome, Unidade').in('ID', productIds)
+                : { data: [], error: null };
+            if (errStock) throw errStock;
+
+            const stockMap = new Map((stockRows || []).map(row => [row.ID, row]));
+            const requiredByProduct = new Map();
+
             for (const item of itens) {
                 if (!item.id) continue;
-                const { data: stockItem } = await supabase.from('Estoque').select('Quantidade, Nome, Unidade').eq('ID', item.id).single();
-                
-                if (!stockItem) throw new Error(`Produto não encontrado no estoque: ${item.nome}`);
-                
-                if (Number(stockItem.Quantidade) < Number(item.qtd)) {
-                    throw new Error(`Estoque insuficiente para "${stockItem.Nome}". Disponível: ${stockItem.Quantidade} ${stockItem.Unidade}. Solicitado: ${item.qtd}`);
+                const qty = Number(item.qtd || 0);
+                requiredByProduct.set(item.id, (requiredByProduct.get(item.id) || 0) + qty);
+            }
+
+            // 1.2 Validacao consolidada do estoque.
+            for (const [productId, requiredQty] of requiredByProduct.entries()) {
+                const stockItem = stockMap.get(productId);
+                if (!stockItem) throw new Error(`Produto nao encontrado no estoque: ${productId}`);
+
+                const available = Number(stockItem.Quantidade || 0);
+                if (available < requiredQty) {
+                    throw new Error(`Estoque insuficiente para "${stockItem.Nome}". Disponivel: ${stockItem.Quantidade} ${stockItem.Unidade}. Solicitado: ${requiredQty}`);
                 }
             }
 
-            // 2. Processar Baixa de Estoque
-            for (const item of itens) {
-                if (!item.id) continue;
-                
-                const qtdBaixa = Number(item.qtd);
-                
-                // Chama a procedure de baixa ou atualiza direto (aqui atualizando direto para manter padrão do arquivo)
-                // Nota: Em produção ideal, usar RPC para atomicidade. Aqui segue o padrão do registerStockMovement.
-                const { data: stockItem } = await supabase.from('Estoque').select('Quantidade').eq('ID', item.id).single();
-                
-                if (stockItem) {
-                    const novaQtd = Number(stockItem.Quantidade) - qtdBaixa;
-                    await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', item.id);
-                    await supabase.from('MovimentacoesEstoque').insert({ ProdutoID: item.id, Tipo: 'Saida', Quantidade: qtdBaixa, Responsavel: userSession ? userSession.nome : 'Sistema', Observacoes: `Envio Produção: ${list.Categoria}`, Data: new Date() });
-                }
+            // 2. Atualiza estoque (uma vez por produto).
+            for (const [productId, requiredQty] of requiredByProduct.entries()) {
+                const stockItem = stockMap.get(productId);
+                const novaQtd = Number(stockItem.Quantidade || 0) - requiredQty;
+                const { error: errUpStock } = await supabase.from('Estoque').update({ Quantidade: novaQtd }).eq('ID', productId);
+                if (errUpStock) throw errUpStock;
             }
 
+            // 2.1 Salva movimentacoes em lote.
+            const movements = itens
+                .filter(item => item.id)
+                .map(item => ({
+                    ProdutoID: item.id,
+                    Tipo: 'Saida',
+                    Quantidade: Number(item.qtd || 0),
+                    Responsavel: userSession ? userSession.nome : 'Sistema',
+                    Observacoes: `Envio Producao: ${list.Categoria}`,
+                    Data: new Date()
+                }));
+            if (movements.length > 0) {
+                const { error: errMovInsert } = await supabase.from('MovimentacoesEstoque').insert(movements);
+                if (errMovInsert) throw errMovInsert;
+            }
             // 3. Atualizar Status
             const { error: errUpdate } = await supabase.from('ListasProducaoDia').update({ Status: 'Enviado' }).eq('ID', id);
             if (errUpdate) throw errUpdate;

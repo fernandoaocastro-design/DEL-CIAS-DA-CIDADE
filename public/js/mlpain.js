@@ -572,7 +572,7 @@ const MLPainModule = {
         areas.forEach(a => {
             matrix[a.ID] = {};
             dateKeys.forEach(k => {
-                matrix[a.ID][k] = { Solido: 0, Sopa: 0, Cha: 0 };
+                matrix[a.ID][k] = { Solido: 0, Sopa: 0, Cha: 0, records: [] };
             });
         });
 
@@ -586,8 +586,12 @@ const MLPainModule = {
                 if (r.Tipo === 'Sólido') matrix[r.AreaID][dateKey].Solido += qtd;
                 else if (['Sopa', 'sopa'].includes(r.Subtipo)) matrix[r.AreaID][dateKey].Sopa += qtd;
                 else if (['Chá', 'Cha', 'chá', 'cha'].includes(r.Subtipo)) matrix[r.AreaID][dateKey].Cha += qtd;
+                matrix[r.AreaID][dateKey].records.push(r);
             }
         });
+
+        // Armazena a matrix no estado para acesso no modal de exclusão
+        MLPainModule._currentMatrix = matrix;
 
         // Função auxiliar para gerar cada tabela matricial
         const renderMatrixTable = (title, typeKey, headerColorClass, badgeColorClass, areasToRender) => {
@@ -638,7 +642,7 @@ const MLPainModule = {
                                 const val = matrix[a.ID][dateKey] ? matrix[a.ID][dateKey][typeKey] : 0;
                                 rowTotal += val;
                                 return `<td class="p-1 border align-middle h-8 ${bgClass}">
-                                    ${val > 0 ? `<span class="${badgeColorClass} text-white px-1.5 py-0.5 rounded-sm font-bold">${val}</span>` : ''}
+                                    ${val > 0 ? `<span class="${badgeColorClass} text-white px-1.5 py-0.5 rounded-sm font-bold cursor-pointer hover:opacity-75 transition" title="Clique para ver/excluir" onclick="MLPainModule.showCellRecords('${a.ID}', '${dateKey}', '${typeKey}')">${val}</span>` : ''}
                                 </td>`;
                             }).join('');
                             
@@ -1317,6 +1321,68 @@ const MLPainModule = {
             await Utils.api('save', 'MLPain_Areas', data);
             Utils.toast('✅ Área salva!'); Utils.closeModal(); MLPainModule.fetchData();
         } catch (err) { Utils.toast('Erro ao salvar'); }
+    },
+
+    showCellRecords: (areaId, dateKey, typeKey) => {
+        const matrix = MLPainModule._currentMatrix;
+        if (!matrix || !matrix[areaId] || !matrix[areaId][dateKey]) return;
+
+        const cellData = matrix[areaId][dateKey];
+        const area = MLPainModule.state.areas.find(a => a.ID === areaId);
+        const areaNome = area ? area.Nome : 'Área';
+
+        // Filtra os registros pelo tipo da célula clicada
+        const typeFilter = {
+            'Solido': r => r.Tipo === 'Sólido',
+            'Sopa': r => ['Sopa', 'sopa'].includes(r.Subtipo),
+            'Cha': r => ['Chá', 'Cha', 'chá', 'cha'].includes(r.Subtipo)
+        };
+        const tipoLabel = { 'Solido': '🍽️ Sólido', 'Sopa': '🥣 Sopa', 'Cha': '☕ Chá' };
+        const filteredRecs = (cellData.records || []).filter(typeFilter[typeKey] || (() => true));
+
+        if (filteredRecs.length === 0) return Utils.toast('Nenhum registro encontrado.', 'info');
+
+        const canDelete = Utils.checkPermission('MLPain', 'excluir');
+
+        const html = `
+            <div class="mb-3 p-3 bg-gray-50 rounded border text-sm">
+                <span class="font-bold text-gray-700">${areaNome}</span>
+                <span class="ml-2 text-gray-500">• ${dateKey} • ${tipoLabel[typeKey] || typeKey}</span>
+            </div>
+            <div class="space-y-2 max-h-72 overflow-y-auto">
+                ${filteredRecs.map(r => `
+                    <div class="flex items-center justify-between bg-white border rounded p-3 gap-3" id="rec-row-${r.ID}">
+                        <div class="text-sm flex-1">
+                            <span class="font-bold text-blue-700">${r.Quantidade}</span>
+                            <span class="text-gray-500 ml-2">${r.Turno || '-'} • ${r.Responsavel || '-'}</span>
+                            ${r.Prato ? `<span class="ml-2 text-xs text-gray-400">${r.Prato}</span>` : ''}
+                            ${r.Observacoes ? `<div class="text-xs text-gray-400 mt-0.5">${r.Observacoes}</div>` : ''}
+                        </div>
+                        ${canDelete ? `
+                        <button onclick="MLPainModule.deleteRegistro('${r.ID}')" class="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded transition flex-shrink-0" title="Excluir este lançamento">
+                            <i class="fas fa-trash"></i>
+                        </button>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        Utils.openModal(`Lançamentos — ${areaNome}`, html);
+    },
+
+    deleteRegistro: async (id) => {
+        if (!confirm('Excluir este lançamento? Esta ação não pode ser desfeita.')) return;
+        try {
+            await Utils.api('delete', 'MLPain_Registros', null, id);
+            Utils.toast('✅ Lançamento excluído com sucesso!', 'success');
+            // Remove visualmente da lista do modal sem fechar
+            const row = document.getElementById(`rec-row-${id}`);
+            if (row) row.remove();
+            // Atualiza os dados em background
+            MLPainModule.fetchData();
+        } catch (err) {
+            Utils.toast('Erro ao excluir: ' + err.message, 'error');
+        }
     },
 
     deleteArea: async (id) => {

@@ -10,11 +10,29 @@ const EventosModule = {
         instituicao: [],
         fichasTecnicas: [], // Para selecionar pratos no menu
         purchaseCart: [], // Carrinho de compras para pedidos
+        purchaseCatalogFilter: '',
+        purchaseCatalogSupplier: '',
         charts: {},
         clients: []
     },
 
     init: () => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        const subTab = params.get('subtab');
+
+        // Permite abrir diretamente a lista de pedidos via URL:
+        // eventos.html?tab=compras&subtab=lista
+        if (tab === 'compras') {
+            EventosModule.state.activeTab = 'compras';
+            if (subTab === 'lista' || subTab === 'novo-pedido') {
+                EventosModule.state.activeSubTab = subTab;
+            }
+        } else if (subTab === 'lista' || subTab === 'novo-pedido') {
+            EventosModule.state.activeTab = 'compras';
+            EventosModule.state.activeSubTab = subTab;
+        }
+
         EventosModule.renderLayout();
         EventosModule.fetchData();
     },
@@ -459,8 +477,26 @@ const EventosModule = {
     renderPurchaseOrders: (container) => {
         const items = EventosModule.state.stockItems || [];
         const cart = EventosModule.state.purchaseCart || [];
+        const filterTerm = String(EventosModule.state.purchaseCatalogFilter || '').trim().toLowerCase();
+        const supplierFilter = String(EventosModule.state.purchaseCatalogSupplier || '').trim();
         const canCreate = Utils.checkPermission('Eventos', 'criar');
-        
+        const suppliers = [...new Set(
+            items
+                .map(i => String(i.Fornecedor || '').trim())
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }));
+        const catalogItems = items
+            .filter(i => {
+                const fornecedorRaw = String(i.Fornecedor || '').trim();
+                if (supplierFilter && fornecedorRaw !== supplierFilter) return false;
+                if (!filterTerm) return true;
+                const nome = String(i.Nome || i.Item || '').toLowerCase();
+                const fornecedor = fornecedorRaw.toLowerCase();
+                const codigo = String(i.Codigo || '').toLowerCase();
+                return nome.includes(filterTerm) || fornecedor.includes(filterTerm) || codigo.includes(filterTerm);
+            })
+            .sort((a, b) => String(a.Nome || a.Item || '').localeCompare(String(b.Nome || b.Item || ''), 'pt-BR', { sensitivity: 'base' }));
+
         // Calcular Total do Carrinho
         const totalGeral = cart.reduce((acc, item) => acc + (item.qty * item.price), 0);
 
@@ -468,6 +504,9 @@ const EventosModule = {
             <div class="flex justify-between items-center mb-6">
                 <h3 class="text-xl font-bold text-gray-800">Gerar Pedido de Compra</h3>
                 <div>
+                    <button onclick="EventosModule.goToStock()" class="bg-slate-700 text-white px-4 py-2 rounded shadow hover:bg-slate-800 transition mr-2">
+                        <i class="fas fa-boxes mr-2"></i> Ir para Estoque
+                    </button>
                     ${canCreate ? `<button onclick="EventosModule.savePurchaseOrder()" class="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition mr-2">
                         <i class="fas fa-save mr-2"></i> Salvar Pedido
                     </button>` : ''}
@@ -480,26 +519,56 @@ const EventosModule = {
                 </div>
             </div>
 
-            <!-- Área de Seleção (Adicionar Item) -->
             <div class="bg-gray-50 p-4 rounded mb-6 border border-gray-200 shadow-sm">
-                <h4 class="font-bold text-gray-700 mb-2 text-sm uppercase">Adicionar Item ao Pedido</h4>
-                <div class="flex flex-col md:flex-row gap-2 items-end">
-                    <div class="flex-1 w-full">
-                        <label class="block text-xs font-bold text-gray-500 mb-1">Produto (Estoque)</label>
-                        <select id="purchase-product-select" class="border p-2 rounded w-full bg-white">
-                            <option value="">Selecione um produto...</option>
-                            ${items.sort((a,b) => (a.Nome||'').localeCompare(b.Nome||'')).map(i => 
-                                `<option value="${i.ID}">${i.Nome} (Atual: ${i.Quantidade} ${i.Unidade}) - Custo: ${Utils.formatCurrency(i.CustoUnitario)}</option>`
-                            ).join('')}
-                        </select>
+                <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-3">
+                    <div>
+                        <h4 class="font-bold text-gray-700 text-sm uppercase">Catalogo do Estoque</h4>
+                        <p class="text-xs text-gray-500">Adicione produtos ao carrinho informando a quantidade de compra.</p>
                     </div>
-                    <div class="w-full md:w-32">
-                        <label class="block text-xs font-bold text-gray-500 mb-1">Quantidade</label>
-                        <input type="number" id="purchase-qty-input" class="border p-2 rounded w-full text-center" min="1" value="1">
+                    <div class="w-full md:w-auto grid grid-cols-1 md:grid-cols-2 gap-3 md:min-w-[580px]">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">Buscar Produto / Fornecedor</label>
+                            <input type="text" value="${EventosModule.state.purchaseCatalogFilter || ''}" oninput="EventosModule.setPurchaseCatalogFilter(this.value)" class="border p-2 rounded w-full bg-white" placeholder="Ex: arroz, fornecedor...">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 mb-1">Filtrar por Fornecedor</label>
+                            <select onchange="EventosModule.setPurchaseSupplierFilter(this.value)" class="border p-2 rounded w-full bg-white">
+                                <option value="">Todos os fornecedores</option>
+                                ${suppliers.map(f => `<option value="${f}" ${EventosModule.state.purchaseCatalogSupplier === f ? 'selected' : ''}>${f}</option>`).join('')}
+                            </select>
+                        </div>
                     </div>
-                    <button onclick="EventosModule.addToCart()" class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 h-10 font-bold w-full md:w-auto">
-                        <i class="fas fa-plus"></i> Adicionar
-                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-white border-b">
+                            <tr class="text-gray-600 uppercase text-xs">
+                                <th class="p-2 text-left">Produto</th>
+                                <th class="p-2 text-left">Fornecedor</th>
+                                <th class="p-2 text-right">Preco Unit.</th>
+                                <th class="p-2 text-center">Estoque Atual</th>
+                                <th class="p-2 text-center w-36">Qtd Comprar</th>
+                                <th class="p-2 text-center">Acao</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            ${catalogItems.map((i, idx) => `
+                                <tr class="bg-white hover:bg-gray-50">
+                                    <td class="p-2 font-medium text-gray-800">${i.Nome || i.Item || 'Produto sem nome'}</td>
+                                    <td class="p-2 text-gray-600">${i.Fornecedor || '-'}</td>
+                                    <td class="p-2 text-right font-bold">${Utils.formatCurrency(i.CustoUnitario || 0)}</td>
+                                    <td class="p-2 text-center">${Number(i.Quantidade || 0)} ${i.Unidade || ''}</td>
+                                    <td class="p-2 text-center">
+                                        <input id="purchase-catalog-qty-${idx}" type="number" min="0.01" step="0.01" value="1" class="border p-1.5 rounded w-24 text-center">
+                                    </td>
+                                    <td class="p-2 text-center">
+                                        <button onclick="EventosModule.addToCartFromStock('${i.ID}', 'purchase-catalog-qty-${idx}')" class="bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 font-bold text-xs">+ Carrinho</button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                            ${catalogItems.length === 0 ? '<tr><td colspan="6" class="p-4 text-center text-gray-400 italic">Nenhum produto encontrado no estoque para este filtro.</td></tr>' : ''}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -509,17 +578,19 @@ const EventosModule = {
                     <thead class="bg-gray-100 text-gray-600 uppercase">
                         <tr>
                             <th class="p-3">Produto</th>
+                            <th class="p-3">Fornecedor</th>
                             <th class="p-3 text-right">Custo Unit. (Kz)</th>
                             <th class="p-3 text-center w-32">Quantidade</th>
-                            <th class="p-3 text-left">Observação</th>
+                            <th class="p-3 text-left">Observacao</th>
                             <th class="p-3 text-right">Subtotal (Kz)</th>
-                            <th class="p-3 text-center">Ações</th>
+                            <th class="p-3 text-center">Acoes</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y">
                         ${cart.map((item, index) => `
                             <tr>
                                 <td class="p-3 font-medium">${item.name}</td>
+                                <td class="p-3 text-gray-600">${item.supplier || '-'}</td>
                                 <td class="p-3 text-right">${Utils.formatCurrency(item.price)}</td>
                                 <td class="p-3 text-center">
                                     <input type="number" class="border p-1 rounded w-20 text-center" value="${item.qty}" 
@@ -535,11 +606,11 @@ const EventosModule = {
                                 </td>
                             </tr>
                         `).join('')}
-                        ${cart.length === 0 ? '<tr><td colspan="6" class="p-8 text-center text-gray-400 italic">Nenhum item adicionado ao pedido. Selecione acima.</td></tr>' : ''}
+                        ${cart.length === 0 ? '<tr><td colspan="7" class="p-8 text-center text-gray-400 italic">Nenhum item no carrinho. Adicione produtos do catalogo acima.</td></tr>' : ''}
                     </tbody>
                     <tfoot>
                         <tr class="bg-gray-100 font-bold text-lg">
-                            <td colspan="4" class="p-3 text-right">TOTAL ESTIMADO:</td>
+                            <td colspan="5" class="p-3 text-right">TOTAL ESTIMADO:</td>
                             <td class="p-3 text-right text-indigo-700">${Utils.formatCurrency(totalGeral)}</td>
                             <td></td>
                         </tr>
@@ -547,7 +618,7 @@ const EventosModule = {
                 </table>
             </div>
 
-            <!-- Área de Impressão Oculta (Injetada para o PDF funcionar) -->
+            <!-- Area de Impressao Oculta (Injetada para o PDF funcionar) -->
             <div id="print-area-eventos" class="hidden bg-white p-8">
                 <div id="pdf-header"></div>
                 <div id="pdf-content" class="mt-6"></div>
@@ -555,19 +626,26 @@ const EventosModule = {
         `;
     },
 
-    addToCart: () => {
-        const select = document.getElementById('purchase-product-select');
-        const qtyInput = document.getElementById('purchase-qty-input');
-        const id = select.value;
-        const qty = parseFloat(qtyInput.value);
+    setPurchaseCatalogFilter: (term) => {
+        EventosModule.state.purchaseCatalogFilter = term;
+        EventosModule.render();
+    },
+
+    setPurchaseSupplierFilter: (supplier) => {
+        EventosModule.state.purchaseCatalogSupplier = supplier;
+        EventosModule.render();
+    },
+
+    addToCartFromStock: (id, qtyInputId) => {
+        const qtyInput = document.getElementById(qtyInputId);
+        const qty = parseFloat(qtyInput ? qtyInput.value : '0');
 
         if (!id) return Utils.toast('Selecione um produto.', 'warning');
-        if (!qty || qty <= 0) return Utils.toast('Quantidade inválida.', 'warning');
+        if (!qty || qty <= 0) return Utils.toast('Quantidade invalida.', 'warning');
 
         const item = EventosModule.state.stockItems.find(i => i.ID === id);
         if (!item) return;
 
-        // Verifica se já existe no carrinho
         const existing = EventosModule.state.purchaseCart.find(i => i.id === id);
         if (existing) {
             existing.qty += qty;
@@ -575,22 +653,25 @@ const EventosModule = {
             EventosModule.state.purchaseCart.push({
                 id: item.ID,
                 name: item.Nome || item.Item,
+                supplier: item.Fornecedor || '',
                 price: Number(item.CustoUnitario || 0),
                 qty: qty,
                 obs: ''
             });
         }
-        
-        // Resetar campos
-        select.value = '';
-        qtyInput.value = 1;
-        
-        EventosModule.renderPurchaseOrders();
+
+        if (qtyInput) qtyInput.value = 1;
+        EventosModule.render();
+    },
+
+    // Compatibilidade: fluxo antigo por select foi substituido pelo catalogo.
+    addToCart: () => {
+        Utils.toast('Use o catalogo de estoque para adicionar itens ao carrinho.', 'info');
     },
 
     removeFromCart: (index) => {
         EventosModule.state.purchaseCart.splice(index, 1);
-        EventosModule.renderPurchaseOrders();
+        EventosModule.render();
     },
 
     updateCartItem: (index, field, value) => {
@@ -600,7 +681,7 @@ const EventosModule = {
         } else if (field === 'obs') {
             EventosModule.state.purchaseCart[index].obs = value;
         }
-        EventosModule.renderPurchaseOrders();
+        EventosModule.render();
     },
 
     sharePurchaseOrderWhatsApp: () => {
@@ -615,7 +696,7 @@ const EventosModule = {
         if (itemsToBuy.length === 0) return Utils.toast('Selecione pelo menos um item.', 'warning');
 
         const totalGeral = itemsToBuy.reduce((acc, i) => acc + i.total, 0);
-        const user = Utils.getUser();
+        const user = Utils.getUser() || {};
 
         let msg = `*🛒 PEDIDO DE COMPRA*\n`;
         msg += `_Solicitante: ${user.Nome || 'Sistema'}_\n`;
@@ -653,7 +734,9 @@ const EventosModule = {
 
     savePurchaseOrder: async () => {
         const items = EventosModule.state.purchaseCart.map(i => ({
+            id: i.id,
             name: i.name,
+            supplier: i.supplier,
             price: i.price,
             qty: i.qty,
             obs: i.obs,
@@ -665,7 +748,7 @@ const EventosModule = {
         if(!confirm('Deseja salvar este pedido de compra no histórico?')) return;
 
         const totalGeral = items.reduce((acc, i) => acc + i.total, 0);
-        const user = Utils.getUser();
+        const user = Utils.getUser() || {};
 
         const pedido = {
             Solicitante: user.Nome || 'Sistema',
@@ -678,10 +761,14 @@ const EventosModule = {
             await Utils.api('savePurchaseOrder', null, pedido);
             Utils.toast('Pedido de compra salvo com sucesso!', 'success');
             EventosModule.state.purchaseCart = []; // Limpar carrinho
-            EventosModule.renderPurchaseOrders();
+            EventosModule.render();
         } catch (err) {
             Utils.toast('Erro ao salvar pedido: ' + err.message, 'error');
         }
+    },
+
+    goToStock: () => {
+        window.location.href = 'estoque.html';
     },
 
     renderPurchaseHistory: (container) => {
@@ -691,7 +778,12 @@ const EventosModule = {
         orders.sort((a, b) => new Date(b.CriadoEm) - new Date(a.CriadoEm));
 
         container.innerHTML = `
-            <h3 class="text-xl font-bold text-gray-800 mb-6">Histórico de Pedidos de Compra</h3>
+            <div class="flex justify-between items-center mb-6 gap-3">
+                <h3 class="text-xl font-bold text-gray-800">Histórico de Pedidos de Compra</h3>
+                <button onclick="EventosModule.goToStock()" class="bg-slate-700 text-white px-4 py-2 rounded shadow hover:bg-slate-800 transition">
+                    <i class="fas fa-boxes mr-2"></i> Ir para Estoque
+                </button>
+            </div>
             <div class="overflow-x-auto">
                 <table class="w-full text-sm text-left">
                     <thead class="bg-gray-100 text-gray-600 uppercase">
@@ -944,6 +1036,7 @@ const EventosModule = {
     printPurchaseOrder: () => {
         const itemsToBuy = EventosModule.state.purchaseCart.map(i => ({
             name: i.name,
+            supplier: i.supplier || '',
             price: i.price,
             qty: i.qty,
             obs: i.obs,
@@ -954,7 +1047,7 @@ const EventosModule = {
 
         const totalGeral = itemsToBuy.reduce((acc, i) => acc + i.total, 0);
         const inst = EventosModule.state.instituicao[0] || {};
-        const user = Utils.getUser();
+        const user = Utils.getUser() || {};
         const showLogo = inst.ExibirLogoRelatorios;
 
         const element = document.getElementById('print-area-eventos');
@@ -966,57 +1059,52 @@ const EventosModule = {
                 <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
                     ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
                     <div>
-                        <h1 class="text-xl font-bold text-gray-800">${inst.NomeFantasia || 'Pedido de Compra'}</h1>
-                        <p class="text-xs text-gray-500">${inst.Endereco || ''}</p>
+                        <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Pedido de Compra'}</h1>
+                        <p class="text-sm text-gray-500">${inst.Endereco || ''}</p>
                     </div>
                 </div>
                 <div class="text-right">
-                    <h2 class="text-2xl font-bold text-gray-800">PEDIDO DE COMPRA</h2>
+                    <h2 class="text-xl font-bold">PEDIDO DE COMPRA</h2>
                     <p class="text-sm text-gray-500">Data: ${new Date().toLocaleDateString()}</p>
-                    <p class="text-sm font-bold mt-1">Solicitante: ${user.Nome}</p>
+                    <p class="text-sm text-gray-500">Solicitante: ${user.Nome || 'Sistema'}</p>
                 </div>
             </div>
         `;
 
         content.innerHTML = `
-            <table class="w-full text-sm text-left border-collapse border border-gray-300">
-                <thead class="bg-gray-100 uppercase text-xs">
-                    <tr>
-                        <th class="p-2 border border-gray-300">Produto</th>
-                        <th class="p-2 border border-gray-300 text-right">Custo Unit.</th>
-                        <th class="p-2 border border-gray-300 text-center">Qtd</th>
-                        <th class="p-2 border border-gray-300 text-left">Obs</th>
-                        <th class="p-2 border border-gray-300 text-right">Subtotal</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${itemsToBuy.map(i => `
+            <div class="overflow-x-auto bg-white rounded shadow">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100">
                         <tr>
-                            <td class="p-2 border border-gray-300">${i.name}</td>
-                            <td class="p-2 border border-gray-300 text-right">${Utils.formatCurrency(i.price)}</td>
-                            <td class="p-2 border border-gray-300 text-center">${i.qty}</td>
-                            <td class="p-2 border border-gray-300 text-xs text-gray-500">${i.obs || '-'}</td>
-                            <td class="p-2 border border-gray-300 text-right font-bold">${Utils.formatCurrency(i.total)}</td>
+                            <th class="p-3 text-left">Produto</th>
+                            <th class="p-3 text-left">Fornecedor</th>
+                            <th class="p-3 text-right">Custo Unitário</th>
+                            <th class="p-3 text-center">Qtd</th>
+                            <th class="p-3 text-right">Subtotal</th>
+                            <th class="p-3 text-left">Observação</th>
                         </tr>
-                    `).join('')}
-                    <tr class="bg-gray-50 font-bold">
-                        <td colspan="4" class="p-2 border border-gray-300 text-right">TOTAL ESTIMADO</td>
-                        <td class="p-2 border border-gray-300 text-right text-lg">${Utils.formatCurrency(totalGeral)}</td>
-                    </tr>
-                </tbody>
-            </table>
-            
-            <div class="mt-12 grid grid-cols-2 gap-10">
-                <div class="border-t border-black pt-2 text-center text-xs">
-                    <p class="font-bold">Aprovado por</p>
+                    </thead>
+                    <tbody>
+                        ${itemsToBuy.map(i => `
+                            <tr class="border-t">
+                                <td class="p-3 font-bold">${i.name}</td>
+                                <td class="p-3 text-xs text-gray-600">${i.supplier || '-'}</td>
+                                <td class="p-3 text-right">${Utils.formatCurrency(i.price)}</td>
+                                <td class="p-3 text-center font-bold">${i.qty}</td>
+                                <td class="p-3 text-right font-bold text-green-700">${Utils.formatCurrency(i.total)}</td>
+                                <td class="p-3 text-xs text-gray-500">${i.obs || '-'}</td>
+                            </tr>
+                        `).join('')}
+                        <tr class="border-t bg-gray-50 font-bold">
+                            <td colspan="4" class="p-3 text-right">TOTAL ESTIMADO</td>
+                            <td class="p-3 text-right text-green-700">${Utils.formatCurrency(totalGeral)}</td>
+                            <td class="p-3 text-xs text-gray-500">Pedido gerado no módulo Eventos.</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="p-4 border-t text-center text-xs text-gray-400">
+                    &copy; 2026 Delicia da Cidade. Todos os direitos reservados. | Versao 1.0.0
                 </div>
-                <div class="border-t border-black pt-2 text-center text-xs">
-                    <p class="font-bold">Recebido por</p>
-                </div>
-            </div>
-
-            <div class="mt-8 text-center text-xs text-gray-400">
-                &copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0
             </div>
         `;
 
@@ -1149,3 +1237,4 @@ const EventosModule = {
 };
 
 document.addEventListener('DOMContentLoaded', EventosModule.init);
+

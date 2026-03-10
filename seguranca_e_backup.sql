@@ -314,10 +314,11 @@ CREATE POLICY "Acesso API Production Plans" ON "production_plans" FOR ALL USING 
 CREATE TABLE IF NOT EXISTS "Escala" (
     "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     "FuncionarioID" UUID REFERENCES "Funcionarios"("ID") ON DELETE CASCADE,
+    "Semana" INTEGER NOT NULL DEFAULT 1 CHECK ("Semana" BETWEEN 1 AND 4),
     "DiaSemana" INTEGER NOT NULL, -- 1=Segunda, 2=Terça, ..., 7=Domingo
     "Tipo" VARCHAR(20) DEFAULT 'Folga', -- 'Folga' ou 'Trabalho'
     "CriadoEm" TIMESTAMP DEFAULT NOW(),
-    UNIQUE("FuncionarioID", "DiaSemana")
+    UNIQUE("FuncionarioID", "Semana", "DiaSemana")
 );
 
 ALTER TABLE "Escala" ENABLE ROW LEVEL SECURITY;
@@ -814,6 +815,7 @@ CREATE POLICY "Acesso API ContasReceber" ON "ContasReceber" FOR ALL USING (true)
 -- 11. Colunas Faltantes em Tabelas Existentes
 -- Funcionários
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Turno" VARCHAR(50);
+ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "GrupoTurno" VARCHAR(10); -- Para identificar Grupo A, B, C
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Iban" VARCHAR(100);
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "BI" VARCHAR(50);
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Nascimento" DATE;
@@ -903,7 +905,7 @@ NOTIFY pgrst, 'reload schema';
 -- ==============================================================================
 -- PARTE 18: GERAÇÃO DE CÓDIGOS CURTOS (MATRÍCULA)
 -- ==============================================================================
--- Adiciona coluna para o ID curto (Ex: FC-01)
+-- Adiciona coluna para o ID curto (Ex: FC-001)
 ALTER TABLE "Funcionarios" ADD COLUMN IF NOT EXISTS "Codigo" VARCHAR(50);
 
 -- Script para gerar códigos para funcionários existentes
@@ -915,6 +917,12 @@ DECLARE
     seq INT;
     new_code TEXT;
 BEGIN
+    -- Mantem sequencia global (001, 002, 003...) independente das iniciais.
+    SELECT COALESCE(MAX((regexp_match("Codigo", '-([0-9]+)$'))[1]::INT), 0)
+      INTO seq
+      FROM "Funcionarios"
+     WHERE "Codigo" ~ '-[0-9]+$';
+
     FOR r IN SELECT * FROM "Funcionarios" WHERE "Codigo" IS NULL ORDER BY "CriadoEm" LOOP
         -- Gera Prefixo (Iniciais)
         parts := regexp_split_to_array(trim(r."Nome"), '\s+');
@@ -925,20 +933,16 @@ BEGIN
             prefix := prefix || prefix; -- Se só tem um nome, duplica a inicial
         END IF;
 
-        -- Encontra Sequencial Livre
-        seq := 1;
-        LOOP
-            new_code := prefix || '-' || lpad(seq::text, 2, '0');
-            IF NOT EXISTS (SELECT 1 FROM "Funcionarios" WHERE "Codigo" = new_code) THEN
-                EXIT;
-            END IF;
-            seq := seq + 1;
-        END LOOP;
+        -- Sequencia global de 3 digitos
+        seq := seq + 1;
+        new_code := prefix || '-' || lpad(seq::text, 3, '0');
 
         -- Atualiza
         UPDATE "Funcionarios" SET "Codigo" = new_code WHERE "ID" = r."ID";
     END LOOP;
 END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS "idx_funcionarios_codigo_unique" ON "Funcionarios" ("Codigo");
 
 -- ==============================================================================
 -- PARTE 19: GERAÇÃO DE CÓDIGOS PARA FÉRIAS (NOVO PADRÃO)
@@ -1029,3 +1033,57 @@ END $$;
 -- ==============================================================================
 -- Permite que o frontend receba atualizações instantâneas da tabela de Ordens
 ALTER PUBLICATION supabase_realtime ADD TABLE "OrdensProducao";
+
+-- ==============================================================================
+-- PARTE 22: ESCALA MENSAL (MÓDULO RH)
+-- ==============================================================================
+-- Tabela que guarda a configuração de escala de cada funcionário:
+-- regime (Diarista ou Grupo A/B/C), folga fixa semanal e alternância de FDS.
+-- Esta tabela é usada pelo módulo de Escala Mensal do RH (rh.js).
+
+CREATE TABLE IF NOT EXISTS "EscalaConfig" (
+    "ID"            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "FuncionarioID" UUID NOT NULL REFERENCES "Funcionarios"("ID") ON DELETE CASCADE,
+    "Tipo"          VARCHAR(20) NOT NULL,        -- 'diarista' | 'A' | 'B' | 'C'
+    "FolgaFixa"     INTEGER DEFAULT NULL,        -- 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex (NULL = sem folga fixa)
+    "FdsAlterna"    BOOLEAN DEFAULT TRUE,        -- TRUE = fins de semana alternados, FALSE = nunca trabalha FDS
+    "FdsTrabalhaS1" BOOLEAN DEFAULT TRUE,        -- TRUE = trabalha no 1.º FDS do mês
+    "CriadoEm"      TIMESTAMP DEFAULT NOW(),
+    "AtualizadoEm"  TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT "EscalaConfig_FuncionarioID_unique" UNIQUE ("FuncionarioID") -- 1 registo por funcionário
+);
+
+-- Índice para acelerar a busca por funcionário
+CREATE INDEX IF NOT EXISTS "idx_escalaconfig_funcionario"
+    ON "EscalaConfig" ("FuncionarioID");
+
+-- Trigger para actualizar AtualizadoEm automaticamente
+CREATE OR REPLACE FUNCTION update_escalaconfig_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW."AtualizadoEm" = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS "trg_escalaconfig_updated" ON "EscalaConfig";
+CREATE TRIGGER "trg_escalaconfig_updated"
+    BEFORE UPDATE ON "EscalaConfig"
+    FOR EACH ROW EXECUTE FUNCTION update_escalaconfig_timestamp();
+
+-- Segurança: RLS activado com política de acesso via API (padrão do sistema)
+ALTER TABLE "EscalaConfig" ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso API EscalaConfig" ON "EscalaConfig";
+CREATE POLICY "Acesso API EscalaConfig" ON "EscalaConfig" FOR ALL USING (true) WITH CHECK (true);
+
+-- Notifica o PostgREST para recarregar o schema e reconhecer a nova tabela
+NOTIFY pgrst, 'reload schema';
+
+-- ==============================================================================
+-- VALIDAÇÃO: Verificar se a tabela foi criada correctamente
+-- Deves ver a tabela "EscalaConfig" com as 7 colunas listadas abaixo.
+-- ==============================================================================
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
+WHERE table_name = 'EscalaConfig'
+ORDER BY ordinal_position;

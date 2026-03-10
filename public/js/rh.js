@@ -1,7 +1,8 @@
 const RHModule = {
     state: {
         cache: { allFuncionarios: [], funcionarios: [], ferias: [], frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null, parametros: [], cargos: [], departamentos: [], instituicao: [] },
- filterTerm: '',
+        activeTab: 'visao-geral',
+        filterTerm: '',
         filterVencidas: false,
         filterFrequenciaStart: '',
         filterFrequenciaEnd: '',
@@ -24,14 +25,28 @@ const RHModule = {
     fetchData: async () => {
         try {
             // Carregamento Otimizado: Lista leve para dropdowns + Dados auxiliares
-            const [allFuncs, ferias, params, cargos, deptos, inst] = await Promise.all([
-                Utils.api('getEmployeesList', null), // Substitui getAll por lista leve
+            const [allFuncs, ferias, params, cargos, deptos, inst, escalaConfig] = await Promise.all([
+                Utils.api('getEmployeesList', null),
                 Utils.api('getAll', 'Ferias'),
                 Utils.api('getAll', 'ParametrosRH'),
                 Utils.api('getAll', 'Cargos'),
                 Utils.api('getAll', 'Departamentos'),
-                Utils.api('getAll', 'InstituicaoConfig')
+                Utils.api('getAll', 'InstituicaoConfig'),
+                Utils.api('getAll', 'EscalaConfig')   // ← carrega assignments logo no início
             ]);
+
+            // Popula assignments no escalaState imediatamente
+            const assignments = {};
+            (escalaConfig || []).forEach(r => {
+                assignments[r.FuncionarioID] = {
+                    id: r.ID,
+                    tipo: r.Tipo,
+                    folgaFixa: r.FolgaFixa || null,
+                    fdsAlterna: r.FdsAlterna !== false && r.FdsAlterna !== 'false',
+                    fdsTrabalhaS1: r.FdsTrabalhaS1 !== false && r.FdsTrabalhaS1 !== 'false'
+                };
+            });
+            RHModule.escalaState.assignments = assignments;
             
             RHModule.state.cache = {
                 allFuncionarios: allFuncs || [], // Usado em dropdowns e validações
@@ -45,7 +60,7 @@ const RHModule = {
                 frequencia: null, avaliacoes: null, treinamentos: null, licencas: null, folha: null, escala: null
             };
             await RHModule.loadEmployees(); // Carrega dados da equipe em background
-            RHModule.renderVisaoGeral(); // Define Visão Geral como aba inicial
+            RHModule.renderCurrentTab(); // Regressa à aba que estava activa
         } catch (e) { 
             console.error("Erro crítico ao carregar dados do servidor:", e);
             Utils.toast("Erro de Conexão: Verifique se o backend está online.", 'error');
@@ -107,6 +122,7 @@ const RHModule = {
                     <button id="tab-folha" onclick="RHModule.renderFolha()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Folha</button>
                     <button id="tab-licencas" onclick="RHModule.renderLicencas()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Licenças</button>
                     <button id="tab-relatorios" onclick="RHModule.renderRelatorios()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">Relatórios</button>
+                    <button id="tab-escala" onclick="RHModule.renderEscalaMensal()" class="tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200">📅 Escala Mensal</button>
                 </nav>
             </div>
             <div id="tab-content">
@@ -119,6 +135,8 @@ const RHModule = {
     },
 
     highlightTab: (id) => {
+        // Guarda a aba activa (ex: 'tab-ferias' → 'ferias')
+        RHModule.state.activeTab = id.replace('tab-', '');
         document.querySelectorAll('.tab-btn').forEach(b => {
             b.classList.remove('border-orange-500', 'text-orange-600');
             b.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
@@ -128,6 +146,52 @@ const RHModule = {
             btn.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
             btn.classList.add('border-orange-500', 'text-orange-600');
         }
+    },
+
+    // Regressa à aba que estava activa antes do save/refresh
+    renderCurrentTab: () => {
+        const tabMap = {
+            'visao-geral':   () => RHModule.renderVisaoGeral(),
+            'funcionarios':  () => RHModule.renderFuncionarios(),
+            'frequencia':    () => RHModule.renderFrequencia(),
+            'ferias':        () => RHModule.renderFerias(),
+            'avaliacoes':    () => RHModule.renderAvaliacoes(),
+            'treinamento':   () => RHModule.renderTreinamento(),
+            'folha':         () => RHModule.renderFolha(),
+            'licencas':      () => RHModule.renderLicencas(),
+            'relatorios':    () => RHModule.renderRelatorios(),
+            'escala':        () => RHModule.renderEscalaMensal(),
+        };
+        const render = tabMap[RHModule.state.activeTab] || tabMap['visao-geral'];
+        render();
+    },
+
+    // --- HELPER: Cabeçalho padrão para todos os PDFs ---
+    buildPDFHeader: (inst, title, subtitle) => {
+        const showLogo = inst.ExibirLogoRelatorios;
+        const contactLine = [
+            inst.Telefone ? `Tel: ${inst.Telefone}` : '',
+            inst.Email    ? `Email: ${inst.Email}`   : ''
+        ].filter(Boolean).join(' | ');
+
+        return `
+            <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
+                <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
+                    ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
+                    <div>
+                        <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Empresa'}</h1>
+                        ${inst.NomeCompleto ? `<p class="text-sm text-gray-600">${inst.NomeCompleto}</p>` : ''}
+                        ${inst.Endereco    ? `<p class="text-sm text-gray-600">${inst.Endereco}</p>`    : ''}
+                        ${contactLine      ? `<p class="text-sm text-gray-600">${contactLine}</p>`      : ''}
+                    </div>
+                </div>
+                <div class="text-right">
+                    <h2 class="text-xl font-bold">${title}</h2>
+                    ${subtitle ? `<p class="text-sm text-gray-500">${subtitle}</p>` : ''}
+                    <p class="text-xs text-gray-400">Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
+                </div>
+            </div>
+        `;
     },
 
     // --- 0. ABA VISÃO GERAL ---
@@ -448,19 +512,7 @@ const RHModule = {
 
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-500">Resumo Diário de RH</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold">VISÃO GERAL</h2>
-                        <p class="text-sm text-gray-500">Data: ${new Date(targetDate + 'T00:00:00').toLocaleDateString('pt-BR')} ${targetTurno ? '(' + targetTurno + ')' : ''}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, 'VISÃO GERAL', 'Data: ' + new Date(targetDate + 'T00:00:00').toLocaleDateString('pt-BR') + (targetTurno ? ' (' + targetTurno + ')' : ''))}
 
                 <div class="grid grid-cols-2 gap-4 mb-8">
                     <div class="p-4 bg-gray-50 border rounded">
@@ -515,7 +567,7 @@ const RHModule = {
             </div>
         `;
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     // --- 1. ABA FUNCIONÁRIOS ---
@@ -1071,203 +1123,124 @@ const RHModule = {
     },
 
     modalEscala: async (id) => {
-        const f = RHModule.state.cache.allFuncionarios.find(x => x.ID === id); // Usa lista completa para achar nome
-        if(!f) return;
-
-        // Carrega escalas sob demanda se ainda não carregou
-        if (!RHModule.state.cache.escala) {
-             try {
-                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
-            } catch (e) { RHModule.state.cache.escala = []; }
+        // Garante que os assignments estão carregados
+        if (Object.keys(RHModule.escalaState.assignments).length === 0) {
+            await RHModule.escalaCarregarAssignments();
         }
-        
-        const userEscala = RHModule.state.cache.escala.filter(e => e.FuncionarioID === id);
-        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
-        
-        let html = `
-            <div class="mb-4 text-sm text-gray-600">Defina os dias fixos de trabalho para <b>${f.Nome}</b>.</div>
-            <form onsubmit="RHModule.saveEscala(event)">
-                <input type="hidden" name="FuncionarioID" value="${id}">
-                <div class="grid grid-cols-1 gap-2 bg-gray-50 p-4 rounded border">
-        `;
-        
-        days.forEach((d, index) => {
-            const diaNum = index + 1; // 1=Seg
-            const config = userEscala.find(e => e.DiaSemana === diaNum);
-            // Se não tiver config, assume padrão Diarista (Seg-Sex) para visualização inicial
-            const isTrabalho = config ? config.Tipo === 'Trabalho' : (f.Turno === 'Diarista' && diaNum <= 5);
-            
-            html += `
-                <div class="flex justify-between items-center border-b pb-2 last:border-0">
-                    <span class="font-bold text-gray-700">${d}</span>
-                    <label class="flex items-center cursor-pointer">
-                        <div class="relative">
-                            <input type="checkbox" name="dia_${diaNum}" class="sr-only" ${isTrabalho ? 'checked' : ''}>
-                            <div class="w-10 h-4 bg-gray-300 rounded-full shadow-inner"></div>
-                            <div class="dot absolute w-6 h-6 bg-white rounded-full shadow -left-1 -top-1 transition"></div>
-                        </div>
-                        <div class="ml-3 text-gray-700 text-xs font-bold label-text w-16 text-center">${isTrabalho ? 'Trabalho' : 'Folga'}</div>
-                    </label>
-                    <input type="hidden" name="id_${diaNum}" value="${config ? config.ID : ''}">
-                </div>
-            `;
-        });
-        
-        html += `
-                </div>
-                <button class="w-full bg-purple-600 text-white py-2 rounded mt-4 font-bold">Salvar Escala</button>
-            </form>
-            <style>
-                input:checked ~ .dot { transform: translateX(100%); background-color: #4F46E5; }
-                input:checked ~ .bg-gray-300 { background-color: #C7D2FE; }
-            </style>
-            <script>
-                document.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                    cb.addEventListener('change', (e) => {
-                        e.target.parentElement.nextElementSibling.innerText = e.target.checked ? 'Trabalho' : 'Folga';
-                    });
-                });
-            </script>
-        `;
-
-        Utils.openModal('Configurar Escala', html);
-    },
-
-    saveEscala: async (e) => {
-        e.preventDefault();
-        const formData = new FormData(e.target);
-        const funcId = formData.get('FuncionarioID');
-        const promises = [];
-
-        for(let i=1; i<=7; i++) {
-            const isTrabalho = formData.get(`dia_${i}`) === 'on';
-            const id = formData.get(`id_${i}`);
-            const tipo = isTrabalho ? 'Trabalho' : 'Folga';
-            
-            const payload = { FuncionarioID: funcId, DiaSemana: i, Tipo: tipo };
-            if(id) payload.ID = id;
-
-            promises.push(Utils.api('save', 'Escala', payload));
-        }
-
-        try {
-            await Promise.all(promises);
-            Utils.toast('Escala atualizada com sucesso!');
-            Utils.closeModal();
-            // Atualiza cache
-            RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
-        } catch(err) {
-            Utils.toast('Erro ao salvar escala: ' + err.message, 'error');
-        }
+        // Usa directamente o modal de configuração da Escala Mensal
+        RHModule.escalaConfigurarFuncionario(id);
     },
 
     printEscalaGeral: async () => {
-        // Carrega escalas sob demanda se ainda não carregou
-        if (!RHModule.state.cache.escala) {
-             try {
-                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
-            } catch (e) { RHModule.state.cache.escala = []; }
+        // Garante que os assignments estão carregados
+        if (Object.keys(RHModule.escalaState.assignments).length === 0) {
+            await RHModule.escalaCarregarAssignments();
         }
 
         const funcs = RHModule.state.cache.allFuncionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
-        const escala = RHModule.state.cache.escala || [];
-        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+        const assignments = RHModule.escalaState.assignments;
         const inst = RHModule.state.cache.instituicao[0] || {};
-        const showLogo = inst.ExibirLogoRelatorios;
+        const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+        const grupoCores = { A: '#7c3aed', B: '#059669', C: '#2563eb', diarista: '#ea580c' };
 
-        // Construção do HTML
-        
-        let html = `
+        const getTipoLabel = (funcId) => {
+            const a = assignments[funcId];
+            if (!a || !a.tipo) return { label: 'Não atribuído', color: '#9ca3af' };
+            if (a.tipo === 'diarista') return { label: 'Diarista (8h)', color: grupoCores.diarista };
+            return { label: `Grupo ${a.tipo} (24h/48h)`, color: grupoCores[a.tipo] };
+        };
+
+        // Calcula o padrão semanal de cada funcionário com base na lógica da Escala Mensal
+        const getPatternSemanal = (funcId) => {
+            const a = assignments[funcId];
+            if (!a || !a.tipo) return days.map(() => ({ label: '—', style: 'color:#9ca3af;' }));
+
+            if (a.tipo === 'diarista') {
+                const diasSemana = ['—','Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
+                return days.map((_, i) => {
+                    const diaNum = i + 1; // 1=Seg
+                    const isWeekend = diaNum >= 6;
+                    let trabalha = false;
+                    if (isWeekend) {
+                        trabalha = a.fdsAlterna !== false; // Alternado = pode trabalhar
+                    } else {
+                        trabalha = !(a.folgaFixa && a.folgaFixa === diaNum);
+                    }
+                    if (isWeekend && a.fdsAlterna === false) return { label: 'Folga', style: 'background:#f3f4f6;color:#9ca3af;' };
+                    if (isWeekend && a.fdsAlterna !== false) return { label: 'Alternado', style: 'background:#fff7ed;color:#ea580c;font-weight:bold;' };
+                    return trabalha
+                        ? { label: '08:00 - 17:00', style: '' }
+                        : { label: `Folga${a.folgaFixa ? ' ('+diasSemana[a.folgaFixa]+')' : ''}`, style: 'background:#f3f4f6;color:#9ca3af;' };
+                });
+            } else {
+                // Grupos A/B/C — regime 24h seguido de 48h de folga (rotação)
+                return days.map(() => ({ label: `Turno 24h\n(Grupo ${a.tipo})`, style: `background:#eff6ff;color:#1e40af;font-weight:bold;` }));
+            }
+        };
+
+        let rows = '';
+        funcs.forEach(f => {
+            const { label: tipoLabel, color } = getTipoLabel(f.ID);
+            const pattern = getPatternSemanal(f.ID);
+            rows += `<tr>
+                <td class="border p-2 font-bold">${f.Nome}</td>
+                <td class="border p-2 text-xs text-gray-600">${f.Cargo || '-'}</td>
+                <td class="border p-2 text-xs font-bold text-center" style="color:${color};">${tipoLabel}</td>
+                ${pattern.map(p => `<td class="border p-1 text-center text-xs" style="${p.style}">${p.label}</td>`).join('')}
+            </tr>`;
+        });
+
+        const html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm">${inst.Endereco || ''}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold">ESCALA DE TRABALHO</h2>
-                        <p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p>
-                    </div>
-                </div>
-
+                ${RHModule.buildPDFHeader(inst, 'ESCALA DE TRABALHO', '')}
                 <table class="w-full text-sm border-collapse border border-gray-300">
                     <thead>
                         <tr class="bg-gray-100">
                             <th class="border p-2 text-left">Funcionário</th>
                             <th class="border p-2 text-left">Cargo</th>
+                            <th class="border p-2 text-center">Regime</th>
                             ${days.map(d => `<th class="border p-2 text-center w-24">${d}</th>`).join('')}
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody>${rows}</tbody>
+                </table>
+                <div class="mt-4 flex gap-6 text-xs text-gray-500 border-t pt-3">
+                    <span><span style="color:#ea580c;font-weight:bold;">■</span> Diarista (8h/dia, Seg-Sex)</span>
+                    <span><span style="color:#7c3aed;font-weight:bold;">■</span> Grupo A · <span style="color:#059669;font-weight:bold;">■</span> Grupo B · <span style="color:#2563eb;font-weight:bold;">■</span> Grupo C (24h/48h folga)</span>
+                </div>
+                <div class="mt-4 text-center text-xs text-gray-400">&copy; 2026 ${inst.NomeFantasia || ''}. Documento de uso interno.</div>
+            </div>
         `;
 
-        funcs.forEach(f => {
-            html += `<tr><td class="border p-2 font-bold">${f.Nome}</td><td class="border p-2 text-xs text-gray-600">${f.Cargo}</td>`;
-            for(let i=1; i<=7; i++) {
-                const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === i);
-                // Lógica de visualização: Se tem config usa ela, senão usa padrão do turno
-                let type = config ? config.Tipo : (f.Turno === 'Diarista' ? (i <= 5 ? 'Trabalho' : 'Folga') : (f.Turno === 'Regime de Turno' ? 'Turno' : 'Folga'));
-                
-                let label = type === 'Trabalho' ? '08:00 - 17:00' : (type === 'Turno' ? 'Escala' : 'Folga');
-                // Estilos inline para garantir cor no PDF
-                let style = type === 'Trabalho' ? 'background-color: #ffffff;' : (type === 'Turno' ? 'background-color: #eff6ff; color: #1e40af; font-weight: bold;' : 'background-color: #f3f4f6; color: #9ca3af;');
-                html += `<td class="border p-2 text-center text-xs" style="${style}">${label}</td>`;
-            }
-            html += `</tr>`;
-        });
-
-        html += `</tbody></table><div class="mt-8 text-center text-xs text-gray-400">Documento de uso interno.</div></div>`;
-        
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     shareEscalaGeral: async () => {
-        // Carrega escalas sob demanda se ainda não carregou
-        if (!RHModule.state.cache.escala) {
-             try {
-                RHModule.state.cache.escala = await Utils.api('getAll', 'Escala');
-            } catch (e) { RHModule.state.cache.escala = []; }
-        }
-        
-        // Garante que funcionários estejam carregados
-        if (!RHModule.state.cache.allFuncionarios || RHModule.state.cache.allFuncionarios.length === 0) {
-             try {
-                RHModule.state.cache.allFuncionarios = await Utils.api('getEmployeesList');
-            } catch (e) { RHModule.state.cache.allFuncionarios = []; }
+        // Garante que os assignments estão carregados
+        if (Object.keys(RHModule.escalaState.assignments).length === 0) {
+            await RHModule.escalaCarregarAssignments();
         }
 
         const funcs = RHModule.state.cache.allFuncionarios.filter(f => f.Status === 'Ativo').sort((a, b) => a.Nome.localeCompare(b.Nome));
-        const escala = RHModule.state.cache.escala || [];
+        const assignments = RHModule.escalaState.assignments;
         const days = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
-        
-        let msg = `*📅 ESCALA DE TRABALHO SEMANAL*\n_Delícia da Cidade_\n\n`;
-        
-        days.forEach((d, index) => {
-            const diaNum = index + 1;
-            msg += `*${d.toUpperCase()}*\n`;
-            
-            const working = [];
-            
-            funcs.forEach(f => {
-                const config = escala.find(e => e.FuncionarioID === f.ID && e.DiaSemana === diaNum);
-                // Lógica de visualização
-                let type = config ? config.Tipo : (f.Turno === 'Diarista' ? (diaNum <= 5 ? 'Trabalho' : 'Folga') : (f.Turno === 'Regime de Turno' ? 'Turno' : 'Folga'));
-                
-                if (type === 'Trabalho' || type === 'Turno') {
-                    working.push(f.Nome);
-                }
-            });
-            
-            if(working.length > 0) msg += `✅ ${working.join(', ')}\n`;
-            else msg += `🚫 Ninguém escalado\n`;
-            
-            msg += `\n`;
-        });
-        
+
+        let msg = `*📅 ESCALA DE TRABALHO*\n_Delícia da Cidade_\n\n`;
+
+        const diaristas = funcs.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'diarista');
+        const grupoA = funcs.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'A');
+        const grupoB = funcs.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'B');
+        const grupoC = funcs.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'C');
+        const naoAtrib = funcs.filter(f => !assignments[f.ID] || !assignments[f.ID].tipo);
+
+        if (diaristas.length) msg += `*☀ DIARISTAS (8h Seg-Sex)*\n${diaristas.map(f => `• ${f.Nome}`).join('\n')}\n\n`;
+        if (grupoA.length) msg += `*🟣 GRUPO A (24h/48h folga)*\n${grupoA.map(f => `• ${f.Nome}`).join('\n')}\n\n`;
+        if (grupoB.length) msg += `*🟢 GRUPO B (24h/48h folga)*\n${grupoB.map(f => `• ${f.Nome}`).join('\n')}\n\n`;
+        if (grupoC.length) msg += `*🔵 GRUPO C (24h/48h folga)*\n${grupoC.map(f => `• ${f.Nome}`).join('\n')}\n\n`;
+        if (naoAtrib.length) msg += `*⚠ SEM REGIME ATRIBUÍDO*\n${naoAtrib.map(f => `• ${f.Nome}`).join('\n')}\n\n`;
+
         msg += `_Gerado em ${new Date().toLocaleDateString()}_`;
+
         const encodedMsg = encodeURIComponent(msg);
 
         Utils.openModal('Compartilhar Escala', `
@@ -1306,20 +1279,7 @@ const RHModule = {
         let html = `
             <div class="font-sans text-gray-900">
                 <!-- Cabeçalho -->
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
-                            <p class="text-sm text-gray-600">${inst.Telefone || ''} | ${inst.Email || ''}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold text-gray-800">FICHA DE FUNCIONÁRIO</h2>
-                        <p class="text-sm text-gray-500">Gerado em: ${new Date().toLocaleDateString()}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, 'FICHA DE FUNCIONÁRIO', '')}
 
                 <div class="flex gap-6 mb-8">
                     <div class="w-32 h-32 bg-gray-200 border border-gray-300 flex items-center justify-center rounded overflow-hidden">
@@ -1395,7 +1355,7 @@ const RHModule = {
             `;
         }
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     // --- 2. ABA FREQUÊNCIA ---
@@ -1549,47 +1509,124 @@ const RHModule = {
         `;
     },
 
+    getEscaladosDoDia: (dateStr) => {
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const es = RHModule.escalaState;
+        const ativos = allFuncs.filter(f => f.Status === 'Ativo');
+
+        // Se assignments ainda não carregou, devolve todos os activos (loading state)
+        if (!es || !es.assignments || Object.keys(es.assignments).length === 0) {
+            return ativos;
+        }
+
+        const dd = RHModule.getDayData(dateStr);
+        const escaladosNomes = new Set();
+
+        // Turnistas: membros do grupo que trabalha hoje
+        (RHModule.escalaGetGrupos()[dd.grupoEfetivo] || []).forEach(n => escaladosNomes.add(n.trim().toUpperCase()));
+
+        // Diaristas: apenas quem tem status "trabalho"
+        dd.diaristas.filter(d => d.status === 'trabalho').forEach(d => escaladosNomes.add(d.nome.trim().toUpperCase()));
+
+        // Se nenhum escalado calculado, significa dia sem ninguém (ex: feriado/folga geral)
+        if (escaladosNomes.size === 0) return [];
+
+        // Filtra allFuncionarios pelos nomes escalados
+        return ativos.filter(f => {
+            const nomeSistema = (f.Nome || '').trim().toUpperCase();
+            return [...escaladosNomes].some(n => nomeSistema === n || nomeSistema.startsWith(n) || n.startsWith(nomeSistema));
+        });
+    },
+
+    atualizarDropdownEscalados: (dateStr, selectedId = '') => {
+        const select = document.getElementById('freq-funcionario-select');
+        const badge = document.getElementById('freq-escala-badge');
+        if (!select) return;
+
+        const escalados = RHModule.getEscaladosDoDia(dateStr);
+        const es = RHModule.escalaState;
+        const dd = RHModule.getDayData(dateStr);
+        const grupoCores = { A: '#7c3aed', B: '#059669', C: '#2563eb' };
+
+        select.innerHTML = `<option value="">Selecione o funcionário...</option>` +
+            escalados.map(f => `<option value="${f.ID}" ${f.ID === selectedId ? 'selected' : ''}>${f.Nome}${f.Turno ? ' · ' + (f.Turno === 'Regime de Turno' ? '🔄 Turno' : '☀ Diarista') : ''}</option>`).join('');
+
+        if (badge) {
+            const cor = grupoCores[dd.grupoEfetivo] || '#ea580c';
+            badge.innerHTML = `
+                <span style="background:${cor}22; color:${cor}; border:1px solid ${cor}44; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700;">
+                    🔄 Grupo ${dd.grupoEfetivo} em serviço
+                </span>
+                <span style="background:#ea580c22; color:#ea580c; border:1px solid #ea580c44; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; margin-left:6px;">
+                    ☀ ${dd.diaristas.filter(d => d.status === 'trabalho').length} diaristas
+                </span>
+                <span style="font-size:11px; color:#9ca3af; margin-left:8px;">${escalados.length} funcionário(s) escalado(s)</span>
+            `;
+        }
+    },
+
     modalFrequencia: (id = null) => {
-        const funcs = RHModule.state.cache.allFuncionarios; // Dropdown usa lista completa
         const today = new Date().toISOString().split('T')[0];
-        
         const record = id ? RHModule.state.cache.frequencia.find(r => r.ID === id) : {};
         const title = id ? 'Editar Frequência' : 'Registrar Ponto';
+        const dataInicial = record.Data || today;
 
         // Função para calcular status em tempo real no modal
         window.calcStatusPresenca = () => {
             const entrada = document.querySelector('input[name="Entrada"]').value;
             const statusSelect = document.querySelector('select[name="Status"]');
-            
             if (entrada) {
-                // Regra: 08:00 + 15min tolerância
                 if (entrada > "08:15") statusSelect.value = "Atraso";
                 else statusSelect.value = "Presente";
             }
         };
 
+        // Ao mudar a data, recarrega o dropdown com os escalados desse dia
+        window.onFreqDataChange = (val) => {
+            RHModule.atualizarDropdownEscalados(val);
+        };
+
         Utils.openModal(title, `
             <form onsubmit="RHModule.save(event, 'Frequencia')">
                 <input type="hidden" name="ID" value="${record.ID || ''}">
-                <div class="mb-4">
-                    <label class="block text-sm font-bold">Funcionário</label>
-                    <select name="FuncionarioID" class="border p-2 rounded w-full" onchange="this.form.FuncionarioNome.value = this.options[this.selectedIndex].text" required>
-                        <option value="">Selecione...</option>
-                        ${funcs.map(f => `<option value="${f.ID}" ${record.FuncionarioID === f.ID ? 'selected' : ''}>${f.Nome}</option>`).join('')}
+
+                <div class="mb-3">
+                    <label class="text-xs font-bold text-gray-600 uppercase tracking-wide">📅 Data</label>
+                    <input type="date" name="Data" id="freq-data-input" value="${dataInicial}"
+                        class="border p-2 rounded w-full mt-1" required
+                        onchange="onFreqDataChange(this.value)">
+                </div>
+
+                <div class="mb-1">
+                    <label class="text-xs font-bold text-gray-600 uppercase tracking-wide">👤 Funcionário Escalado</label>
+                    <div id="freq-escala-badge" class="mt-1 mb-2 flex flex-wrap items-center gap-1"></div>
+                    <select id="freq-funcionario-select" name="FuncionarioID"
+                        class="border p-2 rounded w-full"
+                        onchange="document.querySelector('[name=FuncionarioNome]').value = this.options[this.selectedIndex].text.split(' · ')[0]"
+                        required>
+                        <option value="">A carregar escalados...</option>
                     </select>
                     <input type="hidden" name="FuncionarioNome" value="${record.FuncionarioNome || ''}">
+                    <p class="text-xs text-gray-400 mt-1">⚡ Apenas funcionários escalados para esta data são apresentados.</p>
                 </div>
-                <div class="mb-4"><label class="text-xs">Data</label><input type="date" name="Data" value="${record.Data || today}" class="border p-2 rounded w-full" required></div>
-                <div class="grid grid-cols-2 gap-4 mb-4">
+
+                <div class="grid grid-cols-2 gap-4 mb-4 mt-4">
                     <div>
                         <label class="text-xs font-bold">Entrada (Limite 08:15)</label>
-                        <div class="flex gap-1"><input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full" onchange="calcStatusPresenca()"><button type="button" onclick="RHModule.setCurrentTime('Entrada');calcStatusPresenca()" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <div class="flex gap-1">
+                            <input type="time" name="Entrada" value="${record.Entrada || ''}" class="border p-2 rounded w-full" onchange="calcStatusPresenca()">
+                            <button type="button" onclick="RHModule.setCurrentTime('Entrada');calcStatusPresenca()" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button>
+                        </div>
                     </div>
                     <div>
-                        <label class="text-xs">Saída</label>
-                        <div class="flex gap-1"><input type="time" name="Saida" value="${record.Saida || ''}" class="border p-2 rounded w-full"><button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button></div>
+                        <label class="text-xs font-bold">Saída</label>
+                        <div class="flex gap-1">
+                            <input type="time" name="Saida" value="${record.Saida || ''}" class="border p-2 rounded w-full">
+                            <button type="button" onclick="RHModule.setCurrentTime('Saida')" class="bg-gray-200 px-2 rounded hover:bg-gray-300" title="Agora"><i class="fas fa-clock"></i></button>
+                        </div>
                     </div>
                 </div>
+
                 <div class="mb-4">
                     <label class="text-xs font-bold">Status (Calculado)</label>
                     <select name="Status" class="border p-2 rounded w-full bg-gray-50">
@@ -1609,9 +1646,12 @@ const RHModule = {
                 <div class="mb-4">
                     <textarea name="Observacoes" placeholder="Observações (Atrasos, Justificativas...)" class="border p-2 rounded w-full h-20">${record.Observacoes || ''}</textarea>
                 </div>
-                <button class="w-full bg-blue-600 text-white py-2 rounded">Registrar</button>
+                <button class="w-full bg-blue-600 text-white py-2 rounded font-bold">Registrar Ponto</button>
             </form>
         `);
+
+        // Carrega o dropdown logo após o modal abrir
+        setTimeout(() => RHModule.atualizarDropdownEscalados(dataInicial, record.FuncionarioID || ''), 50);
     },
 
     setCurrentTime: (field) => {
@@ -1641,6 +1681,7 @@ const RHModule = {
     renderFerias: () => {
         RHModule.highlightTab('tab-ferias');
         const data = RHModule.state.cache.ferias || [];
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
@@ -1649,11 +1690,14 @@ const RHModule = {
                 ${canCreate ? `<button onclick="RHModule.modalFerias()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Solicitar Férias</button>` : ''}
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th>Início</th><th>Retorno</th><th>Dias</th><th>Subsídio de Férias</th><th>Status</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">Matrícula</th><th>Nome</th><th>Início</th><th>Retorno</th><th>Dias</th><th>Subsídio de Férias</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
-                    ${data.map(r => `
+                    ${data.map(r => {
+                        const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                        const matricula = func.Codigo || func.ID?.slice(0,8) || r.Codigo || r.ID.slice(0,8);
+                        return `
                         <tr class="border-t">
-                            <td class="p-3 font-bold text-gray-700">${r.Codigo || r.ID.slice(0,8)}</td>
+                            <td class="p-3 font-bold text-gray-700 font-mono">${matricula}</td>
                             <td class="p-3">${r.FuncionarioNome || '-'}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataInicio)}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataFim)}</td>
@@ -1667,7 +1711,7 @@ const RHModule = {
                                 ${canDelete ? `<button onclick="RHModule.delete('Ferias', '${r.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                             </td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             </table>
         `;
@@ -1789,19 +1833,7 @@ const RHModule = {
         const html = `
             <div class="border-2 border-gray-800 p-8 max-w-3xl mx-auto font-serif text-gray-900">
                 <!-- Cabeçalho -->
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm">${inst.Endereco || ''}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold">GUIA DE FÉRIAS</h2>
-                        <p class="text-sm">Ref: ${ferias.Codigo || ferias.ID.slice(0,8)}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, 'GUIA DE FÉRIAS', 'Ref: ' + (ferias.Codigo || ferias.ID.slice(0,8)))}
 
                 <!-- Dados do Colaborador -->
                 <div class="mb-6 bg-gray-50 p-4 rounded border border-gray-200">
@@ -1810,8 +1842,7 @@ const RHModule = {
                         <div><span class="font-bold text-sm">Nome:</span> <span class="text-lg block">${func.Nome || ferias.FuncionarioNome}</span></div>
                         <div><span class="font-bold text-sm">Cargo/Função:</span> <span class="text-lg block">${func.Cargo || '-'}</span></div>
                         <div><span class="font-bold text-sm">Departamento:</span> <span class="block">${func.Departamento || '-'}</span></div>
-                        <div><span class="font-bold text-sm">Nº Funcionário:</span> <span class="block">${func.ID.length > 10 ? func.ID.slice(0,8) : func.ID}</span></div>
-                        <div><span class="font-bold text-sm">Matrícula:</span> <span class="block">${func.Codigo || func.ID.slice(0,8)}</span></div>
+                        <div><span class="font-bold text-sm">Matrícula:</span> <span class="block font-mono">${func.Codigo || func.ID?.slice(0,8) || '-'}</span></div>
                     </div>
                 </div>
 
@@ -1847,7 +1878,7 @@ const RHModule = {
             </div>
         `;
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     shareGuiaFerias: (id) => {
@@ -1925,6 +1956,7 @@ const RHModule = {
         }
 
         const data = RHModule.state.cache.avaliacoes || [];
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -1934,11 +1966,14 @@ const RHModule = {
                 ${canCreate ? `<button onclick="RHModule.modalAvaliacao()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Avaliação</button>` : ''}
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Data</th><th>Média (0-10)</th><th>Conclusão</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">Matrícula</th><th>Funcionário</th><th>Data</th><th>Média (0-10)</th><th>Conclusão</th><th>Ações</th></tr></thead>
                 <tbody>
-                    ${data.map(r => `
+                    ${data.map(r => {
+                        const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                        const matricula = func.Codigo || func.ID?.slice(0,8) || r.Codigo || r.ID.slice(0,8);
+                        return `
                         <tr class="border-t">
-                            <td class="p-3 font-bold text-gray-700">${r.Codigo || r.ID.slice(0,8)}</td>
+                            <td class="p-3 font-bold text-gray-700 font-mono">${matricula}</td>
                             <td class="p-3">${r.FuncionarioNome}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.DataAvaliacao)}</td>
                             <td class="p-3 text-center font-bold">${r.MediaFinal}</td>
@@ -1950,7 +1985,7 @@ const RHModule = {
                                 ${canDelete ? `<button onclick="RHModule.delete('Avaliacoes', '${r.ID}')" class="text-red-500 hover:text-red-700" title="Excluir"><i class="fas fa-trash"></i></button>` : ''}
                             </td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             </table>
         `;
@@ -2064,20 +2099,7 @@ const RHModule = {
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white max-w-4xl mx-auto border border-gray-200">
                 <!-- CABEÇALHO -->
-                <div class="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
-                    <div class="flex items-center gap-4">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-20 w-auto object-contain">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold text-gray-800 uppercase">Avaliação de Desempenho</h2>
-                        <p class="text-sm text-gray-500">Ref: ${av.Codigo || av.ID.slice(0,8)}</p>
-                        <p class="text-sm text-gray-500">Data: ${Utils.formatDate(av.DataAvaliacao)}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, 'AVALIAÇÃO DE DESEMPENHO', 'Ref: ' + (av.Codigo || av.ID.slice(0,8)) + ' | Data: ' + Utils.formatDate(av.DataAvaliacao))}
 
                 <!-- DADOS -->
                 <div class="bg-gray-50 p-4 rounded border border-gray-200 mb-6">
@@ -2140,7 +2162,7 @@ const RHModule = {
                 </div>
             </div>
         `;
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     shareAvaliacao: (id) => {
@@ -2264,6 +2286,7 @@ const RHModule = {
         }
 
         const data = RHModule.state.cache.folha || [];
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canEdit = Utils.checkPermission('RH', 'editar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
@@ -2274,11 +2297,14 @@ const RHModule = {
                 ${canCreate ? `<button onclick="RHModule.modalFolha()" class="bg-indigo-600 text-white px-4 py-2 rounded">+ Lançar Pagamento</button>` : ''}
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Nome</th><th class="text-right">Salário Base</th><th class="text-right">Vencimentos</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th>Banco/IBAN</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">Matrícula</th><th>Nome</th><th class="text-right">Salário Base</th><th class="text-right">Vencimentos</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th>Banco/IBAN</th><th>Ações</th></tr></thead>
                 <tbody>
-                    ${data.map(r => `
+                    ${data.map(r => {
+                        const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                        const matricula = func.Codigo || func.ID?.slice(0,8) || r.ID.slice(0,8);
+                        return `
                         <tr class="border-t">
-                            <td class="p-3">${r.ID}</td>
+                            <td class="p-3 font-bold text-gray-700 font-mono">${matricula}</td>
                             <td class="p-3 font-bold">${r.FuncionarioNome}</td>
                             <td class="p-3 text-right">${Utils.formatCurrency(r.SalarioBase)}</td>
                             <td class="p-3 text-right text-blue-600">${Utils.formatCurrency(r.TotalVencimentos)}</td>
@@ -2291,7 +2317,7 @@ const RHModule = {
                                 ${canDelete ? `<button onclick="RHModule.delete('Folha', '${r.ID}')" class="text-red-500 hover:text-red-700"><i class="fas fa-trash"></i></button>` : ''}
                             </td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             </table>
         `;
@@ -2469,20 +2495,7 @@ const RHModule = {
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white max-w-4xl mx-auto border border-gray-200">
                 <!-- 1. CABEÇALHO EMPRESA -->
-                <div class="flex justify-between items-start border-b-2 border-gray-800 pb-6 mb-6">
-                    <div class="flex items-center gap-4">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-20 w-auto object-contain">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">${inst.NomeCompleto || ''}</p>
-                            <p class="text-sm text-gray-600">${inst.Endereco || ''}</p>
-                            <p class="text-sm text-gray-600">Tel: ${inst.Telefone || '-'} | Email: ${inst.Email || '-'}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold text-gray-800 uppercase">Recibo de Vencimento</h2>
-                        <p class="text-sm text-gray-500">Ref: ${folha.Periodo}</p>
-                    </div>
+                ${RHModule.buildPDFHeader(inst, 'RECIBO DE VENCIMENTO', 'Ref: ' + folha.Periodo)}
                 </div>
 
                 <!-- 2. DADOS DO FUNCIONÁRIO & 3. PERÍODO -->
@@ -2490,8 +2503,7 @@ const RHModule = {
                     <div class="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                         <div><span class="font-bold text-gray-600">Funcionário:</span> ${func.Nome}</div>
                         <div><span class="font-bold text-gray-600">Cargo:</span> ${func.Cargo || '-'}</div>
-                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.ID.length > 10 ? func.ID.slice(0,8).toUpperCase() : func.ID}</div>
-                        <div><span class="font-bold text-gray-600">Matrícula:</span> ${func.Codigo || func.ID.slice(0,8)}</div>
+                        <div><span class="font-bold text-gray-600">Matrícula:</span> <span class="font-mono">${func.Codigo || func.ID?.slice(0,8) || '-'}</span></div>
                         <div><span class="font-bold text-gray-600">Departamento:</span> ${func.Departamento || '-'}</div>
                         <div><span class="font-bold text-gray-600">Admissão:</span> ${Utils.formatDate(func.Admissao)}</div>
                         <div><span class="font-bold text-gray-600">NIF/BI:</span> ${func.BI || '-'}</div>
@@ -2571,7 +2583,7 @@ const RHModule = {
             </div>
         `;
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     // --- 7. ABA LICENÇAS E AUSÊNCIAS ---
@@ -2586,6 +2598,7 @@ const RHModule = {
         }
 
         const data = RHModule.state.cache.licencas || [];
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
         const canCreate = Utils.checkPermission('RH', 'criar');
         const canDelete = Utils.checkPermission('RH', 'excluir');
         document.getElementById('tab-content').innerHTML = `
@@ -2594,18 +2607,21 @@ const RHModule = {
                 ${canCreate ? `<button onclick="RHModule.modalLicencas()" class="bg-blue-600 text-white px-4 py-2 rounded">+ Nova Licença/Ausência</button>` : ''}
             </div>
             <table class="w-full bg-white rounded shadow text-sm">
-                <thead class="bg-gray-100"><tr><th class="p-3 text-left">ID</th><th>Funcionário</th><th>Tipo</th><th>Início</th><th>Retorno</th><th>Ações</th></tr></thead>
+                <thead class="bg-gray-100"><tr><th class="p-3 text-left">Matrícula</th><th>Funcionário</th><th>Tipo</th><th>Início</th><th>Retorno</th><th>Ações</th></tr></thead>
                 <tbody>
-                    ${data.map(r => `
+                    ${data.map(r => {
+                        const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                        const matricula = func.Codigo || func.ID?.slice(0,8) || r.ID.slice(0,8);
+                        return `
                         <tr class="border-t">
-                            <td class="p-3">${r.ID}</td>
+                            <td class="p-3 font-bold text-gray-700 font-mono">${matricula}</td>
                             <td class="p-3">${r.FuncionarioNome}</td>
                             <td class="p-3 font-bold">${r.Tipo}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.Inicio)}</td>
                             <td class="p-3 text-center">${Utils.formatDate(r.Retorno)}</td>
                             <td class="p-3 text-center">${canDelete ? `<button onclick="RHModule.delete('Licencas', '${r.ID}')" class="text-red-500"><i class="fas fa-trash"></i></button>` : ''}</td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             </table>
         `;
@@ -3057,13 +3073,8 @@ const RHModule = {
         const content = document.getElementById('relatorio-results').innerHTML;
         
         const html = `
-            <div class="mb-4 border-b pb-2 ${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                <div>
-                    <h1 class="text-2xl font-bold text-gray-800">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                    <p class="text-sm text-gray-500">${inst.Endereco || ''} | ${inst.Telefone || ''}</p>
-                </div>
-            </div>
+            <div class="p-8 font-sans text-gray-900 bg-white">
+            ${RHModule.buildPDFHeader(inst, 'RELATÓRIO', '')}
             
             ${content}
             
@@ -3074,7 +3085,7 @@ const RHModule = {
             </div>
         `;
         
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     printAniversariantesFestivo: () => {
@@ -3125,7 +3136,7 @@ const RHModule = {
             </style>
         `;
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     printIndividualFrequency: async (funcId) => {
@@ -3256,19 +3267,7 @@ const RHModule = {
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
                 <!-- Header -->
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain">` : ''}
-                        <div>
-                            <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm text-gray-600">Espelho de Ponto</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <p class="text-sm font-bold">Período: ${month}/${year}</p>
-                        <p class="text-xs text-gray-500">Emissão: ${new Date().toLocaleDateString()}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, 'ESPELHO DE PONTO', 'Período: ' + month + '/' + year)}
 
                 <!-- Info Funcionário -->
                 <div class="mb-6 bg-gray-50 p-3 rounded border border-gray-200 text-sm">
@@ -3335,7 +3334,7 @@ const RHModule = {
             </div>
         `;
 
-        Utils.printNative(html);
+        Utils.printNative(html, 'landscape');
     },
 
     printTabPDF: (type) => {
@@ -3428,67 +3427,83 @@ const RHModule = {
             title = 'Relatório de Férias';
             filename = 'ferias.pdf';
             const data = RHModule.state.cache.ferias || [];
-            const headers = ['Código', 'Nome', 'Início', 'Retorno', 'Dias', 'Status'];
-            const rows = data.map(r => [r.Codigo || '-', r.FuncionarioNome, Utils.formatDate(r.DataInicio), Utils.formatDate(r.DataFim), r.Dias, r.Status]);
+            const allFuncs = RHModule.state.cache.allFuncionarios || [];
+            const headers = ['Matrícula', 'Nome', 'Início', 'Retorno', 'Dias', 'Status'];
+            const rows = data.map(r => {
+                const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                const matricula = func.Codigo || func.ID?.slice(0,8) || r.Codigo || '-';
+                return [matricula, r.FuncionarioNome, Utils.formatDate(r.DataInicio), Utils.formatDate(r.DataFim), r.Dias, r.Status];
+            });
             content = buildTable(headers, rows);
         }
         else if (type === 'avaliacoes') {
+            if (!RHModule.state.cache.avaliacoes) return Utils.toast('⚠️ Abra a aba "Avaliação" primeiro para carregar os dados.', 'error');
             title = 'Relatório de Avaliações';
             filename = 'avaliacoes.pdf';
             const data = RHModule.state.cache.avaliacoes || [];
-            const headers = ['Código', 'Funcionário', 'Data', 'Média', 'Conclusão'];
-            const rows = data.map(r => [r.Codigo || '-', r.FuncionarioNome, Utils.formatDate(r.DataAvaliacao), r.MediaFinal, r.Conclusao]);
+            const allFuncs = RHModule.state.cache.allFuncionarios || [];
+            const headers = ['Matrícula', 'Funcionário', 'Data', 'Média', 'Conclusão'];
+            const rows = data.map(r => {
+                const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                const matricula = func.Codigo || func.ID?.slice(0,8) || r.Codigo || '-';
+                return [matricula, r.FuncionarioNome, Utils.formatDate(r.DataAvaliacao), r.MediaFinal, r.Conclusao];
+            });
             content = buildTable(headers, rows);
         }
         else if (type === 'treinamento') {
+            if (!RHModule.state.cache.treinamentos) return Utils.toast('⚠️ Abra a aba "Treinamento" primeiro para carregar os dados.', 'error');
             title = 'Relatório de Treinamentos';
             filename = 'treinamentos.pdf';
             orientation = 'landscape';
             const data = RHModule.state.cache.treinamentos || [];
-            const headers = ['ID', 'Nome', 'Título', 'Tipo', 'Início', 'Término', 'Status'];
-            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Titulo, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Termino), r.Status]);
+            const allFuncs = RHModule.state.cache.allFuncionarios || [];
+            const headers = ['Matrícula', 'Nome', 'Título', 'Tipo', 'Início', 'Término', 'Status'];
+            const rows = data.map(r => {
+                const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                const matricula = func.Codigo || func.ID?.slice(0,8) || r.ID;
+                return [matricula, r.FuncionarioNome, r.Titulo, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Termino), r.Status];
+            });
             content = buildTable(headers, rows);
         }
         else if (type === 'folha') {
+            if (!RHModule.state.cache.folha) return Utils.toast('⚠️ Abra a aba "Folha" primeiro para carregar os dados.', 'error');
             title = 'Folha de Pagamento';
             filename = 'folha.pdf';
             orientation = 'landscape';
             const data = RHModule.state.cache.folha || [];
-            const headers = ['ID', 'Nome', 'Período', 'Base', 'Vencimentos', 'Descontos', 'Líquido', 'Banco'];
-            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Periodo, Utils.formatCurrency(r.SalarioBase), Utils.formatCurrency(r.TotalVencimentos), Utils.formatCurrency(r.TotalDescontos), Utils.formatCurrency(r.SalarioLiquido), r.Banco]);
+            const allFuncs = RHModule.state.cache.allFuncionarios || [];
+            const headers = ['Matrícula', 'Nome', 'Período', 'Base', 'Vencimentos', 'Descontos', 'Líquido', 'Banco'];
+            const rows = data.map(r => {
+                const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                const matricula = func.Codigo || func.ID?.slice(0,8) || r.ID;
+                return [matricula, r.FuncionarioNome, r.Periodo, Utils.formatCurrency(r.SalarioBase), Utils.formatCurrency(r.TotalVencimentos), Utils.formatCurrency(r.TotalDescontos), Utils.formatCurrency(r.SalarioLiquido), r.Banco];
+            });
             content = buildTable(headers, rows);
         }
         else if (type === 'licencas') {
+            if (!RHModule.state.cache.licencas) return Utils.toast('⚠️ Abra a aba "Licenças" primeiro para carregar os dados.', 'error');
             title = 'Relatório de Licenças';
             filename = 'licencas.pdf';
             const data = RHModule.state.cache.licencas || [];
-            const headers = ['ID', 'Funcionário', 'Tipo', 'Início', 'Retorno'];
-            const rows = data.map(r => [r.ID, r.FuncionarioNome, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Retorno)]);
+            const allFuncs = RHModule.state.cache.allFuncionarios || [];
+            const headers = ['Matrícula', 'Funcionário', 'Tipo', 'Início', 'Retorno'];
+            const rows = data.map(r => {
+                const func = allFuncs.find(f => f.ID === r.FuncionarioID) || {};
+                const matricula = func.Codigo || func.ID?.slice(0,8) || r.ID;
+                return [matricula, r.FuncionarioNome, r.Tipo, Utils.formatDate(r.Inicio), Utils.formatDate(r.Retorno)];
+            });
             content = buildTable(headers, rows);
         }
 
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white">
-                <div class="flex items-center justify-between border-b-2 border-gray-800 pb-4 mb-6">
-                    <div class="${showLogo && inst.LogotipoURL ? 'flex items-center gap-4' : ''}">
-                        ${showLogo && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" class="h-16 w-auto object-contain" crossorigin="anonymous">` : ''}
-                        <div>
-                            <h1 class="text-2xl font-bold uppercase">${inst.NomeFantasia || 'Delícia da Cidade'}</h1>
-                            <p class="text-sm">${inst.Endereco || ''}</p>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <h2 class="text-xl font-bold">${title.toUpperCase()}</h2>
-                        <p class="text-sm">Gerado em: ${new Date().toLocaleDateString()}</p>
-                        <p class="text-xs text-gray-500">Por: ${user.Nome}</p>
-                    </div>
-                </div>
+                ${RHModule.buildPDFHeader(inst, title.toUpperCase(), 'Por: ' + user.Nome)}
                 ${content}
-                <div class="mt-8 text-center text-xs text-gray-400">&copy; 2026 Delícia da Cidade. Todos os direitos reservados. | Versão 1.0.0</div>
+                <div class="mt-8 text-center text-xs text-gray-400">&copy; 2026 ${inst.NomeFantasia || 'Empresa'}. Todos os direitos reservados.</div>
             </div>
         `;
 
-        Utils.printNative(html, orientation);
+        Utils.printNative(html, 'landscape');
     },
 
     // Função auxiliar para gerar ID de Funcionário (Iniciais + Sequencial)
@@ -3529,6 +3544,772 @@ const RHModule = {
 
         return novoId;
     },
+
+    // ============================================================
+    // === MÓDULO: ESCALA MENSAL ===================================
+    // ============================================================
+
+    escalaState: {
+        year: new Date().getFullYear(),
+        month: new Date().getMonth(),
+        subTab: 'calendario',
+        overrides: {},
+        assignments: {},
+        grupoInicialDia1: 'B'
+    },
+
+    // Carrega todos os assignments da tabela EscalaConfig no Supabase
+    escalaCarregarAssignments: async () => {
+        try {
+            const rows = await Utils.api('getAll', 'EscalaConfig');
+            const assignments = {};
+            (rows || []).forEach(r => {
+                assignments[r.FuncionarioID] = {
+                    id: r.ID,           // ID do registo no Supabase (necessário para update)
+                    tipo: r.Tipo,       // 'diarista' | 'A' | 'B' | 'C'
+                    folgaFixa: r.FolgaFixa || null,
+                    fdsAlterna: r.FdsAlterna !== false && r.FdsAlterna !== 'false',
+                    fdsTrabalhaS1: r.FdsTrabalhaS1 !== false && r.FdsTrabalhaS1 !== 'false'
+                };
+            });
+            RHModule.escalaState.assignments = assignments;
+        } catch(e) {
+            console.warn('EscalaConfig: usando cache local como fallback', e);
+            // Fallback para localStorage se BD não responder
+            try {
+                const saved = localStorage.getItem('escala_assignments');
+                if (saved) RHModule.escalaState.assignments = JSON.parse(saved);
+            } catch(e2) { RHModule.escalaState.assignments = {}; }
+        }
+    },
+
+    // Grava/actualiza um assignment individual na tabela EscalaConfig
+    escalaSalvarAssignments: async (funcId, cfg) => {
+        const assignments = RHModule.escalaState.assignments;
+        try {
+            if (!cfg || !cfg.tipo) {
+                // REMOVER: apaga registo da BD se existir
+                const existing = assignments[funcId];
+                if (existing && existing.id) {
+                    await Utils.api('delete', 'EscalaConfig', null, existing.id);
+                }
+                delete assignments[funcId];
+            } else {
+                // UPSERT: cria ou actualiza o registo
+                const payload = {
+                    FuncionarioID:  funcId,
+                    Tipo:           cfg.tipo,
+                    FolgaFixa:      cfg.folgaFixa || null,
+                    FdsAlterna:     cfg.fdsAlterna !== false,
+                    FdsTrabalhaS1:  cfg.fdsTrabalhaS1 !== false
+                };
+                const existing = assignments[funcId];
+                if (existing && existing.id) payload.ID = existing.id; // UPDATE
+                const result = await Utils.api('save', 'EscalaConfig', payload);
+                // Guarda o ID retornado para futuras actualizações
+                assignments[funcId] = { ...cfg, id: result?.ID || payload.ID };
+            }
+            // Fallback: mantém cópia local sincronizada
+            localStorage.setItem('escala_assignments', JSON.stringify(assignments));
+        } catch(e) {
+            console.error('Erro ao gravar EscalaConfig:', e);
+            Utils.toast('Erro ao guardar na base de dados: ' + e.message, 'error');
+            throw e;
+        }
+    },
+
+    escalaGetDiaristas: () => {
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const assignments = RHModule.escalaState.assignments;
+        return allFuncs
+            .filter(f => f.Status === 'Ativo' && assignments[f.ID] && assignments[f.ID].tipo === 'diarista')
+            .map(f => ({
+                id: f.ID,
+                nome: f.Nome,
+                folgaFixa: assignments[f.ID].folgaFixa || null,
+                fdsAlterna: assignments[f.ID].fdsAlterna !== false,
+                fdsTrabalhaS1: assignments[f.ID].fdsTrabalhaS1 !== false
+            }));
+    },
+
+    escalaGetGrupos: () => {
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const assignments = RHModule.escalaState.assignments;
+        const grupos = { A: [], B: [], C: [] };
+        allFuncs.filter(f => f.Status === 'Ativo').forEach(f => {
+            const tipo = assignments[f.ID] && assignments[f.ID].tipo;
+            if (tipo === 'A' || tipo === 'B' || tipo === 'C') grupos[tipo].push(f.Nome);
+        });
+        return grupos;
+    },
+
+    escalaGetNaoAtribuidos: () => {
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const assignments = RHModule.escalaState.assignments;
+        return allFuncs.filter(f => f.Status === 'Ativo' && (!assignments[f.ID] || !assignments[f.ID].tipo));
+    },
+
+    getGrupoTurnistaParaData: (date) => {
+        const es = RHModule.escalaState;
+        const dia1 = new Date(date.getFullYear(), date.getMonth(), 1);
+        const seq = ['B', 'C', 'A'];
+        const startIdx = seq.indexOf(es.grupoInicialDia1 || 'B');
+        const diffDays = Math.floor((date - dia1) / (1000 * 60 * 60 * 24));
+        const cyclePos = ((diffDays % 3) + 3) % 3;
+        return seq[(startIdx + cyclePos) % 3];
+    },
+
+    getDiaristaStatusAuto: (d, date) => {
+        const jsDay = date.getDay();
+        const isWeekend = jsDay === 0 || jsDay === 6;
+        const weekdayNum = jsDay === 0 ? 7 : jsDay;
+
+        if (!d.fdsAlterna) {
+            if (isWeekend) return 'folga';
+            if (d.folgaFixa && weekdayNum === d.folgaFixa) return 'folga';
+            return 'trabalho';
+        }
+
+        if (isWeekend) {
+            const dayOfMonth = date.getDate();
+            const firstDayOfWeek = new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+            const weekNum = Math.floor((dayOfMonth - 1 + firstDayOfWeek) / 7);
+            const trabalha = weekNum % 2 === 0 ? d.fdsTrabalhaS1 : !d.fdsTrabalhaS1;
+            return trabalha ? 'trabalho' : 'folga';
+        }
+
+        if (d.folgaFixa && weekdayNum === d.folgaFixa) return 'folga';
+        return 'trabalho';
+    },
+
+    getDayData: (dateStr) => {
+        const es = RHModule.escalaState;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        const override = es.overrides[dateStr] || {};
+
+        const grupoAuto = RHModule.getGrupoTurnistaParaData(date);
+        const grupoEfetivo = override.grupoTurnista || grupoAuto;
+
+        // Usa helper dinâmico — lê do cadastro RH
+        const diaristas = RHModule.escalaGetDiaristas().map(di => {
+            const autoStatus = RHModule.getDiaristaStatusAuto(di, date);
+            const ov = override.diaristas && override.diaristas[di.nome];
+            let efetivo;
+            if (ov === undefined)        efetivo = autoStatus;
+            else if (ov === 'ferias')    efetivo = 'ferias';
+            else if (ov === true)        efetivo = 'trabalho';
+            else                         efetivo = 'folga';
+            return { ...di, status: efetivo, auto: autoStatus, isOverridden: ov !== undefined };
+        });
+
+        const hasOverride = !!(override.grupoTurnista || Object.keys(override.diaristas || {}).length > 0);
+        return { grupoAuto, grupoEfetivo, diaristas, hasOverride };
+    },
+
+    renderEscalaMensal: async () => {
+        RHModule.highlightTab('tab-escala');
+        // Mostra loading enquanto carrega da BD
+        document.getElementById('tab-content').innerHTML = '<div style="text-align:center;padding:60px;color:#f0a500;"><span style="font-size:32px;">⏳</span><p style="margin-top:10px;font-size:14px;color:#94a3b8;">A carregar configurações da escala...</p></div>';
+        await RHModule.escalaCarregarAssignments();
+        const es = RHModule.escalaState;
+        const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+        const mesAno = `${monthNames[es.month]} ${es.year}`;
+        const daysInMonth = new Date(es.year, es.month + 1, 0).getDate();
+
+        let diasUteis = 0, fimDeSemana = 0;
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dow = new Date(es.year, es.month, d).getDay();
+            (dow === 0 || dow === 6) ? fimDeSemana++ : diasUteis++;
+        }
+
+        const prefix = `${es.year}-${String(es.month + 1).padStart(2, '0')}`;
+        const editCount = Object.keys(es.overrides).filter(k => k.startsWith(prefix)).length;
+
+        const subTabs = [
+            { id: 'calendario', label: '📅 Calendário' },
+            { id: 'semanas',    label: '📋 Semanas' },
+            { id: 'equipa',     label: '👥 Equipa' },
+            { id: 'configuracoes', label: '⚙ Configurações' }
+        ];
+
+        document.getElementById('tab-content').innerHTML = `
+            <div style="background:#0c0e16; min-height:calc(100vh - 200px); border-radius:12px; padding:20px; color:#e2e8f0; font-family:'Barlow',sans-serif;">
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <button onclick="RHModule.escalaNavMes(-1)" style="background:#1e2130; border:1px solid #2d3348; color:#f0a500; width:36px; height:36px; border-radius:8px; font-size:18px; cursor:pointer; line-height:1;">◀</button>
+                        <h2 style="font-family:'Barlow Condensed',sans-serif; font-size:22px; font-weight:700; color:#f0a500; margin:0; letter-spacing:1px;">${mesAno}</h2>
+                        <button onclick="RHModule.escalaNavMes(1)" style="background:#1e2130; border:1px solid #2d3348; color:#f0a500; width:36px; height:36px; border-radius:8px; font-size:18px; cursor:pointer; line-height:1;">▶</button>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button onclick="RHModule.escalaReporMes()" style="background:#7f1d1d; color:#fca5a5; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600;">↺ Repor Mês</button>
+                        <button onclick="RHModule.escalaImprimirPDF()" style="background:#1e2130; border:1px solid #2d3348; color:#94a3b8; padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px;">🖨 Imprimir PDF</button>
+                    </div>
+                </div>
+
+                <div style="background:#141720; border:1px solid #1e2130; border-radius:10px; padding:10px 16px; margin-bottom:16px; display:flex; gap:20px; flex-wrap:wrap; font-size:13px; color:#94a3b8;">
+                    <span>📅 <strong style="color:#f0a500">${mesAno}</strong></span>
+                    <span>💼 Dias úteis: <strong style="color:#34d399">${diasUteis}</strong></span>
+                    <span>🏖 Fins de semana: <strong style="color:#60a5fa">${fimDeSemana}</strong></span>
+                    <span>✏️ Editados: <strong style="color:#fb923c">${editCount}</strong></span>
+                    <span>🔄 Grupo Dia 1: <strong style="color:#a78bfa">${es.grupoInicialDia1}</strong></span>
+                    <span style="color:#64748b; font-size:11px;">Sequência: B→C→A→B→C→A…</span>
+                </div>
+
+                <div style="display:flex; gap:4px; margin-bottom:20px; background:#141720; padding:4px; border-radius:10px; width:fit-content; flex-wrap:wrap;">
+                    ${subTabs.map(t => {
+                        const active = es.subTab === t.id;
+                        return `<button onclick="RHModule.escalaState.subTab='${t.id}'; RHModule.renderEscalaMensal()" style="padding:8px 16px; border-radius:7px; border:none; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.2s; ${active ? 'background:#f0a500; color:#0c0e16;' : 'background:transparent; color:#64748b;'}">${t.label}</button>`;
+                    }).join('')}
+                </div>
+
+                <div id="escala-sub-content"></div>
+            </div>
+        `;
+
+        if (es.subTab === 'calendario')     RHModule.renderEscalaCalendario();
+        else if (es.subTab === 'semanas')   RHModule.renderEscalaSemanas();
+        else if (es.subTab === 'equipa')    RHModule.renderEscalaEquipa();
+        else if (es.subTab === 'configuracoes') RHModule.renderEscalaConfiguracoes();
+    },
+
+    escalaNavMes: (dir) => {
+        const es = RHModule.escalaState;
+        es.month += dir;
+        if (es.month > 11) { es.month = 0; es.year++; }
+        if (es.month < 0)  { es.month = 11; es.year--; }
+        RHModule.renderEscalaMensal();
+    },
+
+    escalaReporMes: () => {
+        if (!confirm('Repor todos os overrides deste mês?')) return;
+        const es = RHModule.escalaState;
+        const prefix = `${es.year}-${String(es.month + 1).padStart(2, '0')}`;
+        Object.keys(es.overrides).forEach(k => { if (k.startsWith(prefix)) delete es.overrides[k]; });
+        RHModule.renderEscalaMensal();
+    },
+
+    escalaImprimirPDF: () => {
+        const es = RHModule.escalaState;
+        const inst = RHModule.state.cache.instituicao[0] || {};
+        const user = Utils.getUser();
+        const mesAno = new Date(es.year, es.month, 1)
+            .toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+        const escalaContent = document.getElementById('escala-sub-content');
+        const contentHTML = escalaContent ? escalaContent.innerHTML : '<p>Sem dados para imprimir.</p>';
+
+        const contactLine = [
+            inst.Telefone ? `Tel: ${inst.Telefone}` : '',
+            inst.Email    ? `Email: ${inst.Email}`   : ''
+        ].filter(Boolean).join(' | ');
+
+        const html = `
+            <div style="font-family: sans-serif; padding: 32px; color: #111; background: #fff;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom: 2px solid #111; padding-bottom: 16px; margin-bottom: 24px;">
+                    <div style="display:flex; align-items:center; gap:16px;">
+                        ${inst.ExibirLogoRelatorios && inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height:64px; width:auto; object-fit:contain;" crossorigin="anonymous">` : ''}
+                        <div>
+                            <h1 style="margin:0; font-size:22px; text-transform:uppercase; font-weight:bold;">${inst.NomeFantasia || 'Empresa'}</h1>
+                            ${inst.NomeCompleto ? `<p style="margin:2px 0 0; font-size:13px; color:#444;">${inst.NomeCompleto}</p>` : ''}
+                            ${inst.Endereco    ? `<p style="margin:2px 0 0; font-size:12px; color:#555;">${inst.Endereco}</p>`    : ''}
+                            ${contactLine      ? `<p style="margin:2px 0 0; font-size:12px; color:#555;">${contactLine}</p>`      : ''}
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <h2 style="margin:0; font-size:18px; font-weight:bold;">ESCALA MENSAL</h2>
+                        <p style="margin:4px 0 0; font-size:13px;">${mesAno}</p>
+                        <p style="margin:2px 0 0; font-size:11px; color:#888;">Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
+                        <p style="margin:2px 0 0; font-size:11px; color:#888;">Por: ${user?.Nome || 'Sistema'}</p>
+                    </div>
+                </div>
+                ${contentHTML}
+                <div style="margin-top:40px; text-align:center; font-size:11px; color:#aaa; border-top: 1px solid #ddd; padding-top:8px;">
+                    &copy; 2026 ${inst.NomeFantasia || ''}. Todos os direitos reservados.
+                </div>
+            </div>
+        `;
+        Utils.printNative(html, 'landscape');
+    },
+
+    renderEscalaCalendario: () => {
+        const es = RHModule.escalaState;
+        const grupos = RHModule.escalaGetGrupos();
+        const daysInMonth = new Date(es.year, es.month + 1, 0).getDate();
+        const firstDow = new Date(es.year, es.month, 1).getDay();
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+        const dayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+        let html = `
+        <div style="overflow-x:auto;">
+        <div style="display:grid; grid-template-columns:repeat(7,1fr); gap:6px; min-width:840px;">
+            ${dayNames.map(n => `<div style="text-align:center; font-weight:700; font-size:11px; color:#475569; padding:6px 0; text-transform:uppercase; letter-spacing:1px;">${n}</div>`).join('')}
+        `;
+
+        for (let i = 0; i < firstDow; i++) html += `<div></div>`;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${es.year}-${String(es.month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const dd = RHModule.getDayData(dateStr);
+            const isWeekend = [0, 6].includes(new Date(es.year, es.month, day).getDay());
+            const cor = grupoCores[dd.grupoEfetivo];
+
+            html += `
+            <div onclick="RHModule.escalaAbrirModalDia('${dateStr}')"
+                style="background:#141720; border:1px solid ${dd.hasOverride ? '#f0a500' : (isWeekend ? '#1e3a5f' : '#1e2130')}; border-radius:10px; padding:8px 6px; cursor:pointer; min-height:150px; position:relative; overflow:hidden; transition:border-color 0.15s;"
+                onmouseover="this.style.borderColor='#f0a500'; this.style.background='#1a1e2e'"
+                onmouseout="this.style.borderColor='${dd.hasOverride ? '#f0a500' : (isWeekend ? '#1e3a5f' : '#1e2130')}'; this.style.background='#141720'">
+
+                ${dd.hasOverride ? `<div style="position:absolute;top:5px;right:5px;width:7px;height:7px;background:#f0a500;border-radius:50%;"></div>` : ''}
+
+                <div style="font-weight:700; font-size:15px; color:${isWeekend ? '#60a5fa' : '#e2e8f0'}; margin-bottom:5px;">${day}</div>
+
+                <div style="font-size:9px; font-weight:700; color:${cor}; letter-spacing:0.5px; margin-bottom:3px;">▶ GRUPO ${dd.grupoEfetivo}</div>
+                ${(grupos[dd.grupoEfetivo]||[]).map(m => `<div style="font-size:9px; color:${cor}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m}</div>`).join('')}
+                ${['A','B','C'].filter(g => g !== dd.grupoEfetivo).map(g =>
+                    (grupos[g]||[]).map(m => `<div style="font-size:9px; color:#2d3348; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m.split(' ')[0]} <span style="color:#1e2130;">FOLGA</span></div>`).join('')
+                ).join('')}
+
+                <div style="border-top:1px solid #1e2130; margin:4px 0 3px;"></div>
+
+                ${dd.diaristas.map(di => `
+                    <div style="font-size:9px; color:${di.status==='trabalho' ? '#fb923c' : di.status==='ferias' ? '#a78bfa' : '#2d3348'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; ${di.isOverridden?'text-decoration:underline dotted #f0a500;':''}">
+                        ${di.nome.split(' ')[0]}${di.status==='folga' ? ' <span style="color:#1e2130;">FOLGA</span>' : di.status==='ferias' ? ' <span style="color:#7c3aed;">🏖</span>' : ''}
+                    </div>
+                `).join('')}
+            </div>`;
+        }
+
+        html += `</div></div>
+        <div style="margin-top:14px; display:flex; gap:16px; flex-wrap:wrap; font-size:12px; color:#94a3b8;">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#a78bfa;border-radius:2px;margin-right:4px;"></span>Grupo A</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#34d399;border-radius:2px;margin-right:4px;"></span>Grupo B</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#60a5fa;border-radius:2px;margin-right:4px;"></span>Grupo C</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#fb923c;border-radius:2px;margin-right:4px;"></span>Diaristas</span>
+            <span><span style="display:inline-block;width:7px;height:7px;background:#f0a500;border-radius:50%;margin-right:4px;"></span>Edição manual</span>
+        </div>`;
+
+        document.getElementById('escala-sub-content').innerHTML = html;
+    },
+
+    renderEscalaSemanas: () => {
+        const es = RHModule.escalaState;
+        const grupos = RHModule.escalaGetGrupos();
+        const daysInMonth = new Date(es.year, es.month + 1, 0).getDate();
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+        const dayNames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+        // Semana começa no Domingo (0) e termina no Sábado (6)
+        // Preenchemos dias vazios no início da 1ª semana e no fim da última
+        const firstDow = new Date(es.year, es.month, 1).getDay(); // 0=Dom
+        let allCells = [];
+        // Células vazias antes do dia 1
+        for (let i = 0; i < firstDow; i++) allCells.push(null);
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dow = new Date(es.year, es.month, d).getDay();
+            allCells.push({ day: d, dow });
+        }
+        // Completar última semana até Sábado
+        while (allCells.length % 7 !== 0) allCells.push(null);
+
+        let weeks = [];
+        for (let i = 0; i < allCells.length; i += 7) {
+            const w = allCells.slice(i, i + 7).filter(Boolean);
+            if (w.length > 0) weeks.push(w);
+        }
+
+        let html = '';
+        weeks.forEach((w, wi) => {
+            html += `
+            <div style="background:#141720; border:1px solid #1e2130; border-radius:12px; margin-bottom:16px; overflow:hidden;">
+                <div style="background:#1e2130; padding:9px 16px; font-weight:700; color:#f0a500; font-size:13px; letter-spacing:1px;">SEMANA ${wi + 1}</div>
+                <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; min-width:560px;">
+                    <thead>
+                        <tr>
+                            ${w.map(({day, dow}) => {
+                                const dateStr = `${es.year}-${String(es.month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                                const isW = dow===0||dow===6;
+                                const hasOv = !!es.overrides[dateStr];
+                                return `<th style="padding:8px 10px; text-align:center; border-bottom:1px solid #2d3348; font-size:11px; color:${isW?'#60a5fa':'#64748b'}; cursor:pointer;" onclick="RHModule.escalaAbrirModalDia('${dateStr}')">
+                                    <span style="display:block;">${dayNames[dow]}</span>
+                                    <span style="font-size:17px; font-weight:700; color:${hasOv?'#f0a500':(isW?'#60a5fa':'#e2e8f0')};">${day}${hasOv?' ●':''}</span>
+                                </th>`;
+                            }).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background:#0f1117;">
+                            <td colspan="${w.length}" style="padding:4px 10px; font-size:10px; color:#475569; font-weight:700; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid #1a1e2e;">TURNISTAS</td>
+                        </tr>
+                        <tr>
+                            ${w.map(({day}) => {
+                                const dateStr = `${es.year}-${String(es.month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                                const dd = RHModule.getDayData(dateStr);
+                                const cor = grupoCores[dd.grupoEfetivo];
+                                return `<td style="padding:6px 8px; border-right:1px solid #1e2130; vertical-align:top; font-size:11px;">
+                                    <div style="font-weight:700; color:${cor}; margin-bottom:3px;">Grupo ${dd.grupoEfetivo}</div>
+                                    ${(grupos[dd.grupoEfetivo]||[]).map(m => `<div style="color:${cor};">${m}</div>`).join('')}
+                                    ${['A','B','C'].filter(g=>g!==dd.grupoEfetivo).map(g =>
+                                        (grupos[g]||[]).map(m => `<div style="color:#2d3348;">&middot; ${m.split(' ')[0]}</div>`).join('')
+                                    ).join('')}
+                                </td>`;
+                            }).join('')}
+                        </tr>
+                        <tr style="background:#0f1117;">
+                            <td colspan="${w.length}" style="padding:4px 10px; font-size:10px; color:#475569; font-weight:700; letter-spacing:1px; text-transform:uppercase; border-bottom:1px solid #1a1e2e; border-top:1px solid #1e2130;">DIARISTAS</td>
+                        </tr>
+                        <tr>
+                            ${w.map(({day}) => {
+                                const dateStr = `${es.year}-${String(es.month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                                const dd = RHModule.getDayData(dateStr);
+                                return `<td style="padding:6px 8px; border-right:1px solid #1e2130; vertical-align:top; font-size:11px;">
+                                    ${dd.diaristas.map(di => `
+                                        <div style="color:${di.status==='trabalho'?'#fb923c': di.status==='ferias'?'#a78bfa':'#334155'}; ${di.isOverridden?'text-decoration:underline dotted #f0a500;':''}">
+                                            ${di.status==='trabalho'?'✓': di.status==='ferias'?'🏖':'·'} ${di.nome.split(' ')[0]} ${di.status==='folga'?'<span style="font-size:10px;color:#2d3348;">FOLGA</span>': di.status==='ferias'?'<span style="font-size:10px;color:#7c3aed;">FÉRIAS</span>':''}
+                                        </div>
+                                    `).join('')}
+                                </td>`;
+                            }).join('')}
+                        </tr>
+                    </tbody>
+                </table>
+                </div>
+            </div>`;
+        });
+
+        document.getElementById('escala-sub-content').innerHTML = html;
+    },
+
+    renderEscalaEquipa: () => {
+        const es = RHModule.escalaState;
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const ativos = allFuncs.filter(f => f.Status === 'Ativo');
+        const assignments = es.assignments;
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+        const diasSemana = ['—','Segunda','Terça','Quarta','Quinta','Sexta'];
+
+        const naoAtrib = ativos.filter(f => !assignments[f.ID] || !assignments[f.ID].tipo);
+        const diaristas = ativos.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'diarista');
+        const grupoA = ativos.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'A');
+        const grupoB = ativos.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'B');
+        const grupoC = ativos.filter(f => assignments[f.ID] && assignments[f.ID].tipo === 'C');
+
+        const renderFunc = (f, tipo) => {
+            const a = assignments[f.ID] || {};
+            const cor = tipo === 'diarista' ? '#fb923c' : (grupoCores[tipo] || '#64748b');
+            const infoExtra = tipo === 'diarista'
+                ? `<div style="font-size:10px;color:#475569;">${a.folgaFixa ? 'Folga: '+diasSemana[a.folgaFixa] : 'Sem folga fixa'} · FDS: ${a.fdsAlterna!==false ? 'Alternado' : 'Nunca'}</div>`
+                : `<div style="font-size:10px;color:#475569;">Regime 24h/48h folga</div>`;
+            return `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0c0e16;border-radius:8px;margin-bottom:5px;border:1px solid #1e2130;">
+                <div>
+                    <div style="font-size:13px;font-weight:600;color:${cor};">${f.Nome}</div>
+                    ${infoExtra}
+                </div>
+                <button onclick="RHModule.escalaConfigurarFuncionario('${f.ID}')"
+                    style="background:#1e2130;color:#94a3b8;border:1px solid #2d3348;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:12px;">⚙ Config</button>
+            </div>`;
+        };
+
+        let html = `
+        <div style="max-width:1000px;">
+
+            ${naoAtrib.length > 0 ? `
+            <div style="background:#141720;border:2px dashed #334155;border-radius:12px;padding:16px;margin-bottom:18px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                    <h3 style="color:#64748b;font-weight:700;margin:0;font-size:14px;">⚠ Não Atribuídos (${naoAtrib.length})</h3>
+                    <span style="font-size:11px;color:#475569;">Clique em ⚙ Config para atribuir regime</span>
+                </div>
+                ${naoAtrib.map(f => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#0c0e16;border-radius:8px;margin-bottom:5px;">
+                    <div>
+                        <div style="font-size:13px;font-weight:600;color:#94a3b8;">${f.Nome}</div>
+                        <div style="font-size:10px;color:#475569;">${f.Cargo||''} · ${f.Turno||'Turno não definido'}</div>
+                    </div>
+                    <button onclick="RHModule.escalaConfigurarFuncionario('${f.ID}')"
+                        style="background:#f0a50022;color:#f0a500;border:1px solid #f0a50044;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px;">⚙ Atribuir</button>
+                </div>
+                `).join('')}
+            </div>` : ''}
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+                <div style="background:#141720;border:1px solid #1e2130;border-radius:12px;padding:16px;">
+                    <h3 style="color:#fb923c;font-weight:700;margin:0 0 12px;font-size:14px;">🟠 Diaristas (8h) — ${diaristas.length}</h3>
+                    ${diaristas.length ? diaristas.map(f => renderFunc(f, 'diarista')).join('') : '<p style="color:#334155;font-size:12px;text-align:center;padding:10px;">Nenhum atribuído</p>'}
+                </div>
+
+                <div>
+                    ${['A','B','C'].map((g, gi) => {
+                        const membros = [grupoA,grupoB,grupoC][gi];
+                        return `
+                        <div style="background:#141720;border:1px solid #1e2130;border-radius:12px;padding:14px;margin-bottom:12px;">
+                            <h3 style="color:${grupoCores[g]};font-weight:700;margin:0 0 10px;font-size:14px;">Grupo ${g} — 24h/48h folga · ${membros.length}</h3>
+                            ${membros.length ? membros.map(f => renderFunc(f, g)).join('') : '<p style="color:#334155;font-size:12px;text-align:center;padding:8px;">Nenhum atribuído</p>'}
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>
+        </div>`;
+
+        document.getElementById('escala-sub-content').innerHTML = html;
+    },
+
+    escalaConfigurarFuncionario: (funcId) => {
+        const allFuncs = RHModule.state.cache.allFuncionarios || [];
+        const f = allFuncs.find(x => x.ID === funcId);
+        if (!f) return;
+        const a = RHModule.escalaState.assignments[funcId] || {};
+        const diasSemana = ['—','Segunda','Terça','Quarta','Quinta','Sexta'];
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+        const tipoAtual = a.tipo || '';
+
+        Utils.openModal(`⚙ Configurar Escala: ${f.Nome}`, `
+        <div style="font-family:'Barlow',sans-serif;min-width:380px;">
+
+            <div style="background:#0c0e16;border-radius:10px;padding:14px;margin-bottom:14px;">
+                <label style="display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Regime de Trabalho</label>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;">
+                    <button onclick="RHModule.escalaSetTipo('${funcId}','diarista')"
+                        id="tipo-diarista"
+                        style="padding:8px 14px;border-radius:8px;border:2px solid ${tipoAtual==='diarista'?'#fb923c':'#2d3348'};background:${tipoAtual==='diarista'?'#fb923c22':'transparent'};color:${tipoAtual==='diarista'?'#fb923c':'#475569'};cursor:pointer;font-weight:700;font-size:13px;">☀ Diarista (8h)</button>
+                    ${['A','B','C'].map(g => `
+                    <button onclick="RHModule.escalaSetTipo('${funcId}','${g}')"
+                        id="tipo-${g}"
+                        style="padding:8px 14px;border-radius:8px;border:2px solid ${tipoAtual===g?grupoCores[g]:'#2d3348'};background:${tipoAtual===g?grupoCores[g]+'22':'transparent'};color:${tipoAtual===g?grupoCores[g]:'#475569'};cursor:pointer;font-weight:700;font-size:13px;">🔄 Grupo ${g}</button>
+                    `).join('')}
+                    <button onclick="RHModule.escalaSetTipo('${funcId}',null)"
+                        style="padding:8px 14px;border-radius:8px;border:2px solid #7f1d1d;background:transparent;color:#fca5a5;cursor:pointer;font-weight:700;font-size:13px;">✕ Remover</button>
+                </div>
+            </div>
+
+            <div id="escala-config-diarista" style="display:${tipoAtual==='diarista'?'block':'none'};">
+                <div style="background:#0c0e16;border-radius:10px;padding:14px;margin-bottom:12px;">
+                    <label style="display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Folga Fixa Semanal</label>
+                    <select id="cfg-folga" style="width:100%;padding:9px;background:#141720;border:1px solid #2d3348;border-radius:7px;color:#e2e8f0;font-size:13px;">
+                        <option value="" ${!a.folgaFixa?'selected':''}>Nenhuma</option>
+                        ${[1,2,3,4,5].map(n => `<option value="${n}" ${a.folgaFixa===n?'selected':''}>${diasSemana[n]}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="background:#0c0e16;border-radius:10px;padding:14px;margin-bottom:12px;">
+                    <label style="display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px;">Fins de Semana</label>
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="document.getElementById('cfg-fds-alterna').value='true'; this.style.background='#34d39922'; document.getElementById('cfg-fds-nunca').style.background='transparent';"
+                            id="cfg-fds-alterna-btn"
+                            style="flex:1;padding:9px;border-radius:7px;border:1px solid #2d3348;cursor:pointer;font-weight:700;font-size:13px;background:${a.fdsAlterna!==false?'#34d39922':'transparent'};color:${a.fdsAlterna!==false?'#34d399':'#475569'};">🔄 Alternado</button>
+                        <button onclick="document.getElementById('cfg-fds-alterna').value='false'; this.style.background='#ef444422'; document.getElementById('cfg-fds-alterna-btn').style.background='transparent';"
+                            id="cfg-fds-nunca"
+                            style="flex:1;padding:9px;border-radius:7px;border:1px solid #2d3348;cursor:pointer;font-weight:700;font-size:13px;background:${a.fdsAlterna===false?'#ef444422':'transparent'};color:${a.fdsAlterna===false?'#ef4444':'#475569'};">✕ Nunca</button>
+                        <input type="hidden" id="cfg-fds-alterna" value="${a.fdsAlterna!==false?'true':'false'}">
+                    </div>
+                </div>
+                <div style="background:#0c0e16;border-radius:10px;padding:14px;margin-bottom:14px;">
+                    <label style="display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px;">1.º Fim de Semana do Mês</label>
+                    <div style="display:flex;gap:8px;">
+                        <button onclick="document.getElementById('cfg-s1').value='true'; this.style.background='#34d39922'; document.getElementById('cfg-s1-folga').style.background='transparent';"
+                            style="flex:1;padding:9px;border-radius:7px;border:1px solid #2d3348;cursor:pointer;font-weight:700;font-size:13px;background:${a.fdsTrabalhaS1!==false?'#34d39922':'transparent'};color:${a.fdsTrabalhaS1!==false?'#34d399':'#475569'};">✓ Trabalha</button>
+                        <button onclick="document.getElementById('cfg-s1').value='false'; this.style.background='#ef444422'; this.previousElementSibling.style.background='transparent';"
+                            id="cfg-s1-folga"
+                            style="flex:1;padding:9px;border-radius:7px;border:1px solid #2d3348;cursor:pointer;font-weight:700;font-size:13px;background:${a.fdsTrabalhaS1===false?'#ef444422':'transparent'};color:${a.fdsTrabalhaS1===false?'#ef4444':'#475569'};">✕ Folga</button>
+                        <input type="hidden" id="cfg-s1" value="${a.fdsTrabalhaS1!==false?'true':'false'}">
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="RHModule.escalaSalvarConfig('${funcId}')"
+                style="width:100%;padding:12px;background:#f0a500;border:none;color:#0c0e16;border-radius:9px;cursor:pointer;font-weight:800;font-size:14px;">💾 Guardar Configuração</button>
+        </div>`);
+    },
+
+    escalaSetTipo: (funcId, tipo) => {
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+        // Update button styles
+        ['diarista','A','B','C'].forEach(t => {
+            const btn = document.getElementById('tipo-' + t);
+            if (!btn) return;
+            const cor = t === 'diarista' ? '#fb923c' : grupoCores[t];
+            const active = t === tipo;
+            btn.style.borderColor = active ? cor : '#2d3348';
+            btn.style.background = active ? cor + '22' : 'transparent';
+            btn.style.color = active ? cor : '#475569';
+        });
+        // Show/hide diarista config panel
+        const panel = document.getElementById('escala-config-diarista');
+        if (panel) panel.style.display = tipo === 'diarista' ? 'block' : 'none';
+        // Store pending tipo
+        document.getElementById('tipo-diarista').dataset.pendingTipo = tipo || '';
+    },
+
+    escalaSalvarConfig: async (funcId) => {
+        const tipoBtn = document.getElementById('tipo-diarista');
+        const tipo = tipoBtn ? tipoBtn.dataset.pendingTipo : '';
+
+        const cfg = tipo ? { tipo } : null;
+        if (tipo === 'diarista') {
+            cfg.folgaFixa = Number(document.getElementById('cfg-folga').value) || null;
+            cfg.fdsAlterna = document.getElementById('cfg-fds-alterna').value !== 'false';
+            cfg.fdsTrabalhaS1 = document.getElementById('cfg-s1').value !== 'false';
+        }
+
+        // Feedback visual no botão
+        const btn = document.querySelector('[onclick*="escalaSalvarConfig"]');
+        if (btn) { btn.disabled = true; btn.textContent = '💾 A guardar...'; }
+
+        try {
+            await RHModule.escalaSalvarAssignments(funcId, cfg);
+            Utils.closeModal();
+            Utils.toast('✅ Configuração guardada na base de dados!');
+            RHModule.renderEscalaMensal();
+        } catch(e) {
+            if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar Configuração'; }
+        }
+    },
+
+    renderEscalaConfiguracoes: () => {
+        const es = RHModule.escalaState;
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+
+        const html = `
+        <div style="max-width:580px;">
+            <div style="background:#141720; border:1px solid #1e2130; border-radius:12px; padding:20px; margin-bottom:18px;">
+                <h3 style="color:#f0a500; font-weight:700; margin-bottom:6px; font-size:15px;">🔄 Rotação Turnistas</h3>
+                <p style="font-size:12px; color:#475569; margin-bottom:14px;">Grupo que trabalha no Dia 1 do mês seleccionado. Sequência: B→C→A→B→C→A…</p>
+                <div style="display:flex; gap:10px;">
+                    ${['A','B','C'].map(g => {
+                        const active = es.grupoInicialDia1 === g;
+                        return `<button onclick="RHModule.escalaState.grupoInicialDia1='${g}'; RHModule.renderEscalaMensal()"
+                            style="padding:12px 28px; border-radius:8px; border:2px solid ${active ? grupoCores[g] : '#2d3348'}; background:${active ? grupoCores[g]+'22' : 'transparent'}; color:${active ? grupoCores[g] : '#475569'}; font-weight:700; font-size:16px; cursor:pointer; transition:all 0.2s;">Grupo ${g}</button>`;
+                    }).join('')}
+                </div>
+            </div>
+
+            <div style="background:#141720; border:1px solid #1e2130; border-radius:12px; padding:20px;">
+                <h3 style="color:#f0a500; font-weight:700; margin-bottom:6px; font-size:15px;">📅 Alternância de Fins de Semana</h3>
+                <p style="font-size:12px; color:#475569; margin-bottom:14px;">Define o estado do diarista no 1.º fim de semana do mês (controla toda a alternância do mês).</p>
+                ${RHModule.escalaGetDiaristas().filter(d => d.fdsAlterna).map(d => {
+                    const a = RHModule.escalaState.assignments[d.id] || {};
+                    return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:9px 12px; background:#0c0e16; border-radius:8px; margin-bottom:6px;">
+                        <span style="font-size:13px; color:#fb923c; font-weight:600;">${d.nome}</span>
+                        <div style="display:flex; gap:8px;">
+                            <button onclick="RHModule.escalaState.assignments['${d.id}'].fdsTrabalhaS1=true; RHModule.escalaSalvarAssignments('${d.id}', RHModule.escalaState.assignments['${d.id}']).then(()=>RHModule.renderEscalaMensal())"
+                                style="padding:5px 14px; border-radius:6px; border:none; cursor:pointer; font-size:12px; font-weight:700; background:${d.fdsTrabalhaS1 ? '#34d399' : '#1e2130'}; color:${d.fdsTrabalhaS1 ? '#0c0e16' : '#475569'}; transition:all 0.2s;">✓ Trabalha</button>
+                            <button onclick="RHModule.escalaState.assignments['${d.id}'].fdsTrabalhaS1=false; RHModule.escalaSalvarAssignments('${d.id}', RHModule.escalaState.assignments['${d.id}']).then(()=>RHModule.renderEscalaMensal())"
+                                style="padding:5px 14px; border-radius:6px; border:none; cursor:pointer; font-size:12px; font-weight:700; background:${!d.fdsTrabalhaS1 ? '#ef4444' : '#1e2130'}; color:${!d.fdsTrabalhaS1 ? 'white' : '#475569'}; transition:all 0.2s;">✕ Folga</button>
+                        </div>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+
+        document.getElementById('escala-sub-content').innerHTML = html;
+    },
+
+    escalaAbrirModalDia: (dateStr) => {
+        const es = RHModule.escalaState;
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const date = new Date(y, m - 1, d);
+        const dayNames = ['Domingo','Segunda-Feira','Terça-Feira','Quarta-Feira','Quinta-Feira','Sexta-Feira','Sábado'];
+        const monthNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+        const dd = RHModule.getDayData(dateStr);
+        const override = es.overrides[dateStr] || {};
+        const grupoCores = { A: '#a78bfa', B: '#34d399', C: '#60a5fa' };
+
+        const html = `
+        <div style="font-family:'Barlow',sans-serif; min-width:420px; max-width:520px;">
+            <p style="color:#f0a500; font-size:15px; font-weight:700; margin:0 0 14px;">${dayNames[date.getDay()]}, ${d} de ${monthNames[m-1]} de ${y}</p>
+
+            <div style="background:#0c0e16; border-radius:10px; padding:14px; margin-bottom:14px; border:1px solid #1e2130;">
+                <h4 style="font-size:11px; color:#64748b; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin:0 0 10px;">Grupo Turnista (24h/48h)</h4>
+                <p style="font-size:11px; color:#475569; margin:0 0 10px;">Automático: <strong style="color:${grupoCores[dd.grupoAuto]}">Grupo ${dd.grupoAuto}</strong></p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button onclick="RHModule.escalaSetGrupoOverride('${dateStr}', null)"
+                        style="padding:7px 14px; border-radius:7px; border:2px solid ${!override.grupoTurnista ? '#f0a500' : '#2d3348'}; background:${!override.grupoTurnista ? '#f0a50022' : 'transparent'}; color:${!override.grupoTurnista ? '#f0a500' : '#475569'}; cursor:pointer; font-size:12px; font-weight:700;">Auto</button>
+                    ${['A','B','C'].map(g => `
+                        <button onclick="RHModule.escalaSetGrupoOverride('${dateStr}', '${g}')"
+                            style="padding:7px 16px; border-radius:7px; border:2px solid ${override.grupoTurnista===g ? grupoCores[g] : '#2d3348'}; background:${override.grupoTurnista===g ? grupoCores[g]+'22' : 'transparent'}; color:${override.grupoTurnista===g ? grupoCores[g] : '#475569'}; cursor:pointer; font-size:13px; font-weight:700;">G-${g}</button>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div style="background:#0c0e16; border-radius:10px; padding:14px; margin-bottom:14px; border:1px solid #1e2130;">
+                <h4 style="font-size:11px; color:#64748b; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin:0 0 10px;">Diaristas</h4>
+                ${dd.diaristas.map(di => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 0; border-bottom:1px solid #141720;">
+                        <span style="font-size:13px; color:${di.isOverridden ? '#f0a500' : '#e2e8f0'};">${di.nome} ${di.isOverridden ? '<span style="font-size:10px; color:#f0a500;">✏</span>' : ''}</span>
+                        <div style="display:flex; gap:5px;">
+                            <button onclick="RHModule.escalaSetDiaristaOverride('${dateStr}', '${di.nome}', null)"
+                                style="padding:4px 9px; border-radius:5px; border:1px solid ${!di.isOverridden ? '#f0a500' : '#2d3348'}; background:transparent; color:${!di.isOverridden ? '#f0a500' : '#334155'}; cursor:pointer; font-size:11px; font-weight:600;">Auto</button>
+                            <button onclick="RHModule.escalaSetDiaristaOverride('${dateStr}', '${di.nome}', true)"
+                                style="padding:4px 9px; border-radius:5px; border:none; background:${di.status==='trabalho'&&di.isOverridden ? '#fb923c' : '#1e2130'}; color:${di.status==='trabalho'&&di.isOverridden ? '#0c0e16' : '#fb923c'}; cursor:pointer; font-size:11px; font-weight:700;">Trabalho</button>
+                            <button onclick="RHModule.escalaSetDiaristaOverride('${dateStr}', '${di.nome}', false)"
+                                style="padding:4px 9px; border-radius:5px; border:none; background:${di.status==='folga'&&di.isOverridden ? '#475569' : '#1e2130'}; color:${di.status==='folga'&&di.isOverridden ? 'white' : '#475569'}; cursor:pointer; font-size:11px; font-weight:700;">Folga</button>
+                            <button onclick="RHModule.escalaSetDiaristaOverride('${dateStr}', '${di.nome}', 'ferias')"
+                                style="padding:4px 9px; border-radius:5px; border:none; background:${di.status==='ferias' ? '#7c3aed' : '#1e2130'}; color:${di.status==='ferias' ? 'white' : '#7c3aed'}; cursor:pointer; font-size:11px; font-weight:700;">🏖 Férias</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div style="display:flex; gap:10px;">
+                <button onclick="RHModule.escalaReporDia('${dateStr}')" style="flex:1; padding:10px; background:#1e2130; border:1px solid #2d3348; color:#94a3b8; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px;">↺ Repor Padrão</button>
+                <button onclick="Utils.closeModal()" style="flex:1; padding:10px; background:#f0a500; border:none; color:#0c0e16; border-radius:8px; cursor:pointer; font-weight:700; font-size:13px;">✓ Fechar</button>
+            </div>
+        </div>`;
+
+        Utils.openModal(`Editar Dia — ${d}/${m}/${y}`, html);
+    },
+
+    escalaSetGrupoOverride: (dateStr, grupo) => {
+        const es = RHModule.escalaState;
+        if (!es.overrides[dateStr]) es.overrides[dateStr] = {};
+        if (grupo === null) delete es.overrides[dateStr].grupoTurnista;
+        else es.overrides[dateStr].grupoTurnista = grupo;
+        RHModule.escalaAbrirModalDia(dateStr);
+        setTimeout(() => {
+            if (es.subTab === 'calendario') RHModule.renderEscalaCalendario();
+            else if (es.subTab === 'semanas') RHModule.renderEscalaSemanas();
+        }, 50);
+    },
+
+    escalaSetDiaristaOverride: (dateStr, nome, value) => {
+        const es = RHModule.escalaState;
+        if (!es.overrides[dateStr]) es.overrides[dateStr] = {};
+        if (!es.overrides[dateStr].diaristas) es.overrides[dateStr].diaristas = {};
+        if (value === null) delete es.overrides[dateStr].diaristas[nome];
+        else es.overrides[dateStr].diaristas[nome] = value;
+        RHModule.escalaAbrirModalDia(dateStr);
+        setTimeout(() => {
+            if (es.subTab === 'calendario') RHModule.renderEscalaCalendario();
+            else if (es.subTab === 'semanas') RHModule.renderEscalaSemanas();
+        }, 50);
+    },
+
+    escalaReporDia: (dateStr) => {
+        delete RHModule.escalaState.overrides[dateStr];
+        RHModule.escalaAbrirModalDia(dateStr);
+        const es = RHModule.escalaState;
+        setTimeout(() => {
+            if (es.subTab === 'calendario') RHModule.renderEscalaCalendario();
+            else if (es.subTab === 'semanas') RHModule.renderEscalaSemanas();
+        }, 50);
+    },
+
+
+    escalaAddDiarista: () => { Utils.toast('Use a aba Equipa → ⚙ Config para atribuir funcionários.', 'info'); },
+    escalaConfirmAddDiarista: () => {},
+    escalaEditDiarista: () => { Utils.toast('Use a aba Equipa → ⚙ Config para editar.', 'info'); },
+    escalaConfirmEditDiarista: () => {},
+    escalaRemoveDiarista: () => { Utils.toast('Use a aba Equipa → ⚙ Config para remover.', 'info'); },
+    escalaAddTurnista: () => { Utils.toast('Use a aba Equipa → ⚙ Config para atribuir grupo.', 'info'); },
+    escalaConfirmAddTurnista: () => {},
+    escalaRemoveTurnista: () => { Utils.toast('Use a aba Equipa → ⚙ Config para remover.', 'info'); },
+
+    // ============================================================
+    // === FIM MÓDULO ESCALA MENSAL ================================
+    // ============================================================
 
     // --- GENÉRICOS ---
     save: async (e, table) => {
@@ -3661,9 +4442,29 @@ const RHModule = {
 
         try {
             await Utils.api('save', table, data);
-            Utils.toast('✅ Registro salvo com sucesso!'); 
-            Utils.closeModal(); 
-            RHModule.fetchData(); 
+            Utils.toast('✅ Registro salvo com sucesso!');
+            Utils.closeModal();
+
+            // Atualiza só o cache da tabela afectada sem mudar de aba
+            const cacheMap = {
+                'Funcionarios':   async () => { RHModule.state.cache.allFuncionarios = await Utils.api('getEmployeesList', null) || []; await RHModule.loadEmployees(); },
+                'Ferias':         async () => { RHModule.state.cache.ferias         = await Utils.api('getAll', 'Ferias')         || []; },
+                'Frequencia':     async () => { RHModule.state.cache.frequencia     = await Utils.api('getAll', 'Frequencia')     || []; },
+                'Avaliacoes':     async () => { RHModule.state.cache.avaliacoes     = await Utils.api('getAll', 'Avaliacoes')     || []; },
+                'Treinamentos':   async () => { RHModule.state.cache.treinamentos   = await Utils.api('getAll', 'Treinamentos')   || []; },
+                'Folha':          async () => { RHModule.state.cache.folha          = await Utils.api('getAll', 'Folha')          || []; },
+                'Licencas':       async () => { RHModule.state.cache.licencas       = await Utils.api('getAll', 'Licencas')       || []; },
+                'ParametrosRH':   async () => { RHModule.state.cache.parametros     = await Utils.api('getAll', 'ParametrosRH')   || []; },
+                'Cargos':         async () => { RHModule.state.cache.cargos         = await Utils.api('getAll', 'Cargos')         || []; },
+                'Departamentos':  async () => { RHModule.state.cache.departamentos  = await Utils.api('getAll', 'Departamentos')  || []; },
+                'InstituicaoConfig': async () => { RHModule.state.cache.instituicao = await Utils.api('getAll', 'InstituicaoConfig') || []; },
+                'EscalaConfig':   async () => { await RHModule.escalaCarregarAssignments(); }, // ← sincroniza assignments
+            };
+
+            const refreshFn = cacheMap[table];
+            if (refreshFn) await refreshFn();
+
+            RHModule.renderCurrentTab(); // Fica na mesma aba
         } catch (err) {
             console.error("Erro ao salvar:", err);
             Utils.toast('❌ Erro ao salvar: ' + err.message);

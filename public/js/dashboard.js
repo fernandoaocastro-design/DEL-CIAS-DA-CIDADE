@@ -1,6 +1,6 @@
 const DashboardModule = {
     charts: {}, // Armazena instâncias
-    state: { filterDate: new Date().toISOString().slice(0, 7) }, // Padrão: Mês atual
+    state: { filterDate: new Date().toISOString().slice(0, 7), tasks: [] }, // Padrão: Mês atual
 
     init: () => {
         DashboardModule.renderLayout();
@@ -89,6 +89,7 @@ const DashboardModule = {
             const data = await Utils.api('getDashboardStats', null, { filterDate: DashboardModule.state.filterDate });
             
             if (data.monitoramento) DashboardModule.renderDailySummary(data.monitoramento);
+            if (data.monitoramento) DashboardModule.renderBirthdayBoard(data.monitoramento);
             if (data.monitoramento) DashboardModule.renderProductionList(data.monitoramento);
             if (data.monitoramento) DashboardModule.renderStockQuick(data.monitoramento);
             if (data.monitoramento) DashboardModule.renderReceiving(data.monitoramento);
@@ -101,12 +102,19 @@ const DashboardModule = {
             if (data.monitoramento) DashboardModule.renderQuadroAvisos(data.monitoramento.avisos);
             DashboardModule.loadTarefas(); // Carrega tarefas separadamente
             DashboardModule.renderCharts(data.charts);
-            
-            // Verifica aniversariantes e envia e-mail (Silenciosamente)
-            Utils.api('checkBirthdayEmails').then(res => { if(res.sent > 0) console.log(`${res.sent} e-mails de aniversário enviados.`); });
-            
-            // Verifica contas a pagar vencendo hoje e gera notificações
-            Utils.api('checkFinancialAlerts').then(res => { if(res.alertsGenerated > 0) console.log(`${res.alertsGenerated} alertas financeiros gerados.`); });
+            // Roda automacoes somente para administrador e com throttle.
+            const user = Utils.getUser();
+            if (user.Cargo === 'Administrador') {
+                const throttleMs = 30 * 60 * 1000;
+                const now = Date.now();
+                const lastRun = Number(localStorage.getItem('dashboard_automation_last_run') || 0);
+
+                if (!lastRun || (now - lastRun) > throttleMs) {
+                    localStorage.setItem('dashboard_automation_last_run', String(now));
+                    Utils.api('checkBirthdayEmails').then(res => { if(res.sent > 0) console.log(`${res.sent} e-mails de aniversario enviados.`); });
+                    Utils.api('checkFinancialAlerts').then(res => { if(res.alertsGenerated > 0) console.log(`${res.alertsGenerated} alertas financeiros gerados.`); });
+                }
+            }
         } catch (e) {
             console.error(e);
             Utils.toast("Erro ao carregar dashboard.");
@@ -217,9 +225,11 @@ const DashboardModule = {
         const dia = mon.aniversariantes || [];
         const mes = mon.aniversariantesMes || [];
         const proximos = mon.aniversariantesProximos || [];
+        const feriasMes = mon.feriasMes || [];
+        const monthLabel = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
         // Se não houver nada relevante, esconde a seção para não poluir
-        if (dia.length === 0 && mes.length === 0 && proximos.length === 0) {
+        if (dia.length === 0 && mes.length === 0 && proximos.length === 0 && feriasMes.length === 0) {
             container.innerHTML = '';
             return;
         }
@@ -227,9 +237,10 @@ const DashboardModule = {
         container.innerHTML = `
             <div class="bg-white rounded-lg shadow-sm border border-pink-200 overflow-hidden">
                 <div class="bg-pink-50 px-6 py-3 border-b border-pink-100 flex justify-between items-center">
-                    <h3 class="font-bold text-lg text-pink-700 flex items-center gap-2"><i class="fas fa-birthday-cake"></i> Aniversariantes</h3>
+                    <h3 class="font-bold text-lg text-pink-700 flex items-center gap-2"><i class="fas fa-birthday-cake"></i> Alertas de Pessoas</h3>
+                    <span class="text-xs font-bold text-pink-700 bg-white px-2 py-1 rounded border border-pink-200">${monthLabel}</span>
                 </div>
-                <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                     <!-- Do Dia -->
                     <div class="bg-pink-100 rounded-lg p-4 border border-pink-200 text-center flex flex-col justify-center">
                         <h4 class="font-bold text-pink-800 mb-2 uppercase text-xs">🎉 Hoje!</h4>
@@ -259,6 +270,19 @@ const DashboardModule = {
                                     <span class="text-xs text-gray-400">${new Date(f.Nascimento).getDate()}/${new Date(f.Nascimento).getMonth()+1}</span>
                                 </div>
                             `).join('') : '<div class="text-xs text-gray-400 italic">Nenhum neste mês.</div>'}
+                        </div>
+                    </div>
+
+                    <!-- Férias do Mês -->
+                    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <h4 class="font-bold text-blue-800 mb-3 uppercase text-xs border-b border-blue-200 pb-1">🏖️ Entrarão de Férias</h4>
+                        <div class="max-h-32 overflow-y-auto custom-scrollbar space-y-2">
+                            ${feriasMes.length > 0 ? feriasMes.map(f => `
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="text-blue-900">${f.FuncionarioNome || f.Nome || 'Funcionário'}</span>
+                                    <span class="text-xs text-blue-600 font-bold">${Utils.formatDate(f.DataInicio)}</span>
+                                </div>
+                            `).join('') : '<div class="text-xs text-blue-500 italic">Nenhuma entrada em férias neste mês.</div>'}
                         </div>
                     </div>
                 </div>
@@ -551,6 +575,32 @@ const DashboardModule = {
         if (mon.estoqueBaixo.length > 0) alerts.push({ icon: 'fa-box', text: `${mon.estoqueBaixo.length} produtos com estoque crítico`, color: 'red' });
         if (mon.estoqueVencendo && mon.estoqueVencendo.length > 0) alerts.push({ icon: 'fa-hourglass-end', text: `${mon.estoqueVencendo.length} produtos vencendo`, color: 'yellow' });
         if (mon.pedidosCompra.length > 0) alerts.push({ icon: 'fa-shopping-cart', text: `${mon.pedidosCompra.length} pedidos de compra pendentes`, color: 'yellow' });
+
+        const aniversariantesMes = mon.aniversariantesMes || [];
+        const aniversariantesProximos = mon.aniversariantesProximos || [];
+        if (aniversariantesMes.length > 0) {
+            const proximoNiver = aniversariantesProximos[0];
+            const detalheProximo = proximoNiver ? ` • Próximo: ${proximoNiver.Nome} em ${proximoNiver.diasFaltam} dia(s)` : '';
+            alerts.push({
+                icon: 'fa-birthday-cake',
+                text: `${aniversariantesMes.length} aniversariantes neste mês${detalheProximo}`,
+                color: 'pink',
+                ctaRhRelatorios: true
+            });
+        }
+
+        const feriasMes = (mon.feriasMes || []).slice().sort((a, b) => new Date(a.DataInicio) - new Date(b.DataInicio));
+        if (feriasMes.length > 0) {
+            const proximaFerias = feriasMes[0];
+            const nome = proximaFerias.FuncionarioNome || proximaFerias.Nome || 'Funcionário';
+            const detalheProximo = proximaFerias.DataInicio ? ` • Próxima: ${nome} (${Utils.formatDate(proximaFerias.DataInicio)})` : '';
+            alerts.push({
+                icon: 'fa-umbrella-beach',
+                text: `${feriasMes.length} colaboradores entrarão de férias neste mês${detalheProximo}`,
+                color: 'blue',
+                ctaRhRelatorios: true
+            });
+        }
         
         // Check for absent employees
         const faltas = mon.frequencia.filter(f => f.Status === 'Falta').length;
@@ -563,15 +613,22 @@ const DashboardModule = {
                 </div>
                 <div class="p-4 space-y-3">
                     ${alerts.map(a => `
-                        <div class="flex items-center gap-3 text-sm text-gray-700">
+                        <div class="flex items-start gap-3 text-sm text-gray-700">
                             <div class="w-8 h-8 rounded-full bg-${a.color}-100 flex items-center justify-center text-${a.color}-600"><i class="fas ${a.icon}"></i></div>
-                            <span>${a.text}</span>
+                            <div class="flex-1">
+                                <div>${a.text}</div>
+                                ${a.ctaRhRelatorios ? `<button onclick="DashboardModule.goToRHReports()" class="mt-1 text-xs font-bold text-blue-600 hover:text-blue-800">Abrir RH Relatórios</button>` : ''}
+                            </div>
                         </div>
                     `).join('')}
                     ${alerts.length === 0 ? '<div class="text-center text-gray-400 text-sm">Nenhum alerta crítico.</div>' : ''}
                 </div>
             </div>
         `;
+    },
+
+    goToRHReports: () => {
+        window.location.href = 'rh.html?tab=relatorios';
     },
 
     renderQuadroAvisos: (avisos) => {
@@ -630,7 +687,8 @@ const DashboardModule = {
     loadTarefas: async () => {
         try {
             const tarefas = await Utils.api('getTasks');
-            DashboardModule.renderTarefas(tarefas || []);
+            DashboardModule.state.tasks = tarefas || [];
+            DashboardModule.renderTarefas(DashboardModule.state.tasks);
         } catch (e) { console.error('Erro ao carregar tarefas', e); }
     },
 
@@ -686,8 +744,10 @@ const DashboardModule = {
     modalTarefa: async (id = null) => {
         let tarefa = {};
         if (id) {
-            const tarefas = await Utils.api('getTasks'); // Idealmente buscaria só uma, mas cache local seria melhor
-            tarefa = tarefas.find(t => t.ID === id) || {};
+            if (!DashboardModule.state.tasks || DashboardModule.state.tasks.length === 0) {
+                DashboardModule.state.tasks = await Utils.api('getTasks') || [];
+            }
+            tarefa = (DashboardModule.state.tasks || []).find(t => t.ID === id) || {};
         }
         const user = Utils.getUser();
 
@@ -893,3 +953,4 @@ const DashboardModule = {
 };
 
 document.addEventListener('DOMContentLoaded', DashboardModule.init);
+

@@ -16,6 +16,7 @@ CREATE TABLE "Usuarios" (
 -- 3. TABELAS DE RH (Estrutura alinhada com rh.js)
 CREATE TABLE "Funcionarios" (
     "ID" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    "Codigo" VARCHAR(50),
     "Nome" VARCHAR(255) NOT NULL,
     "Nascimento" DATE,
     "BI" VARCHAR(50),
