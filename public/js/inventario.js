@@ -977,19 +977,59 @@ const InventarioModule = {
         }
     },
 
-    _printFicha: (id) => {
+    // Converte URL de imagem para base64 (garante que aparece no PDF mesmo sem rede)
+    _urlParaBase64: (url) => {
+        if (!url) return Promise.resolve(null);
+        if (url.startsWith('data:')) return Promise.resolve(url);
+
+        // 1ª tentativa: reutilizar imagem já carregada no DOM (evita CORS)
+        const imgNoDOM = Array.from(document.images).find(i => i.src === url || i.src.split('?')[0] === url.split('?')[0]);
+        if (imgNoDOM && imgNoDOM.complete && imgNoDOM.naturalWidth > 0) {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = imgNoDOM.naturalWidth;
+                canvas.height = imgNoDOM.naturalHeight;
+                canvas.getContext('2d').drawImage(imgNoDOM, 0, 0);
+                return Promise.resolve(canvas.toDataURL('image/jpeg', 0.92));
+            } catch(e) { /* canvas bloqueado, tenta fetch */ }
+        }
+
+        // 2ª tentativa: fetch com credenciais omitidas
+        return fetch(url, { mode: 'cors', credentials: 'omit' })
+            .then(r => r.blob())
+            .then(blob => new Promise((res, rej) => {
+                const reader = new FileReader();
+                reader.onloadend = () => res(reader.result);
+                reader.onerror = rej;
+                reader.readAsDataURL(blob);
+            }))
+            .catch(() => {
+                // Último recurso: devolver a URL original (pode não aparecer no PDF mas não bloqueia)
+                console.warn('Imagem não convertida para base64:', url);
+                return url;
+            });
+    },
+
+    _printFicha: async (id) => {
         const bem = InventarioModule._findBem(id);
         if (!bem) return;
         const inst = InventarioModule.state.instituicao[0] || {};
         const deprec = InventarioModule._calcDepreciacao(bem);
         const valorActual = Math.max(0, Number(bem.ValorAquisicao || 0) - deprec);
         const manut = (InventarioModule.state.manutencoes || []).filter(m => m.BemID === id);
+
+        // Converte ambas as imagens para base64 em paralelo
+        const [fotoBase64, logoBase64] = await Promise.all([
+            InventarioModule._urlParaBase64(bem.FotoURL),
+            InventarioModule._urlParaBase64(inst.LogotipoURL)
+        ]);
+
         const html = `
             <div class="p-8 font-sans text-gray-900 bg-white max-w-3xl mx-auto border">
                 <!-- CABEÇALHO COM LOGO -->
                 <div class="flex justify-between items-center border-b-2 pb-4 mb-6">
                     <div class="flex items-center gap-3">
-                        ${inst.LogotipoURL ? `<img src="${inst.LogotipoURL}" style="height:56px;width:auto;object-fit:contain;" crossorigin="anonymous">` : ''}
+                        ${logoBase64 ? `<img src="${logoBase64}" style="height:56px;width:auto;object-fit:contain;">` : ''}
                         <div>
                             <h1 class="text-xl font-bold uppercase">${inst.NomeFantasia || 'Delícias da Cidade'}</h1>
                             <p class="text-sm text-gray-500">Ficha de Bem Patrimonial</p>
@@ -1001,7 +1041,7 @@ const InventarioModule = {
                     </div>
                 </div>
                 <div class="flex gap-6 mb-6">
-                    ${bem.FotoURL ? `<img src="${bem.FotoURL}" class="w-28 h-28 object-cover rounded border">` : ''}
+                    ${fotoBase64 ? `<img src="${fotoBase64}" style="width:112px;height:112px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;flex-shrink:0;">` : ''}
                     <div class="flex-1 grid grid-cols-2 gap-3 text-sm">
                         <div><b>Nome:</b> ${bem.Nome}</div>
                         <div><b>Categoria:</b> ${bem.Categoria}</div>
@@ -1111,8 +1151,9 @@ const InventarioModule = {
             </div>
 
             <!-- KPIs -->
-            <div class="grid grid-cols-3 gap-4 mb-6">
-                <div class="bg-gray-50 p-3 rounded border text-center"><div class="text-xs text-gray-500">Total de Bens</div><div class="text-xl font-bold">${data.length}</div></div>
+            <div class="grid grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-50 p-3 rounded border text-center"><div class="text-xs text-gray-500">Registos</div><div class="text-xl font-bold">${data.length}</div></div>
+                <div class="bg-gray-50 p-3 rounded border text-center"><div class="text-xs text-gray-500">Total de Unidades</div><div class="text-xl font-bold">${data.reduce((acc, b) => acc + Number(b.Quantidade || 1), 0)}</div></div>
                 <div class="bg-gray-50 p-3 rounded border text-center"><div class="text-xs text-gray-500">Valor de Aquisição</div><div class="text-xl font-bold">${Utils.formatCurrency(totalValor)}</div></div>
                 <div class="bg-gray-50 p-3 rounded border text-center"><div class="text-xs text-green-600">Valor Actual Estimado</div><div class="text-xl font-bold text-green-700">${Utils.formatCurrency(totalValor - totalDeprec)}</div></div>
             </div>
@@ -1122,6 +1163,7 @@ const InventarioModule = {
                     <tr>
                         <th class="border p-2 text-left">Código</th>
                         <th class="border p-2 text-left">Bem</th>
+                        <th class="border p-2 text-center">Qtd</th>
                         <th class="border p-2 text-left">Categoria</th>
                         <th class="border p-2 text-left">Departamento</th>
                         <th class="border p-2 text-left">Responsável</th>
@@ -1134,9 +1176,11 @@ const InventarioModule = {
                     ${data.map(b => {
                         const deprec = InventarioModule._calcDepreciacao(b);
                         const valorActual = Math.max(0, Number(b.ValorAquisicao || 0) - deprec);
+                        const qtd = Number(b.Quantidade || 1);
                         return `<tr>
                             <td class="border p-1 font-mono">${b.Codigo || '-'}</td>
                             <td class="border p-1 font-semibold">${b.Nome}</td>
+                            <td class="border p-1 text-center font-bold ${qtd > 1 ? 'text-blue-700' : ''}">${qtd}</td>
                             <td class="border p-1">${b.Categoria || '-'}</td>
                             <td class="border p-1">${b.Departamento || '-'}</td>
                             <td class="border p-1">${b.Responsavel || '-'}</td>
@@ -1146,7 +1190,9 @@ const InventarioModule = {
                         </tr>`;
                     }).join('')}
                     <tr class="bg-gray-50 font-bold">
-                        <td class="border p-2" colspan="6">TOTAIS</td>
+                        <td class="border p-2" colspan="2">TOTAIS</td>
+                        <td class="border p-2 text-center">${data.reduce((acc, b) => acc + Number(b.Quantidade || 1), 0)}</td>
+                        <td class="border p-2" colspan="4"></td>
                         <td class="border p-2 text-right">${Utils.formatCurrency(totalValor)}</td>
                         <td class="border p-2 text-right text-green-700">${Utils.formatCurrency(totalValor - totalDeprec)}</td>
                     </tr>
